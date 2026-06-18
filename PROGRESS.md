@@ -32,6 +32,9 @@ Outillage qualité en place ; **portage pas encore commencé**.
   (le hook git passe par `mise run lint:staged`).
 - Revue IA pre-commit (style-guide) : `.claude/hooks/commit-style-review.sh`
 - Gate `/simplify` pre-commit (bloquant) : `.claude/hooks/pre-commit-simplify.sh`
+- **Anti-fuite de secrets** : gate déterministe `gitleaks --staged` (hook git, en 1er)
+  + skill `secret-guard` IA (`.claude/hooks/commit-secret-review.sh`) + scan historique
+  complet en CI (`mise run scan:secrets`). Tasks : `mise run scan:secrets[:staged]`.
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
 ## ✅ Reste à faire
@@ -59,3 +62,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `1236a6d` 2026-06-18 — build: route mise tasks through rtk for token-optimized output _(3 fichiers)_
 - `0071b1c` 2026-06-18 — build: install rtk from GitHub releases via mise (no compilation) _(2 fichiers)_
 - `a4c002f` 2026-06-18 — build: manage GitHub CLI with mise + project-wide ghx wrapper _(3 fichiers)_
+- `e0ced80` 2026-06-18 — feat: add gitleaks secret-scan gate + secret-guard skill/hook _(7 fichiers)_
