@@ -210,9 +210,6 @@ type Eval struct {
 	// Score is the marginal region diff score for the most recently added
 	// character (lower is better; compared against the threshold).
 	Score float64
-	// TotalScore is the whole-image diff score accumulated so far (used for
-	// display and ranking, not for pruning).
-	TotalScore float64
 	// TooBig is true when the rendered candidate is wider than the redacted
 	// image; such candidates are pruned regardless of score.
 	TooBig bool

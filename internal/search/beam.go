@@ -66,10 +66,9 @@ func BeamDFS(
 func emitNodes(nodes []node, emit func(unpixel.Eval)) {
 	for _, n := range nodes {
 		emit(unpixel.Eval{
-			Guess:      n.guess,
-			Score:      n.result.Score,
-			TotalScore: n.result.TotalScore,
-			TooBig:     n.result.TooBig,
+			Guess:  n.guess,
+			Score:  n.result.Score,
+			TooBig: n.result.TooBig,
 		})
 	}
 }

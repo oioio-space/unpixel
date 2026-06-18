@@ -58,8 +58,6 @@ func forEachIndex(ctx context.Context, n, workers int, fn func(i int)) {
 type EvalResult struct {
 	// Score is the marginal-region diff score in [0, 1]. Lower is better.
 	Score float64
-	// TotalScore is the whole-image diff score (used for display only).
-	TotalScore float64
 	// TooBig indicates the rendered candidate is wider than the redacted image.
 	TooBig bool
 }
@@ -110,10 +108,9 @@ func GuidedDFS(
 	seeds := evalChildren(ctx, scorer, cfg, offset, "")
 	for _, s := range seeds {
 		emit(unpixel.Eval{
-			Guess:      s.guess,
-			Score:      s.result.Score,
-			TotalScore: s.result.TotalScore,
-			TooBig:     s.result.TooBig,
+			Guess:  s.guess,
+			Score:  s.result.Score,
+			TooBig: s.result.TooBig,
 		})
 	}
 	for _, s := range seeds {
@@ -148,10 +145,9 @@ func guessRecursive(
 	children := evalChildren(ctx, scorer, cfg, offset, parent.guess)
 	for _, child := range children {
 		emit(unpixel.Eval{
-			Guess:      child.guess,
-			Score:      child.result.Score,
-			TotalScore: child.result.TotalScore,
-			TooBig:     child.result.TooBig,
+			Guess:  child.guess,
+			Score:  child.result.Score,
+			TooBig: child.result.TooBig,
 		})
 	}
 	for _, child := range children {

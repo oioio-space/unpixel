@@ -201,14 +201,9 @@ func (s *PipelineScorer) evalFromStage(
 	// TooBig: redacted width < scaled guess width.
 	tooBig := s.redacted.Bounds().Dx() < guessImg.Bounds().Dx()
 
-	// TotalScore: diff whole guess vs whole redacted (display only).
-	paddedGuess, paddedRedacted := equalise(guessImg, s.redacted)
-	totalScore := s.cfg.Metric.Compare(paddedGuess, paddedRedacted)
-
 	return EvalResult{
-		Score:      score,
-		TotalScore: totalScore,
-		TooBig:     tooBig,
+		Score:  score,
+		TooBig: tooBig,
 	}
 }
 
