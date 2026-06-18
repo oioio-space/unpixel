@@ -13,12 +13,15 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 
 ## 📍 État actuel
 
-Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié** sur pkg.go.dev.
+Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
+**v0.2.0 publiée** sur pkg.go.dev.
 
 - **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
   Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
-- **Release v0.1.0** : module publié et consommable via `go get github.com/oioio-space/unpixel@latest`
-  (vérifié proxy Go, indexé sur pkg.go.dev). API stable pré-1.0 annoncée ; CLI phase suivante.
+- **Release v0.2.0** : Phase 2 (beam+cache, SSIM, inférence block-size, fan-out goroutines) +
+  CLI ergonomique. Consommable via `go get github.com/oioio-space/unpixel@v0.2.0` et
+  `go install …/cmd/unpixel@v0.2.0`. API pré-1.0, rétro-compatible v0.1.0 (ajouts seulement).
+  v0.1.0 : premier module public indexé sur pkg.go.dev.
 - **Package core** : port Go fidèle de l'algorithme unredacter implémenté et testé. Le package
   racine (`unpixel`) expose `Engine`, `Config`, `Result`, `Eval`, `Offset`, les interfaces
   pluggables `Renderer`/`Pixelator`/`Metric`/`Strategy`, et une **API de progression library-agnostique**
@@ -131,8 +134,8 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 
 ## 🧭 Décisions clés
 
-- **Repo public** et **v0.1.0 publié** : module consommable sur pkg.go.dev. API stable
-  pré-1.0 (peut évoluer avant 1.0.0) ; CLI phase 2.
+- **Repo public** ; **v0.1.0** (premier module public) puis **v0.2.0** (Phase 2 + CLI) publiées
+  sur pkg.go.dev. API stable pré-1.0 (peut évoluer avant 1.0.0).
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
@@ -188,3 +191,4 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - `45772ef` 2026-06-18 — docs(claude): add Commands and Architecture sections to CLAUDE.md _(2 fichiers)_
 - `37d1be1` 2026-06-18 — feat: Phase-2 — SSIM metric, block-size inference, offset fan-out _(12 fichiers)_
 - `0191899` 2026-06-18 — feat(cli): expose strategy, metric, workers, and auto block-size _(2 fichiers)_
+- `e05fceb` 2026-06-18 — docs: document the CLI and Phase-2 features in README/PROGRESS _(2 fichiers)_
