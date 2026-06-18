@@ -28,6 +28,8 @@ Outillage qualité en place ; **portage pas encore commencé**.
   (= gh version mise + sortie token-optimisée `rtk gh`) ou `mise run gh -- <args>`.
   gh authentifié (compte `oioio-space`).
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
+- Skill `use-modern-go` (JetBrains) — idiomes Go modernes selon la version détectée
+  (1.26.4). Déclencheur élargi : à l'écriture/édition/revue de Go. Détection via `!`cmd``.
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
   (le hook git passe par `mise run lint:staged`).
 - Revue IA pre-commit (style-guide) : `.claude/hooks/commit-style-review.sh`
@@ -70,3 +72,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `a4c002f` 2026-06-18 — build: manage GitHub CLI with mise + project-wide ghx wrapper _(3 fichiers)_
 - `e0ced80` 2026-06-18 — feat: add gitleaks secret-scan gate + secret-guard skill/hook _(7 fichiers)_
 - `5aec48e` 2026-06-18 — docs: record secret-scanning layers in PROGRESS _(1 fichiers)_
+- `3ad67bf` 2026-06-18 — feat: add gosec+govulncheck vuln gates, SBOM/grype CI scan, vuln-guard skill _(8 fichiers)_
