@@ -2,53 +2,49 @@
 # Each linter/formatter is mapped to the Google Go Style Guide item it enforces.
 # Docs: https://golangci-lint.run/docs/configuration/file/
 version: "2"
-
 run:
   # Lint test files too — the style guides have a whole "Useful Test Failures" /
   # "Tests" section.
   tests: true
-
 # Formatters run gofmt-family tools. (v2 separates these from linters.)
 formatters:
   enable:
-    - gofumpt    # guide: Formatting (stricter superset of gofmt)
-    - goimports  # decisions: Imports — grouping & ordering
+    - gofumpt # guide: Formatting (stricter superset of gofmt)
+    - goimports # decisions: Imports — grouping & ordering
   settings:
     goimports:
       local-prefixes:
-        - github.com/mathieu/unpixel  # decisions: Import grouping (own package last group)
-
+        - github.com/mathieu/unpixel # decisions: Import grouping (own package last group)
 linters:
   # Start from nothing and opt in, so every enabled linter is a deliberate,
   # style-guide-mapped choice.
   default: none
   enable:
-    - staticcheck   # decisions: naming, error strings, receiver names + correctness (incl. ST/S checks in v2)
-    - revive        # decisions: exported doc comments, package/var naming, getters, MixedCaps
-    - govet         # best-practices: correctness (shadowing, printf, etc.)
-    - errcheck      # decisions: Handle errors — unchecked errors
-    - errorlint     # best-practices: %w vs %v, errors.Is/As instead of ==
-    - godot         # decisions: Comment sentences end with a period
-    - predeclared   # best-practices: Shadowing — don't shadow predeclared identifiers
-    - nakedret      # decisions: Named result parameters / naked returns
-    - unparam       # concision: unused function parameters
-    - ineffassign   # concision: ineffectual assignments
-    - unconvert     # concision: redundant type conversions
-    - misspell      # clarity: misspellings in comments/strings
-    - gocritic      # decisions/best-practices: many opinionated style checks
+    - staticcheck # decisions: naming, error strings, receiver names + correctness (incl. ST/S checks in v2)
+    - revive # decisions: exported doc comments, package/var naming, getters, MixedCaps
+    - govet # best-practices: correctness (shadowing, printf, etc.)
+    - errcheck # decisions: Handle errors — unchecked errors
+    - errorlint # best-practices: %w vs %v, errors.Is/As instead of ==
+    - godot # decisions: Comment sentences end with a period
+    - predeclared # best-practices: Shadowing — don't shadow predeclared identifiers
+    - nakedret # decisions: Named result parameters / naked returns
+    - unparam # concision: unused function parameters
+    - ineffassign # concision: ineffectual assignments
+    - unconvert # concision: redundant type conversions
+    - misspell # clarity: misspellings in comments/strings
+    - gocritic # decisions/best-practices: many opinionated style checks
     - usestdlibvars # decisions: use stdlib constants instead of magic strings
-
   settings:
     revive:
       rules:
-        - name: exported            # decisions: Doc comments on exported symbols
-        - name: error-strings       # decisions: Error strings lowercase, unpunctuated
-        - name: error-return        # decisions: error is the last return value
-        - name: receiver-naming     # decisions: short, consistent receiver names
-        - name: package-comments    # decisions: Package comments
-        - name: var-naming          # decisions: MixedCaps, initialisms (URL/ID), no underscores
+        - name: exported # decisions: Doc comments on exported symbols
+        - name: error-strings # decisions: Error strings lowercase, unpunctuated
+        - name: error-return # decisions: error is the last return value
+        - name: receiver-naming # decisions: short, consistent receiver names
+        - name: package-comments # decisions: Package comments
+        - name: var-naming # decisions: MixedCaps, initialisms (URL/ID), no underscores
         - name: increment-decrement
-        - name: indent-error-flow   # decisions: Indent error flow, no else after return
+        - name: indent-error-flow # decisions: Indent error flow, no else after return
         - name: context-as-argument # decisions: context.Context is the first parameter
         - name: unexported-return
         - name: time-naming
@@ -56,8 +52,7 @@ linters:
       scope: declarations
       capital: false
     nakedret:
-      max-func-lines: 0  # decisions: avoid naked returns entirely
-
+      max-func-lines: 0 # decisions: avoid naked returns entirely
   exclusions:
     # Keep generated files out of style enforcement (guide: generated code exception).
     generated: lax

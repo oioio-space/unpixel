@@ -16,7 +16,11 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 Outillage qualité en place ; **portage pas encore commencé**.
 
 - Toolchain reproductible via **mise** (`mise.toml`) : go 1.26.4, golangci-lint 2.12.2,
-  gofumpt, shellcheck. Bootstrap : `mise run setup`. Commandes : `mise run lint|test|ci|fmt`.
+  gofumpt, shellcheck, gotestsum, goreleaser, actionlint, yamlfmt, watchexec.
+  Bootstrap : `mise run setup` (ou auto via le hook mise `enter`). Commandes :
+  `mise run lint|test|ci|fmt`, `mise run test:watch` (TDD), `mise run release:snapshot`.
+- CI = local : `.github/workflows/ci.yml` (généré) lance `mise run ci` avec les mêmes
+  versions d'outils. Release multi-plateforme via `.goreleaser.yaml`.
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
   (le hook git passe par `mise run lint:staged`).
@@ -44,3 +48,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 
 - `705a884` 2026-06-18 — chore: bootstrap Go style-guide skill + pre-commit hooks
 - `a593117` 2026-06-18 — feat: add /simplify pre-commit gate and post-commit progress tracking _(4 fichiers)_
+- `b91a5b3` 2026-06-18 — build: manage toolchain, env and tasks with mise _(8 fichiers)_

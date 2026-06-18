@@ -4,8 +4,12 @@
 *.test
 *.out
 
-# Coverage
+# Coverage / test reports
 coverage.*
+junit.xml
+
+# goreleaser output
+/dist/
 
 # mise local overrides (per-machine, not shared)
 mise.local.toml

@@ -1,22 +1,30 @@
 # mise — single source of truth for the toolchain, env, and project commands.
 # Docs: https://mise.jdx.dev
 #
-#   mise install        # install every pinned tool below (reproducible toolchain)
-#   mise run            # list available tasks
 #   mise run setup      # install tools + wire git hooks (one-shot bootstrap)
+#   mise run            # list available tasks
 #   mise run lint       # full Go style-guide gate
-#   mise run ci         # what CI runs (lint + tests)
+#   mise run ci         # everything CI runs (lint + meta-lint + tests)
+#   mise run release:snapshot   # build the CLI locally with goreleaser (no publish)
 
 min_version = "2024.1.0"
 
+# Required for the [hooks] enter/leave feature below.
+[settings]
+experimental = true
+
 # ── Tools ─────────────────────────────────────────────────────────────────────
-# Pinned versions → everyone (and CI) gets the exact same binaries. Replaces the
-# manual `go install …@latest` steps.
+# Pinned versions → everyone (and CI) gets the exact same binaries.
 [tools]
 go            = "1.26.4"
 golangci-lint = "2.12.2"   # aqua:golangci/golangci-lint
-gofumpt       = "latest"   # aqua:mvdan/gofumpt — stricter gofmt (guide: Formatting)
-shellcheck    = "latest"   # lints our bash hook scripts (.githooks/*, .claude/hooks/*)
+gofumpt       = "latest"   # stricter gofmt (guide: Formatting)
+shellcheck    = "latest"   # lints our bash hook scripts
+gotestsum     = "latest"   # nicer test output + JUnit for CI
+goreleaser    = "latest"   # cross-platform release builds of the CLI
+actionlint    = "latest"   # lints GitHub Actions workflows
+yamlfmt       = "latest"   # lints/formats YAML config (Go binary, no python dep)
+watchexec     = "latest"   # backs `mise watch` (TDD loop)
 
 # ── Environment ───────────────────────────────────────────────────────────────
 # Auto-loaded when you cd into the project (with mise shell activation).
@@ -25,6 +33,11 @@ shellcheck    = "latest"   # lints our bash hook scripts (.githooks/*, .claude/h
 GOFLAGS = "-mod=readonly"
 # Put `go install`ed helpers on PATH for tools not (yet) managed by mise.
 _.path = ["{{ env.HOME }}/go/bin"]
+
+# ── Hooks ─────────────────────────────────────────────────────────────────────
+# Auto-wire the git hooks whenever you enter the project (idempotent, silent).
+[hooks]
+enter = "git config core.hooksPath .githooks >/dev/null 2>&1 || true"
 
 # ── Tasks (the commands to run) ───────────────────────────────────────────────
 [tasks.fmt]
@@ -40,8 +53,16 @@ description = "Build all packages"
 run = "go build ./..."
 
 [tasks.test]
-description = "Run tests"
-run = "go test ./..."
+description = "Run tests (gotestsum, readable output)"
+run = "gotestsum --format pkgname -- ./..."
+
+[tasks."test:ci"]
+description = "Run tests with a JUnit report for CI"
+run = "gotestsum --junitfile junit.xml --format pkgname -- ./..."
+
+[tasks."test:watch"]
+description = "Re-run tests on every file change (TDD loop)"
+run = "mise watch -t test"
 
 [tasks.lint]
 description = "Full Google Go style-guide gate (gofmt + vet + golangci-lint + build + test)"
@@ -55,9 +76,25 @@ run = "./scripts/lint.sh --staged"
 description = "Lint the bash hook scripts with shellcheck"
 run = "shellcheck .githooks/* .claude/hooks/*.sh scripts/*.sh"
 
+[tasks."lint:yaml"]
+description = "Lint YAML config formatting with yamlfmt"
+run = "yamlfmt -lint .golangci.yml .github/workflows"
+
+[tasks."lint:actions"]
+description = "Lint GitHub Actions workflows with actionlint"
+run = "actionlint"
+
 [tasks.ci]
 description = "Everything CI must pass"
-depends = ["lint"]
+depends = ["lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
+
+[tasks.release]
+description = "Cross-platform release build + publish (goreleaser)"
+run = "goreleaser release --clean"
+
+[tasks."release:snapshot"]
+description = "Local cross-platform build, no publish (goreleaser)"
+run = "goreleaser release --snapshot --clean"
 
 [tasks."hooks:install"]
 description = "Point git at .githooks (pre-commit + post-commit)"
