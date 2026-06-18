@@ -21,6 +21,7 @@ experimental = true
 # Pinned versions → everyone (and CI) gets the exact same binaries.
 [tools]
 go            = "1.26.4"
+gh            = "latest"   # GitHub CLI (aqua:cli/cli) — used project-wide via scripts/ghx.sh
 golangci-lint = "2.12.2"   # aqua:golangci/golangci-lint
 gofumpt       = "latest"   # stricter gofmt (guide: Formatting)
 shellcheck    = "latest"   # lints our bash hook scripts
@@ -116,6 +117,10 @@ mise use -g "github:rtk-ai/rtk@latest" >/dev/null 2>&1 \
   || echo "⚠ rtk not installed — tasks still run, just without token optimization."
 exit 0
 '''
+
+[tasks.gh]
+description = "GitHub CLI via mise + rtk (use: mise run gh -- pr list)"
+run = "./scripts/ghx.sh"
 
 [tasks."hooks:install"]
 description = "Point git at .githooks (pre-commit + post-commit)"

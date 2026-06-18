@@ -24,6 +24,9 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - Optimisation tokens : les tasks build/test/lint passent par `scripts/rtkx.sh`
   (`rtk err` si rtk présent, sinon brut — non bloquant ; exit code préservé, détails
   d'échec conservés). Install optionnelle : `mise run tools:rtk`.
+- **GitHub CLI** géré par mise (`gh`). À utiliser partout via `scripts/ghx.sh`
+  (= gh version mise + sortie token-optimisée `rtk gh`) ou `mise run gh -- <args>`.
+  gh authentifié (compte `oioio-space`).
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
   (le hook git passe par `mise run lint:staged`).
@@ -54,3 +57,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `b91a5b3` 2026-06-18 — build: manage toolchain, env and tasks with mise _(8 fichiers)_
 - `30b6835` 2026-06-18 — build: add CI, gotestsum, goreleaser, TDD watch + enter-hook auto-wiring _(6 fichiers)_
 - `1236a6d` 2026-06-18 — build: route mise tasks through rtk for token-optimized output _(3 fichiers)_
+- `0071b1c` 2026-06-18 — build: install rtk from GitHub releases via mise (no compilation) _(2 fichiers)_
