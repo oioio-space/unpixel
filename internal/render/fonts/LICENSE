@@ -1,0 +1,42 @@
+Liberation(tm) Fonts — bundled with UnPixel as the default text renderer face.
+
+These fonts (LiberationSans-Regular.ttf, LiberationSans-Bold.ttf) are used because
+the Liberation Sans metrics are compatible with Arial, which the original
+bishopfox/unredacter renders with — making the port faithful.
+
+Copyright (c) 2012 Red Hat, Inc.
+Liberation is a trademark of Red Hat, Inc. registered in U.S. Patent and Trademark
+Office and certain other jurisdictions.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://openfontlicense.org
+The full text is also distributed with the upstream Liberation fonts package.
+
+The SIL OFL 1.1 is compatible with the GPL-3.0 license of this project; bundling
+the font does not affect UnPixel's own licensing. This NOTICE and the OFL terms must
+be preserved alongside the font files per the OFL's redistribution conditions.
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007 (summary of conditions; the
+full canonical text is available at https://openfontlicense.org):
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining a copy of the
+font software, to use, study, copy, merge, embed, modify, redistribute, and sell
+modified and unmodified copies, subject to:
+
+1) Neither the Font Software nor any of its components may be sold by itself.
+2) Original or Modified versions may be bundled, redistributed and/or sold with any
+   software, provided that each copy contains the above copyright notice and this
+   license. These can be included either as stand-alone text files, human-readable
+   headers or in the appropriate machine-readable metadata fields.
+3) No Modified Version may use the Reserved Font Name(s) unless explicit written
+   permission is granted by the Copyright Holder.
+4) The name of the Copyright Holder(s) or the Author(s) of the Font Software shall
+   not be used to promote, endorse or advertise any Modified Version, except to
+   acknowledge the contribution(s) of the Copyright Holder(s).
+5) The Font Software, modified or unmodified, in part or in whole, must be
+   distributed entirely under this license, and must not be distributed under any
+   other license.
+
+The Font Software is provided "AS IS", WITHOUT WARRANTY OF ANY KIND.

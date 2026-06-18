@@ -11,7 +11,7 @@ before:
 
 builds:
   - id: unpixel
-    main: .
+    main: ./cmd/unpixel
     binary: unpixel
     env:
       - CGO_ENABLED=0
