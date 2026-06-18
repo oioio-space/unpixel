@@ -5,11 +5,65 @@ import (
 	"testing"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/metric"
+	"github.com/oioio-space/unpixel/internal/pixelate"
+	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/search"
 )
 
 // sinkEvals defeats dead-code elimination for GuidedDFS benchmark results.
 var sinkEvals []unpixel.Eval
+
+// sinkOffsets defeats dead-code elimination for DiscoverOffsets benchmark results.
+var sinkOffsets []unpixel.Offset
+
+// BenchmarkDiscoverOffsets measures grid-origin discovery (64 origins × charset
+// renders) with a real rendering pipeline. The workers_1 sub-benchmark forces
+// sequential execution (the pre-fan-out baseline); workers_max uses GOMAXPROCS.
+// Comparing the two with benchstat proves the fan-out speedup with no change to
+// the sequential path.
+func BenchmarkDiscoverOffsets(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	pix := pixelate.NewBlockAverage(8)
+	style := unpixel.Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+	img, _, err := r.Render("secret", style)
+	if err != nil {
+		b.Fatalf("render: %v", err)
+	}
+	redacted := pix.Pixelate(img, 0, 0)
+
+	cfg := unpixel.Config{
+		Charset:        "abcdefgh", // bounded charset keeps the bench duration sane
+		BlockSize:      8,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          style,
+		Renderer:       r,
+		Pixelator:      pix,
+		Metric:         metric.NewPixelmatch(0.02),
+	}
+	scorer := search.NewPipelineScorer(redacted, cfg)
+
+	for _, w := range []struct {
+		name    string
+		workers int
+	}{
+		{"workers_1", 1},
+		{"workers_max", 0},
+	} {
+		b.Run(w.name, func(b *testing.B) {
+			c := cfg
+			c.Workers = w.workers
+			b.ReportAllocs()
+			for b.Loop() {
+				sinkOffsets = search.DiscoverOffsets(context.Background(), scorer, c, nil)
+			}
+		})
+	}
+}
 
 // scriptedScorer returns fixed scores for any single-character guess that
 // appears in its map; all others return 1.0 (pruned). Multi-character guesses

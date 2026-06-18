@@ -8,6 +8,7 @@ import (
 	"context"
 	"image"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/oioio-space/unpixel"
@@ -125,10 +126,23 @@ func (s BeamStrategy) Search(
 // reuse the offset-discovery / progress-emitting scaffolding for either search.
 type dfsFunc func(ctx context.Context, scorer Scorer, cfg unpixel.Config, offset unpixel.Offset, emit func(unpixel.Eval))
 
-// searchOffsets discovers grid offsets then runs dfs per surviving offset,
-// emitting Progress events and one Result per offset, and always emitting a
-// final EventDone event. GuidedStrategy keeps its own inlined copy of this loop
-// for benchmark stability; BeamStrategy uses this shared runner.
+// offsetOutcome holds the per-offset search result, produced concurrently and
+// merged deterministically after all offsets complete.
+type offsetOutcome struct {
+	candidates []unpixel.Eval
+	topN       []unpixel.Eval
+	confidence float64
+	ambiguity  float64
+	offset     unpixel.Offset
+	done       bool
+}
+
+// searchOffsets discovers grid offsets, runs dfs per surviving offset (fanned out
+// across cfg.Workers goroutines), and emits one Result per offset followed by a
+// terminal EventDone. Progress events stream live and may interleave, but the
+// Results and the final best are merged deterministically in offset order,
+// independent of goroutine scheduling. Both GuidedStrategy and BeamStrategy use
+// this runner; the only difference is the scorer and the dfs passed in.
 func searchOffsets(
 	ctx context.Context,
 	scorer Scorer,
@@ -154,30 +168,39 @@ func searchOffsets(
 		}
 	}
 
-	var (
-		bestGuess string
-		bestScore = 1.0
-		evaluated int
-	)
-
 	offsets := DiscoverOffsets(ctx, scorer, cfg, emit)
 	offsetsTotal := len(offsets)
 
 	if ctx.Err() != nil || offsetsTotal == 0 {
 		emit(unpixel.Progress{Kind: unpixel.EventDone, Done: true})
-		results <- unpixel.Result{BestGuess: bestGuess, BestScore: bestScore}
+		results <- unpixel.Result{BestScore: 1.0}
 		return
 	}
 
-	for offsetsDone, offset := range offsets {
-		if ctx.Err() != nil {
-			break
-		}
-		var candidates []unpixel.Eval
+	// The running best is shared only to populate advisory progress events; the
+	// authoritative best is recomputed deterministically after the fan-out.
+	var mu sync.Mutex
+	bestScore := 1.0
+	var bestGuess string
+	evaluated := 0
 
+	outcomes := make([]offsetOutcome, offsetsTotal)
+	forEachIndex(ctx, offsetsTotal, resolveWorkers(cfg), func(i int) {
+		offset := offsets[i]
+		var candidates []unpixel.Eval
 		dfs(ctx, scorer, cfg, offset, func(e unpixel.Eval) {
-			evaluated++
 			candidates = append(candidates, e)
+
+			mu.Lock()
+			evaluated++
+			ev := evaluated
+			improved := e.Score < bestScore
+			if improved {
+				bestScore = e.Score
+				bestGuess = e.Guess
+			}
+			bg, bs := bestGuess, bestScore
+			mu.Unlock()
 
 			emit(unpixel.Progress{
 				Kind:         unpixel.EventCandidate,
@@ -185,49 +208,72 @@ func searchOffsets(
 				Score:        e.Score,
 				Depth:        len(e.Guess),
 				Offset:       offset,
-				Evaluated:    evaluated,
-				OffsetsDone:  offsetsDone,
+				Evaluated:    ev,
 				OffsetsTotal: offsetsTotal,
-				BestGuess:    bestGuess,
-				BestScore:    bestScore,
+				BestGuess:    bg,
+				BestScore:    bs,
 			})
-
-			if e.Score < bestScore {
-				bestScore = e.Score
-				bestGuess = e.Guess
+			if improved {
 				emit(unpixel.Progress{
 					Kind:         unpixel.EventNewBest,
-					BestGuess:    bestGuess,
-					BestScore:    bestScore,
+					BestGuess:    bg,
+					BestScore:    bs,
 					Guess:        e.Guess,
 					Score:        e.Score,
 					Depth:        len(e.Guess),
 					Offset:       offset,
-					Evaluated:    evaluated,
-					OffsetsDone:  offsetsDone,
+					Evaluated:    ev,
 					OffsetsTotal: offsetsTotal,
 				})
 			}
 		})
-
 		topN := RankTopN(candidates, cfg.TopN)
 		conf, ambiguity := Confidence(topN)
+		outcomes[i] = offsetOutcome{
+			candidates: candidates,
+			topN:       topN,
+			confidence: conf,
+			ambiguity:  ambiguity,
+			offset:     offset,
+			done:       true,
+		}
+	})
+
+	// Deterministic merge: the authoritative best is the lowest-scoring candidate
+	// scanned in offset then discovery order, so it never depends on scheduling.
+	finalScore := 1.0
+	var finalGuess string
+	for _, oc := range outcomes {
+		if !oc.done {
+			continue
+		}
+		for _, e := range oc.candidates {
+			if e.Score < finalScore {
+				finalScore = e.Score
+				finalGuess = e.Guess
+			}
+		}
+	}
+	for _, oc := range outcomes {
+		if !oc.done {
+			continue
+		}
 		results <- unpixel.Result{
-			BestGuess:  bestGuess,
-			BestScore:  bestScore,
-			Candidates: candidates,
-			TopN:       topN,
-			Confidence: conf,
-			Ambiguity:  ambiguity,
-			Offset:     offset,
+			BestGuess:  finalGuess,
+			BestScore:  finalScore,
+			Candidates: oc.candidates,
+			TopN:       oc.topN,
+			Confidence: oc.confidence,
+			Ambiguity:  oc.ambiguity,
+			Offset:     oc.offset,
 		}
 	}
 
 	emit(unpixel.Progress{
 		Kind:         unpixel.EventDone,
 		Done:         true,
-		BestGuess:    bestGuess,
-		BestScore:    bestScore,
+		BestGuess:    finalGuess,
+		BestScore:    finalScore,
 		Evaluated:    evaluated,
 		OffsetsTotal: offsetsTotal,
 	})

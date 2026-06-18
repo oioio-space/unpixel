@@ -114,3 +114,65 @@ func TestPixelmatch_returnsZeroToOne(t *testing.T) {
 		t.Errorf("Pixelmatch result %v out of [0,1]", got)
 	}
 }
+
+// --- SSIM metric ---
+
+func TestSSIM_identical(t *testing.T) {
+	a := solid(16, 16, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	b := solid(16, 16, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	got := metric.NewSSIM(0).Compare(a, b)
+	if math.Abs(got) > 1e-9 {
+		t.Errorf("SSIM identical = %v, want 0", got)
+	}
+}
+
+func TestSSIM_blackVsWhite(t *testing.T) {
+	// Maximal luminance contrast → mean SSIM ≈ 0 → distance ≈ 1.
+	a := solid(16, 16, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	b := solid(16, 16, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	got := metric.NewSSIM(0).Compare(a, b)
+	if got < 0.9 {
+		t.Errorf("SSIM black vs white = %v, want > 0.9", got)
+	}
+}
+
+func TestSSIM_partialDiffBetweenIdenticalAndOpposite(t *testing.T) {
+	// A small structural perturbation should score strictly between identical (0)
+	// and black-vs-white (≈1).
+	a := solid(16, 16, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	b := solid(16, 16, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	for i := range 16 {
+		b.SetRGBA(i, 0, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	}
+	got := metric.NewSSIM(0).Compare(a, b)
+	if got <= 0 || got >= 1 {
+		t.Errorf("SSIM partial diff = %v, want in (0,1)", got)
+	}
+}
+
+func TestSSIM_returnsZeroToOne(t *testing.T) {
+	a := solid(16, 16, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	b := invert(a)
+	got := metric.NewSSIM(0).Compare(a, b)
+	if got < 0 || got > 1 {
+		t.Errorf("SSIM result %v out of [0,1]", got)
+	}
+}
+
+func TestSSIM_emptyImage(t *testing.T) {
+	a := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	b := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	if got := metric.NewSSIM(0).Compare(a, b); got != 0 {
+		t.Errorf("SSIM empty = %v, want 0", got)
+	}
+}
+
+func TestSSIM_smallerThanWindow(t *testing.T) {
+	// A 4×4 image with the default 8px window must clamp the window and still
+	// score identical images as 0.
+	a := solid(4, 4, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+	b := solid(4, 4, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+	if got := metric.NewSSIM(0).Compare(a, b); math.Abs(got) > 1e-9 {
+		t.Errorf("SSIM small identical = %v, want 0", got)
+	}
+}

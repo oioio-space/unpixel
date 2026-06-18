@@ -80,6 +80,19 @@ func TestStrategyConstructors(t *testing.T) {
 	}
 }
 
+// TestMetricConstructors verifies the exported metric constructors return
+// non-nil unpixel.Metric values that can be assigned to Config.Metric.
+func TestMetricConstructors(t *testing.T) {
+	if defaults.PixelmatchMetric() == nil {
+		t.Error("PixelmatchMetric() = nil, want non-nil")
+	}
+	for _, window := range []int{0, 4, 8} {
+		if defaults.SSIMMetric(window) == nil {
+			t.Errorf("SSIMMetric(%d) = nil, want non-nil", window)
+		}
+	}
+}
+
 // TestWire_preservesBeamStrategy verifies that Wire does not overwrite an
 // explicitly chosen beam strategy with the default guided one.
 func TestWire_preservesBeamStrategy(t *testing.T) {

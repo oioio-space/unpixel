@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"runtime"
 	"time"
 )
 
@@ -90,8 +91,9 @@ type Config struct {
 	// before backtracking. Defaults to DefaultMaxLength.
 	MaxLength int
 	// BlockSize is the side length in pixels of each pixelation block. It must
-	// match the block size used to produce the redacted image. Defaults to
-	// DefaultBlockSize.
+	// match the block size used to produce the redacted image. When left
+	// non-positive, New auto-detects it from the image via InferBlockSize,
+	// falling back to DefaultBlockSize if the grid cannot be determined.
 	BlockSize int
 	// Threshold is the per-block score below which a non-space candidate is
 	// accepted and the search descends deeper. Lower values are stricter.
@@ -138,6 +140,11 @@ type Config struct {
 	// enable an LRU cache of that capacity shared across all Eval calls for a
 	// single Search invocation. Defaults to DefaultCacheSize.
 	CacheSize int
+	// Workers is the maximum number of grid offsets probed and searched
+	// concurrently. Values <= 0 default to runtime.GOMAXPROCS. Set to 1 to force
+	// fully sequential execution. Results are merged deterministically regardless
+	// of Workers, so this affects throughput only, never the output.
+	Workers int
 }
 
 // Default configuration values, matching the original unredacter reference implementation.
@@ -305,6 +312,12 @@ type Engine struct {
 	cfg      Config
 }
 
+// Config returns the engine's resolved configuration, with scalar defaults
+// applied and BlockSize auto-inferred. Component fields (Renderer, Pixelator,
+// Metric, Strategy) are non-nil only after Run has wired them. It is intended
+// for introspection — for example, reading the inferred BlockSize.
+func (e *Engine) Config() Config { return e.cfg }
+
 // New creates an Engine for the given pixelated image. Scalar zero values in
 // cfg are replaced by package defaults; nil component fields are left for Run
 // to fill via DefaultComponents (or must be set explicitly). New returns
@@ -313,9 +326,88 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	if redacted == nil {
 		return nil, ErrNilImage
 	}
-	cfg = applyDefaults(cfg)
 	rgba := toRGBA(redacted)
+	// Auto-detect the block size from the image when the caller left it unset,
+	// before applyDefaults falls back to DefaultBlockSize.
+	if cfg.BlockSize <= 0 {
+		cfg.BlockSize = InferBlockSize(rgba)
+	}
+	cfg = applyDefaults(cfg)
 	return &Engine{redacted: rgba, cfg: cfg}, nil
+}
+
+// InferBlockSize estimates the pixelation block size, in pixels, of a mosaic-
+// redacted image by detecting the spacing of its block grid. It scans for the
+// columns and rows where the colour changes — the boundaries between constant-
+// colour blocks — and returns the greatest common divisor of the gaps between
+// them, which equals the block side length even when some adjacent blocks happen
+// to share a colour (their gap is then a multiple of the block size).
+//
+// It returns 0 when the grid cannot be determined — a uniform image, an image
+// smaller than 2×2, or a non-pixelated image whose gaps reduce to 1. New uses it
+// to fill a non-positive Config.BlockSize, falling back to DefaultBlockSize when
+// inference returns 0.
+func InferBlockSize(img image.Image) int {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 2 || h < 2 {
+		return 0
+	}
+
+	g := 0
+	prev := -1
+	for x := 1; x < w; x++ {
+		if columnDiffers(rgba, b, x, h) {
+			if prev >= 0 {
+				g = gcd(g, x-prev)
+			}
+			prev = x
+		}
+	}
+	prev = -1
+	for y := 1; y < h; y++ {
+		if rowDiffers(rgba, b, y, w) {
+			if prev >= 0 {
+				g = gcd(g, y-prev)
+			}
+			prev = y
+		}
+	}
+
+	// A gap GCD of 1 means no regular grid (treat as undetectable).
+	if g < 2 {
+		return 0
+	}
+	return g
+}
+
+// columnDiffers reports whether column x differs from column x-1 at any row.
+func columnDiffers(img *image.RGBA, b image.Rectangle, x, h int) bool {
+	for y := range h {
+		if img.RGBAAt(b.Min.X+x, b.Min.Y+y) != img.RGBAAt(b.Min.X+x-1, b.Min.Y+y) {
+			return true
+		}
+	}
+	return false
+}
+
+// rowDiffers reports whether row y differs from row y-1 at any column.
+func rowDiffers(img *image.RGBA, b image.Rectangle, y, w int) bool {
+	for x := range w {
+		if img.RGBAAt(b.Min.X+x, b.Min.Y+y) != img.RGBAAt(b.Min.X+x, b.Min.Y+y-1) {
+			return true
+		}
+	}
+	return false
+}
+
+// gcd returns the greatest common divisor of a and b (gcd(0, k) == k).
+func gcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
 }
 
 // ErrNilImage is returned by New when a nil image is passed.
@@ -338,8 +430,10 @@ var DefaultComponents func(cfg *Config) error
 // it before starting. If DefaultComponents is also nil, Run panics with a
 // descriptive message directing the caller to import the defaults package.
 func (e *Engine) Run(ctx context.Context) (<-chan Progress, <-chan Result) {
-	if e.cfg.Strategy == nil {
+	if e.cfg.Renderer == nil || e.cfg.Pixelator == nil || e.cfg.Metric == nil || e.cfg.Strategy == nil {
 		if DefaultComponents != nil {
+			// DefaultComponents (defaults.Wire) fills only the nil fields, so a
+			// partially-configured Config keeps the components it already has.
 			if err := DefaultComponents(&e.cfg); err != nil {
 				progCh := make(chan Progress, 1)
 				resultCh := make(chan Result, 1)
@@ -349,8 +443,8 @@ func (e *Engine) Run(ctx context.Context) (<-chan Progress, <-chan Result) {
 				return progCh, resultCh
 			}
 		} else {
-			panic("unpixel: Engine.Run called with nil Strategy and no DefaultComponents wired; " +
-				"import github.com/oioio-space/unpixel/defaults or set cfg.Strategy explicitly")
+			panic("unpixel: Engine.Run called with a nil component and no DefaultComponents wired; " +
+				"import github.com/oioio-space/unpixel/defaults or set all component fields explicitly")
 		}
 	}
 
@@ -409,6 +503,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.BeamWidth <= 0 {
 		cfg.BeamWidth = DefaultBeamWidth
+	}
+	if cfg.Workers <= 0 {
+		cfg.Workers = runtime.GOMAXPROCS(0)
 	}
 	if cfg.CacheSize == 0 {
 		cfg.CacheSize = DefaultCacheSize

@@ -83,3 +83,23 @@ func GuidedStrategy() unpixel.Strategy {
 func BeamStrategy(width int) unpixel.Strategy {
 	return search.NewBeamStrategy(width)
 }
+
+// PixelmatchMetric returns the faithful default image-distance metric (a YIQ
+// perceptual pixel-difference, matching the original Jimp.diff) as an
+// unpixel.Metric, ready to assign to Config.Metric.
+func PixelmatchMetric() unpixel.Metric {
+	return metric.NewPixelmatch(0.02)
+}
+
+// SSIMMetric returns a structural-similarity image metric as an unpixel.Metric.
+// window is the SSIM comparison-window side length; pass 0 for the default.
+//
+// SSIM compares local structure rather than exact pixels, so it tolerates the
+// anti-aliasing/hinting differences between rendering engines. Its score scale
+// differs from the pixel-fraction default, so a search using it usually needs
+// its own Config.Threshold:
+//
+//	cfg := unpixel.Config{Metric: defaults.SSIMMetric(0)}
+func SSIMMetric(window int) unpixel.Metric {
+	return metric.NewSSIM(window)
+}

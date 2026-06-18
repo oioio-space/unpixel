@@ -5,10 +5,54 @@ package search
 import (
 	"cmp"
 	"context"
+	"runtime"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	"github.com/oioio-space/unpixel"
 )
+
+// resolveWorkers returns the concurrency level for offset fan-out: the configured
+// value when positive, otherwise runtime.GOMAXPROCS. Engine.Run already fills
+// Workers via applyDefaults, but DiscoverOffsets and the strategies are also
+// callable directly (tests, benchmarks, custom drivers) with an unset Workers,
+// so the fallback is resolved here too rather than assumed upstream.
+func resolveWorkers(cfg unpixel.Config) int {
+	if cfg.Workers > 0 {
+		return cfg.Workers
+	}
+	return runtime.GOMAXPROCS(0)
+}
+
+// forEachIndex runs fn(i) for i in [0, n) using up to workers goroutines, or
+// sequentially when workers <= 1. It returns after every invocation completes.
+// fn must be safe for concurrent use and must only touch storage unique to its
+// index so no further synchronisation is needed.
+func forEachIndex(ctx context.Context, n, workers int, fn func(i int)) {
+	if workers <= 1 || n <= 1 {
+		for i := range n {
+			if ctx.Err() != nil {
+				return
+			}
+			fn(i)
+		}
+		return
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i := range n {
+		if ctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			fn(i)
+		})
+	}
+	wg.Wait()
+}
 
 // EvalResult carries the outcome of scoring one candidate string.
 type EvalResult struct {
@@ -152,43 +196,54 @@ func DiscoverOffsets(ctx context.Context, scorer Scorer, cfg unpixel.Config, emi
 	cfg = ensureThresholdFor(cfg)
 	bs := cfg.BlockSize
 	total := bs * bs
-	done := 0
-	var offsets []unpixel.Offset
-
-	for y := range bs {
-		for x := range bs {
-			if ctx.Err() != nil {
-				return offsets
-			}
-			offset := unpixel.Offset{X: x, Y: y}
-			bestScore := 1.0
-			evaluated := 0
-			for _, ch := range cfg.Charset {
-				if ctx.Err() != nil {
-					return offsets
-				}
-				res := scorer.Eval(ctx, string(ch), "", offset)
-				evaluated++
-				if res.Score < bestScore {
-					bestScore = res.Score
-				}
-			}
-			if bestScore < cfg.Threshold {
-				offsets = append(offsets, unpixel.Offset{X: x, Y: y, Score: bestScore})
-			}
-			done++
-			if emit != nil {
-				emit(unpixel.Progress{
-					Kind:         unpixel.EventOffsetProbed,
-					Offset:       unpixel.Offset{X: x, Y: y, Score: bestScore},
-					OffsetsDone:  done,
-					OffsetsTotal: total,
-					Evaluated:    evaluated,
-				})
-			}
-		}
+	if total == 0 {
+		return nil
 	}
 
+	// One slot per grid origin, indexed i = y*bs + x, so concurrent probes write
+	// disjoint storage and the survivor scan stays deterministic.
+	scored := make([]unpixel.Offset, total)
+	survived := make([]bool, total)
+	var done atomic.Int64
+
+	forEachIndex(ctx, total, resolveWorkers(cfg), func(i int) {
+		if ctx.Err() != nil {
+			return
+		}
+		x, y := i%bs, i/bs
+		offset := unpixel.Offset{X: x, Y: y}
+		bestScore := 1.0
+		evaluated := 0
+		for _, ch := range cfg.Charset {
+			if ctx.Err() != nil {
+				return
+			}
+			res := scorer.Eval(ctx, string(ch), "", offset)
+			evaluated++
+			if res.Score < bestScore {
+				bestScore = res.Score
+			}
+		}
+		probed := unpixel.Offset{X: x, Y: y, Score: bestScore}
+		scored[i] = probed
+		survived[i] = bestScore < cfg.Threshold
+		if emit != nil {
+			emit(unpixel.Progress{
+				Kind:         unpixel.EventOffsetProbed,
+				Offset:       probed,
+				OffsetsDone:  int(done.Add(1)),
+				OffsetsTotal: total,
+				Evaluated:    evaluated,
+			})
+		}
+	})
+
+	var offsets []unpixel.Offset
+	for i := range total {
+		if survived[i] {
+			offsets = append(offsets, scored[i])
+		}
+	}
 	slices.SortFunc(offsets, func(a, b unpixel.Offset) int {
 		return cmp.Compare(a.Score, b.Score)
 	})

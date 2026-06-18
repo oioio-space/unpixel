@@ -64,6 +64,32 @@ func BenchmarkPixelmatch_Distance(b *testing.B) {
 	})
 }
 
+// BenchmarkSSIM_Distance benchmarks SSIM.Compare on two 200×40 images.
+// Sub-benchmarks cover identical vs ~10%-different inputs.
+func BenchmarkSSIM_Distance(b *testing.B) {
+	const w, h = 200, 40
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	a := makeSolidRGBA(w, h, white)
+	bSame := makeSolidRGBA(w, h, white)
+	bDiff := makePartialDiffRGBA(a)
+
+	m := metric.NewSSIM(0)
+
+	b.Run("identical", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(a, bSame)
+		}
+	})
+
+	b.Run("10pct_different", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(a, bDiff)
+		}
+	})
+}
+
 // BenchmarkRGB_Distance benchmarks RGB.Compare on two 200×40 images.
 // Sub-benchmarks cover identical vs ~10%-different inputs.
 func BenchmarkRGB_Distance(b *testing.B) {
