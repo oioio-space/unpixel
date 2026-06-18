@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/png" // register PNG decoding for RecoverReader/RecoverFile
 	"io"
 	"os"
@@ -345,6 +346,13 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 		return nil, ErrNilImage
 	}
 	rgba := toRGBA(redacted)
+	// Auto-contrast: the renderer draws dark text on a light background, so a
+	// dark-background image (e.g. a dark-mode screenshot) is inverted to match.
+	// Light-background images are left untouched, so the faithful path is byte
+	// identical to before.
+	if darkBackground(rgba) {
+		rgba = invertColors(rgba)
+	}
 	// Auto-detect the block size from the image when the caller left it unset,
 	// before applyDefaults falls back to DefaultBlockSize.
 	if cfg.BlockSize <= 0 {
@@ -352,6 +360,53 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	}
 	cfg = applyDefaults(cfg)
 	return &Engine{redacted: rgba, cfg: cfg}, nil
+}
+
+// InferDarkBackground reports whether img looks like dark text/content on a dark
+// background (e.g. a dark-mode screenshot), judged from its border pixels. New
+// uses it to decide whether to invert the image so it matches the dark-on-light
+// rendering pipeline.
+func InferDarkBackground(img image.Image) bool {
+	return darkBackground(toRGBA(img))
+}
+
+// darkBackground samples the image border (where the background usually shows)
+// and returns true when its mean luminance is clearly dark.
+func darkBackground(img *image.RGBA) bool {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return false
+	}
+	var sum, n float64
+	add := func(x, y int) {
+		c := img.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		sum += 0.299*float64(c.R) + 0.587*float64(c.G) + 0.114*float64(c.B)
+		n++
+	}
+	for x := range w {
+		add(x, 0)
+		add(x, h-1)
+	}
+	for y := range h {
+		add(0, y)
+		add(w-1, y)
+	}
+	return sum/n < 96 // conservative: only clearly-dark borders trigger inversion
+}
+
+// invertColors returns a fresh image with every RGB channel inverted (alpha
+// kept), turning light-on-dark into dark-on-light.
+func invertColors(img *image.RGBA) *image.RGBA {
+	b := img.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	for y := range b.Dy() {
+		for x := range b.Dx() {
+			c := img.RGBAAt(b.Min.X+x, b.Min.Y+y)
+			out.SetRGBA(x, y, color.RGBA{R: 255 - c.R, G: 255 - c.G, B: 255 - c.B, A: c.A})
+		}
+	}
+	return out
 }
 
 // InferBlockSize estimates the pixelation block size, in pixels, of a mosaic-

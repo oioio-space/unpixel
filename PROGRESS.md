@@ -150,9 +150,12 @@ Priorité haute :
       modèle de langue char-level (n-gram) pur-Go embarqué + wordlist optionnelle → score de
       log-vraisemblance/perplexité. Double usage : (a) **prior** pour guider/élaguer la recherche,
       (b) **validation a posteriori** + confiance. Combiné à la distance image. Sous-tend P3.6/P3.8.
-- [ ] **P3.4 — auto-détection étendue des paramètres** *(piste n°3)* : couleur texte/fond
-      (binarisation : minorité = avant-plan → fonds non-blancs), taille de police (hauteur d'x),
-      poids/gras, padding/baseline. Tout dérivé de l'image, surchargeable via `Config`.
+- [~] **P3.4 — auto-détection étendue des paramètres** *(piste n°3)* :
+      - [x] **auto-contraste fond sombre** : `New` détecte un fond sombre (bordure) et inverse
+            l'image (`InferDarkBackground`), pour les captures *dark-mode* (code !). Chemin clair
+            inchangé (no-op) → aucune régression ; round-trip inversé testé.
+      - [ ] couleur exacte texte/fond (au-delà du clair/sombre), taille de police (hauteur d'x),
+            poids/gras, padding/baseline. Tout dérivé de l'image, surchargeable via `Config`.
       (block-size & offset déjà auto.)
 - [ ] **P3.3 — police comme dimension de recherche / auto-calibration** *(piste n°1 reformulée)* :
       bundler des polices métrique-compatibles redistribuables (Liberation=Arial/Times/Courier,
@@ -281,3 +284,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `a240b27` 2026-06-19 — docs(progress): add Phase 3 roadmap — zero-config image→text + code support _(1 fichiers)_
 - `4e18ac2` 2026-06-19 — feat(api): one-call Recover/RecoverFile/RecoverReader + functional options (P3.1) _(3 fichiers)_
 - `bf6352b` 2026-06-19 — feat(charset): charset presets (alnum, ascii/code) + --charset-preset (P3.13) _(5 fichiers)_
+- `e95ed8a` 2026-06-19 — fix(hooks): stage the PROGRESS history line so it lands in a later commit _(2 fichiers)_
