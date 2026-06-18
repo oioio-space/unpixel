@@ -10,8 +10,11 @@ modern-Go injection on `.go` edits).
 Ground non-trivial / technical answers in CURRENT external sources before answering —
 WebSearch/WebFetch for the state of the art, GitHub (`scripts/ghx.sh`) for prior art &
 libraries, official docs (microsoft-docs MCP, claude-code-guide), `deep-research` for big
-questions. Prefer sources over memory, compare alternatives, cite. A `UserPromptSubmit` hook
-(`.claude/hooks/research-grounding.sh`) reinforces this every prompt; skip for trivial asks.
+questions. **Then go beyond the existing**: critique it, look for improvements, and consider
+out-of-the-box / novel approaches — don't just replicate prior art, improve on it. Prefer
+sources over memory, compare alternatives, recommend the best (even if uncommon), cite. A
+`UserPromptSubmit` hook (`.claude/hooks/research-grounding.sh`) reinforces this every prompt;
+skip for trivial asks.
 
 ## Sub-agent routing (token-economical, no quality loss)
 

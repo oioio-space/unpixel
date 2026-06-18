@@ -107,3 +107,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `8c79f20` 2026-06-18 — feat: align module path with repo; add repo-janitor + go-benchmark skills _(14 fichiers)_
 - `fbc1e03` 2026-06-18 — docs: record repo-janitor and go-benchmark skills in PROGRESS _(1 fichiers)_
 - `e5265fc` 2026-06-18 — refactor: simplify tooling per /simplify review _(14 fichiers)_
+- `c41d004` 2026-06-18 — feat: add research-grounding skill + UserPromptSubmit hook _(5 fichiers)_
