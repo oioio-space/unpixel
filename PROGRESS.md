@@ -132,6 +132,90 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 - [ ] **Phase 2 (reporté)** : renderer `chromedp` (fidélité Chromium) — dép. lourde exigeant un
       binaire Chrome au runtime/CI ; métriques edge-aware. Cf. `docs/DESIGN.md`.
 
+### 🎯 Phase 3 — zéro-config « image → texte » (auto-détection + qualité, perf préservée)
+
+**Étoile polaire** : l'utilisateur fournit une image de texte pixélisé → le texte en sort, avec
+le minimum de paramètres. Tout ce qui peut être détecté l'est automatiquement ; **les paramètres
+bas-niveau (`Config`) restent toujours accessibles aux experts**. **Contrainte** : pur Go / no-CGO
+→ pas de DeepFont/CNN ni de LLM lourd ; l'ID de police et le modèle de langue doivent être
+*classiques/embarquables* (rendu-et-comparaison, n-gram). Sources : Hill, Zhou, Saul & Shacham
+(HMM + probas de transition + rendu par police) ; DeepFont (VFR, hors pur-Go) ; Positive Security
+(multi-frame) ; challenge BishopFox (calibration police + déconvolution).
+
+Priorité haute :
+- [ ] **P3.1 — API une-ligne** `Recover(img) (Result, error)` + `RecoverFile`/`RecoverReader` +
+      options fonctionnelles (`WithCharset`/`WithWorkers`/`WithFonts`/`WithLanguageModel`…). Faire
+      du défaut CLI un vrai zéro-config. `Config` conservé pour les experts. *(catalyseur de l'objectif)*
+- [ ] **P3.2 — détecteur de cohérence/validité** *(piste utilisateur n°2 — plus fort levier qualité)* :
+      modèle de langue char-level (n-gram) pur-Go embarqué + wordlist optionnelle → score de
+      log-vraisemblance/perplexité. Double usage : (a) **prior** pour guider/élaguer la recherche,
+      (b) **validation a posteriori** + confiance. Combiné à la distance image. Sous-tend P3.6/P3.8.
+- [ ] **P3.4 — auto-détection étendue des paramètres** *(piste n°3)* : couleur texte/fond
+      (binarisation : minorité = avant-plan → fonds non-blancs), taille de police (hauteur d'x),
+      poids/gras, padding/baseline. Tout dérivé de l'image, surchargeable via `Config`.
+      (block-size & offset déjà auto.)
+- [ ] **P3.3 — police comme dimension de recherche / auto-calibration** *(piste n°1 reformulée)* :
+      bundler des polices métrique-compatibles redistribuables (Liberation=Arial/Times/Courier,
+      Carlito≈Calibri, Arimo/Tinos/Cousine, DejaVu/Noto) couvrant les plus courantes ; tester
+      chaque police, scorer par re-pixelisation, **élaguer via une sonde bon-marché** avant la
+      recherche complète. (Pas de DeepFont : CNN exclu en pur-Go.)
+
+Priorité moyenne :
+- [ ] **P3.8 — confiance calibrée + abandon honnête** : fusionner distance image + score LM +
+      ambiguïté en une confiance calibrée ; signaler « incertain / probablement irrécupérable »
+      plutôt qu'un best-guess trompeur (répond à la critique de fabrication, A. Madry).
+- [ ] **P3.5 — localisation auto de la zone caviardée** dans une capture entière (carte de
+      variance/blockiness) → passer le screenshot complet, pas une zone pré-découpée.
+- [ ] **P3.6 — escalade auto du charset** : minuscules+espace → chiffres → majuscules →
+      ponctuation, déclenchée par l'absence de résultat cohérent (P3.2) ; charset déduit de la
+      zone en clair si présente. Évite l'explosion combinatoire.
+- [ ] **P3.7 — priors structurés / secrets** : wordlist (mots de passe communs), formats
+      (UUID, clés API), checksums (Luhn) → récupération + validation haute-confiance des cibles réelles.
+
+Priorité basse / exploratoire :
+- [ ] **P3.9 — entrée multi-images / vidéo** : exploiter le jitter sous-pixel entre plusieurs
+      pixelisations du même texte (information réelle, pas d'hallucination — Positive Security).
+- [ ] **P3.10 — pré-traitement déconvolution** (Richardson-Lucy/Wiener, pur-Go) pour gérer le
+      **flou** en plus du mosaïque (technique gagnante du challenge BishopFox).
+- [ ] **P3.11 — perf pour soutenir l'automatisation** (prouvé benchstat) : cache du rendu
+      `prevGuess` (gros gain déjà identifié), SIMD pur-Go (asm AVX2 + fallback), pruning agressif
+      via P3.2/P3.3 pour compenser le coût des polices/charsets élargis.
+- [ ] **P3.12 — (spike) classifieur de police par deep-learning, pur-Go** : DL *utile pour la
+      reconnaissance de police* (DeepFont/VFR, >80% top-5) car exécuté **une seule fois par image**
+      (latence amortie, hors boucle chaude — contrairement au modèle de cohérence P3.2 où le n-gram
+      reste supérieur sur CPU). Voie conforme no-CGO : **inférence ONNX pur-Go** (onnx-go / gonnx /
+      backend pur-Go de Hugot ; ~8× plus lent que XLA mais one-shot → acceptable). Optionnel et
+      *derrière l'interface* : accélère/affine le candidat-police de P3.3 (render-and-match reste le
+      défaut). **Reporté** : onnxruntime via purego ou CGO (dép. native runtime par plateforme, même
+      arbitrage que chromedp). Évaluer coût (taille binaire du modèle embarqué, maturité libs,
+      sourcing/entraînement) vs gain réel sur l'ensemble de polices bundlé.
+
+#### Sous-axe : dépixéliser du **code source** (au-delà de a–z + espace)
+
+Constat clé : `Config.Charset` accepte déjà n'importe quelle chaîne (utilisable *aujourd'hui* via
+`--charset`). Mais le code a deux propriétés qui changent la donne : (1) il est presque toujours en
+police **monospace** → la grille de pixelisation s'aligne sur une grille de cellules régulière ;
+(2) il est très structuré/répétitif (« naturalness of software »).
+
+- [ ] **P3.13 — presets de charset** : `unpixel.CharsetLower` (actuel), `CharsetAlnum`,
+      `CharsetASCIIPrintable`, `CharsetCode` (ASCII imprimable complet ~95 car.) ; flag
+      `--charset-preset lower|alnum|ascii|code`. Rendre l'escalade (P3.6) consciente du code
+      (lettres → +chiffres → +symboles).
+- [ ] **P3.14 — fast-path monospace (déverrouillage majeur pour le code)** : détecter l'avance
+      fixe / la grille de cellules régulière, puis **classifier chaque cellule indépendamment** et
+      en parallèle contre son/ses bloc(s) — supprime la cascade d'erreur de position des polices à
+      chasse variable. Énorme gain perf **et** précision : 95 candidats/cellule indépendants au lieu
+      d'un DFS séquentiel. Implémenté derrière l'interface `Strategy` (`MonospaceStrategy`), à côté
+      de guided/beam. Réf. OCR monospace (box-connectivity, character grid).
+- [ ] **P3.15 — cohérence/validité spécifique au code** : étend P3.2 avec (a) un n-gram
+      caractère/token entraîné sur du code, (b) une **validation lexicale/syntaxique** — tokeniser
+      (chrF, n-grams de tokens) et idéalement parser : Go via `go/scanner`+`go/parser` (dogfooding),
+      autres langages via grammaires tree-sitter (GLR + error-recovery). Un candidat qui tokenise/
+      parse vaut une confiance bien plus élevée.
+- [ ] **P3.3+ — polices monospace de code** : étendre le bundle P3.3 avec les monospaces de code
+      OFL/redistribuables les plus courantes (JetBrains Mono, Fira Code, Source Code Pro, IBM Plex
+      Mono, Liberation Mono≈Courier New, DejaVu Sans Mono, Hack/MIT, Cascadia Code).
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public) puis **v0.2.0** (Phase 2 + CLI) publiées
@@ -192,3 +276,5 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 - `37d1be1` 2026-06-18 — feat: Phase-2 — SSIM metric, block-size inference, offset fan-out _(12 fichiers)_
 - `0191899` 2026-06-18 — feat(cli): expose strategy, metric, workers, and auto block-size _(2 fichiers)_
 - `e05fceb` 2026-06-18 — docs: document the CLI and Phase-2 features in README/PROGRESS _(2 fichiers)_
+- `356d6cf` 2026-06-18 — docs(progress): record the v0.2.0 release _(1 fichiers)_
+- `6a20677` 2026-06-18 — ci: publish a goreleaser GitHub Release on v* tags _(1 fichiers)_
