@@ -20,3 +20,9 @@ jobs:
           fetch-depth: 0 # full history so `mise run scan:secrets` (gitleaks) can scan all commits
       - uses: jdx/mise-action@v3
       - run: mise run ci
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false # don't break CI if Codecov isn't configured yet
+          token: ${{ secrets.CODECOV_TOKEN }} # required for private repos

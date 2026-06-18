@@ -41,6 +41,9 @@ watchexec     = "latest"   # backs `mise watch` (TDD loop)
 [env]
 # Reproducible builds: fail instead of silently editing go.mod during build/test.
 GOFLAGS = "-mod=readonly"
+# Minimum test coverage enforced by `mise run cover:check` / CI. Raise as the port
+# gains real tests (start at 0 since there is no code yet).
+COVER_MIN = "0"
 # Put `go install`ed helpers on PATH for tools not (yet) managed by mise.
 _.path = ["{{ env.HOME }}/go/bin"]
 
@@ -73,6 +76,14 @@ run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- ./.
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
 run = "mise watch -t test"
+
+[tasks.cover]
+description = "Test coverage report (coverage.out + total %)"
+run = "./scripts/cover.sh"
+
+[tasks."cover:check"]
+description = "Enforce minimum coverage (COVER_MIN, default 0)"
+run = "./scripts/cover.sh --check"
 
 [tasks.lint]
 description = "Full Google Go style-guide gate (gofmt + vet + golangci-lint + build + test)"
@@ -121,7 +132,7 @@ run = "./scripts/rtkx.sh grype sbom:sbom.cdx.json --fail-on high"
 
 [tasks.ci]
 description = "Everything CI must pass"
-depends = ["scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
+depends = ["scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci", "cover:check"]
 
 [tasks.release]
 description = "Cross-platform release build + publish (goreleaser)"

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Git native pre-push hook — run the FULL CI gate before sharing code.
+# Installed via core.hooksPath=.githooks. Keeps per-commit hooks fast (staged-only)
+# while making `git push` thorough: secrets + vulns + SBOM/grype + lints + tests.
+#
+# Bypass in an emergency only: git push --no-verify
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+printf '\033[34m▶ Pre-push: running full CI (mise run ci)…\033[0m\n'
+
+if command -v mise >/dev/null 2>&1 && [[ -f "$repo_root/mise.toml" ]]; then
+  if ! mise run ci; then
+    printf '\033[31m✗ Push blocked: CI failed. Fix the issues above (or git push --no-verify).\033[0m\n' >&2
+    exit 1
+  fi
+else
+  printf '\033[33m⚠ mise not found — skipping pre-push CI.\033[0m\n' >&2
+fi
