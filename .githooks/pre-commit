@@ -49,3 +49,7 @@ gate "Scanning staged Go for vulnerabilities (gosec + govulncheck)…" \
 gate "Running Google Go style-guide checks…" \
   "Commit blocked: fix the style-guide violations above." \
   "lint:staged" "$repo_root/scripts/lint.sh" --staged
+
+gate "Checking the project stays pure Go (no CGO)…" \
+  "Commit blocked: CGO is forbidden in this project (see CLAUDE.md)." \
+  "cgo:check" "$repo_root/scripts/cgo-check.sh"

@@ -10,7 +10,9 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-bench() { go test -run '^$' -bench=. -benchmem -count="${BENCH_COUNT:-6}" ./...; }
+# -count >= 10 is the practical minimum for benchstat to find a significant delta
+# (runtimes vary ~15% with system load). Override with BENCH_COUNT for quick local runs.
+bench() { go test -run '^$' -bench=. -benchmem -count="${BENCH_COUNT:-10}" ./...; }
 
 case "${1:-run}" in
   run)

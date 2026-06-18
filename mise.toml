@@ -42,9 +42,12 @@ watchexec     = "latest"   # backs `mise watch` (TDD loop)
 [env]
 # Reproducible builds: fail instead of silently editing go.mod during build/test.
 GOFLAGS = "-mod=readonly"
-# Minimum test coverage enforced by `mise run cover:check` / CI. Raise as the port
-# gains real tests (start at 0 since there is no code yet).
-COVER_MIN = "0"
+# The port is pure Go — keep it that way. CGO off everywhere (build, test, release)
+# guarantees static, cross-compilable binaries and a cgo-free dependency tree.
+CGO_ENABLED = "0"
+# Minimum test coverage enforced by `mise run cover:check` / CI. The core package
+# landed at 58.2%; floor set just below to catch regressions. Raise as coverage grows.
+COVER_MIN = "55"
 # Put `go install`ed helpers on PATH for tools not (yet) managed by mise.
 _.path = ["{{ env.HOME }}/go/bin"]
 
@@ -146,7 +149,7 @@ run = "./scripts/rtkx.sh grype sbom:sbom.cdx.json --fail-on high"
 
 [tasks.ci]
 description = "Everything CI must pass"
-depends = ["scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci", "cover:check"]
+depends = ["cgo:check", "scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci", "cover:check"]
 
 [tasks.release]
 description = "Cross-platform release build + publish (goreleaser)"
@@ -176,6 +179,10 @@ exit 0
 [tasks.gh]
 description = "GitHub CLI via mise + rtk (use: mise run gh -- pr list)"
 run = "./scripts/ghx.sh"
+
+[tasks."cgo:check"]
+description = "Absolute rule gate: fail if any package uses CGO (project is pure Go)"
+run = "./scripts/cgo-check.sh"
 
 [tasks.clean]
 description = "Remove regenerable build/scan artifacts + go build cache"
