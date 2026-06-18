@@ -6,6 +6,10 @@
 #   mise run lint       # full Go style-guide gate
 #   mise run ci         # everything CI runs (lint + meta-lint + tests)
 #   mise run release:snapshot   # build the CLI locally with goreleaser (no publish)
+#
+# Token optimization: build/test/lint tasks route through scripts/rtkx.sh, which uses
+# `rtk err` when rtk is installed (compact output, exit code preserved) and runs raw
+# otherwise. Install rtk with `mise run tools:rtk` (optional, never blocks).
 
 min_version = "2024.1.0"
 
@@ -46,19 +50,19 @@ run = "gofumpt -w ."
 
 [tasks.vet]
 description = "go vet"
-run = "go vet ./..."
+run = "./scripts/rtkx.sh go vet ./..."
 
 [tasks.build]
 description = "Build all packages"
-run = "go build ./..."
+run = "./scripts/rtkx.sh go build ./..."
 
 [tasks.test]
 description = "Run tests (gotestsum, readable output)"
-run = "gotestsum --format pkgname -- ./..."
+run = "./scripts/rtkx.sh gotestsum --format pkgname -- ./..."
 
 [tasks."test:ci"]
 description = "Run tests with a JUnit report for CI"
-run = "gotestsum --junitfile junit.xml --format pkgname -- ./..."
+run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- ./..."
 
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
@@ -66,11 +70,11 @@ run = "mise watch -t test"
 
 [tasks.lint]
 description = "Full Google Go style-guide gate (gofmt + vet + golangci-lint + build + test)"
-run = "./scripts/lint.sh"
+run = "./scripts/rtkx.sh ./scripts/lint.sh"
 
 [tasks."lint:staged"]
 description = "Style-guide gate on staged files only (used by the git pre-commit hook)"
-run = "./scripts/lint.sh --staged"
+run = "./scripts/rtkx.sh ./scripts/lint.sh --staged"
 
 [tasks."lint:sh"]
 description = "Lint the bash hook scripts with shellcheck"
@@ -96,11 +100,27 @@ run = "goreleaser release --clean"
 description = "Local cross-platform build, no publish (goreleaser)"
 run = "goreleaser release --snapshot --clean"
 
+[tasks."tools:rtk"]
+description = "Best-effort install of rtk (token-optimized task output) — never blocks"
+# rtk is optional: scripts/rtkx.sh uses it only if present. This installs it from the
+# mise registry (github:rtk-ai/rtk) but always exits 0 so it can't block setup/CI.
+run = '''
+if command -v rtk >/dev/null 2>&1; then
+  echo "✓ rtk already available: $(rtk --version 2>/dev/null)"
+  exit 0
+fi
+echo "Installing rtk (optional, non-blocking)…"
+mise use -g "rtk@latest" >/dev/null 2>&1 \
+  && echo "✓ rtk installed via mise" \
+  || echo "⚠ rtk not installed — tasks still run, just without token optimization."
+exit 0
+'''
+
 [tasks."hooks:install"]
 description = "Point git at .githooks (pre-commit + post-commit)"
 run = "./scripts/install-hooks.sh"
 
 [tasks.setup]
-description = "One-shot bootstrap: install tools + wire git hooks"
-depends = ["hooks:install"]
+description = "One-shot bootstrap: install tools + wire git hooks (+ optional rtk)"
+depends = ["hooks:install", "tools:rtk"]
 run = "mise install"
