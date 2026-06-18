@@ -172,3 +172,4 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - `8dd956d` 2026-06-18 — docs: sync PROGRESS — public repo, v0.1.0, GoDoc, README, routing _(1 fichiers)_
 - `6a42682` 2026-06-18 — feat(cli): ergonomic CLI (urfave/cli/v3) + Top-N/confidence reporting _(8 fichiers)_
 - `8bc53bc` 2026-06-18 — feat(skill): helper-ergonomics skill + pre-commit hook (human-facing API) _(4 fichiers)_
+- `a00192f` 2026-06-18 — feat(search): beam-search strategy + prefix-render cache via defaults _(12 fichiers)_

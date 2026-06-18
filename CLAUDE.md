@@ -5,6 +5,31 @@ State & roadmap: see `PROGRESS.md`. Tooling is managed by **mise** — run every
 (secrets → vulns → style) and Claude PreToolUse hooks (style/simplify/secret/vuln review,
 modern-Go injection on `.go` edits).
 
+## Commands (all via mise; `CGO_ENABLED=0` pinned)
+
+```bash
+mise run setup           # bootstrap toolchain (go 1.26, golangci-lint, gotestsum, …)
+mise run test            # unit tests        | mise run test:watch  (TDD)
+mise run lint            # golangci-lint v2  | mise run fmt
+mise run cover:check     # coverage gate (COVER_MIN=85)
+mise run ci              # full gate = what CI runs (lint+test+cgo:check+scans)
+mise run bench:baseline  # then change code, then: mise run bench:compare (benchstat)
+mise run scan:code       # gosec + govulncheck | scan:secrets | scan:sbom (grype)
+mise run clean           # remove regenerable artifacts
+```
+
+## Architecture
+
+Module `github.com/oioio-space/unpixel` — pure-Go port of `bishopfox/unredacter`
+(generate-and-test depixelation: render → re-pixelate → image-distance → guided search).
+
+- `unpixel.go` — root API: `Engine`, `Config`, `Result`, `Eval`, `Offset` + pluggable
+  interfaces `Renderer`/`Pixelator`/`Metric`/`Strategy` + library-agnostic progress API.
+- `internal/imutil` · `internal/pixelate` · `internal/metric` (pixelmatch default) ·
+  `internal/render` (x/image + embedded Liberation Sans) · `internal/search` (offset
+  discovery + GuidedDFS).  `defaults/` wires the standard components.  `cmd/unpixel` — CLI.
+- Design & faithful-algorithm spec: `docs/DESIGN.md`.  State/roadmap: `PROGRESS.md`.
+
 ## ⛔ Absolute rule: NO CGO
 
 This project is **pure Go — CGO is forbidden, no exceptions.** Never add `import "C"`, a
