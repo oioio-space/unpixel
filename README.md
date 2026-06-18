@@ -251,8 +251,9 @@ renderer (deferred — it would require a Chrome binary at runtime/CI). Details 
 mise run test:watch   # TDD loop
 mise run lint         # gofmt + go vet + golangci-lint
 mise run test         # tests
-mise run cover        # coverage report (floor: 85%, currently ~94%)
+mise run cover        # coverage report (floor: 85%)
 mise run bench        # hot-path benchmarks (benchstat-proven)
+mise run gen          # regenerate test fixtures (mise run gen:check verifies no drift)
 mise run ci           # everything CI runs
 ```
 

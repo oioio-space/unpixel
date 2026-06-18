@@ -289,3 +289,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `e95ed8a` 2026-06-19 — fix(hooks): stage the PROGRESS history line so it lands in a later commit _(2 fichiers)_
 - `0f919e4` 2026-06-19 — feat(auto): dark-background auto-contrast (P3.4, partial) _(3 fichiers)_
 - `c1ee424` 2026-06-19 — feat(api): printable Result and Eval (String methods) _(3 fichiers)_
+- `a000af0` 2026-06-19 — test(matrix): reference-image recovery matrix + generator (+ WithStyle option) _(23 fichiers)_

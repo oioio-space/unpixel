@@ -70,6 +70,14 @@ run = "./scripts/rtkx.sh go vet ./..."
 description = "Build all packages"
 run = "./scripts/rtkx.sh go build ./..."
 
+[tasks.gen]
+description = "Generate test fixtures (reference images + manifest) via go:generate"
+run = "go generate ./..."
+
+[tasks."gen:check"]
+description = "Verify committed fixtures match the generator (fails on drift)"
+run = "go generate ./... && git diff --exit-code -- testdata/fixtures"
+
 [tasks.test]
 description = "Run tests (gotestsum, readable output)"
 run = "./scripts/rtkx.sh gotestsum --format pkgname -- ./..."
