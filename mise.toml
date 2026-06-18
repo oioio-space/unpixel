@@ -45,9 +45,10 @@ GOFLAGS = "-mod=readonly"
 # The port is pure Go — keep it that way. CGO off everywhere (build, test, release)
 # guarantees static, cross-compilable binaries and a cgo-free dependency tree.
 CGO_ENABLED = "0"
-# Minimum test coverage enforced by `mise run cover:check` / CI. The core package
-# landed at 58.2%; floor set just below to catch regressions. Raise as coverage grows.
-COVER_MIN = "55"
+# Minimum test coverage enforced by `mise run cover:check` / CI. The module sits at
+# ~93% (only the 1-line placeholder cmd/unpixel main is uncovered); floor set with a
+# margin to catch regressions without being brittle.
+COVER_MIN = "85"
 # Put `go install`ed helpers on PATH for tools not (yet) managed by mise.
 _.path = ["{{ env.HOME }}/go/bin"]
 
