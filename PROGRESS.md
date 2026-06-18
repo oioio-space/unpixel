@@ -13,8 +13,12 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 
 ## 📍 État actuel
 
-Outillage qualité en place ; **cœur du portage terminé**.
+Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié** sur pkg.go.dev.
 
+- **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
+  Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
+- **Release v0.1.0** : module publié et consommable via `go get github.com/oioio-space/unpixel@latest`
+  (vérifié proxy Go, indexé sur pkg.go.dev). API stable pré-1.0 annoncée ; CLI phase suivante.
 - **Package core** : port Go fidèle de l'algorithme unredacter implémenté et testé. Le package
   racine (`unpixel`) expose `Engine`, `Config`, `Result`, `Eval`, `Offset`, les interfaces
   pluggables `Renderer`/`Pixelator`/`Metric`/`Strategy`, et une **API de progression library-agnostique**
@@ -26,8 +30,15 @@ Outillage qualité en place ; **cœur du portage terminé**.
   `golang.org/x/image/font/opentype` + Liberation Sans embarquée, compatible métriquement Arial),
   `search` (découverte offset + DFS guidée). Package `defaults` assure les dépendances.
   CLI à `cmd/unpixel` : placeholder.
-- **Tests** : 34 tests passants ; auto-redaction round-trip récupère le plaintext connu
-  ("hello"). Couverture 58.2% ; seuil `COVER_MIN` relevé 0 → 55. Un test Phase-2 skippé :
+- **GoDoc/pkg.go.dev** : package et symboles exportés enrichis (overviews avec snippet d'usage,
+  chaque symbole/champ/const documenté avec son contrat, `Example` exécutable). Qualité
+  pkg.go.dev appliquée et documentée dans la gate style (`.claude/skills/go-style-guide`,
+  pre-commit `style-checklist.md`).
+- **README** : réécrit via skill `readme-author` (principes awesome-readme) : badges CI/Go
+  Reference/Go Report Card/GPL-3.0, démo, features, install/usage vérifiés, config table,
+  architecture, crédits/attribution.
+- **Tests** : 34+ tests passants ; auto-redaction round-trip récupère le plaintext connu
+  ("hello"). Couverture **~94%** ; seuil `COVER_MIN` relevé à 85. Un test Phase-2 skippé :
   récupérer le `secret.png` Chromium-original nécessite renderer `chromedp` (écart
   moteur-fidélité documenté).
 - **Design doc** : `docs/DESIGN.md` ajouté (algo fidèle + choix libs + API progression +
@@ -35,6 +46,9 @@ Outillage qualité en place ; **cœur du portage terminé**.
 - **⛔ AUCUN CGO** — règle absolue du projet. Go pur ; CGO interdit. `CGO_ENABLED=0` épinglé
   en `[env]` `mise.toml`, gate déterministe `cgo:check` (`scripts/cgo-check.sh`) intégré
   à `mise run ci` et hook pre-commit, documenté `CLAUDE.md`.
+- **Benchmark hot-path** : rule absolue en force. Skill `go-benchmark` + hook `PreToolUse`
+  (Write|Edit) déclenché à l'écriture d'un `func Benchmark…` + `benchstat` (`mise run bench` / 
+  `bench:baseline` / `bench:compare`).
 - Toolchain reproductible via **mise** (`mise.toml`) : go 1.26.4, golangci-lint 2.12.2,
   gofumpt, shellcheck, gotestsum, goreleaser, actionlint, yamlfmt, watchexec.
   Bootstrap : `mise run setup` (ou auto via le hook mise `enter`). Commandes :
@@ -48,10 +62,12 @@ Outillage qualité en place ; **cœur du portage terminé**.
   (= gh version mise + sortie token-optimisée `rtk gh`) ou `mise run gh -- <args>`.
   gh authentifié (compte `oioio-space`).
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
+  + GoDoc/pkg.go.dev quality gate.
 - Skill `use-modern-go` (JetBrains) — idiomes Go modernes selon la version détectée
   (1.26.4). **Déclenchement sûr** : hook `PreToolUse` sur `Write|Edit|MultiEdit`
   (`.claude/hooks/modern-go-context.sh`) qui injecte les idiomes dès qu'un `.go` est
   écrit/édité (règles complètes 1×/session puis nudge). En plus de la description élargie.
+- Skill `readme-author` : précepts awesome-readme, hook + template.
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
   (le hook git passe par `mise run lint:staged`).
 - Revue IA pre-commit (style-guide) : `.claude/hooks/commit-style-review.sh`
@@ -67,21 +83,15 @@ Outillage qualité en place ; **cœur du portage terminé**.
 - **Nettoyage artefacts** : skill `repo-janitor` + gate déterministe `clean:check`
   (hook git, **gate 0**) qui supprime les artefacts régénérables non suivis et bloque
   tout artefact stagé + hook IA `commit-cleanup-review.sh`. Task : `mise run clean`.
-- **Benchmark/perf** : skill `go-benchmark` + hook `PreToolUse` (Write|Edit) déclenché
-  à l'écriture d'un `func Benchmark…` (`.claude/hooks/benchmark-context.sh`) + `benchstat`.
-  Tasks : `mise run bench` / `bench:baseline` / `bench:compare` (prouve le gain, A/B).
 - Ordre des gates au commit : **artefacts (gate 0)** → secrets → vulns code → style.
 - **Routage sous-agents** (économie tokens) : `.claude/agents/*.md`, tier dans le
-  frontmatter (`model`/`effort`/`skills`/`description`). Haiku = mécanique
-  (`quality-runner`, `scribe`, `explorer`) ; Sonnet = dev/review (`go-dev`,
+  frontmatter (`model`/`effort`/`skills`/`description`). Chaque skill et hook de revue
+  IA routé vers l'agent compétent le moins cher : Haiku = mécanique (`quality-runner`
+  +`repo-janitor`, `scribe`+`readme-author`, `explorer`) ; Sonnet = dev/review (`go-dev`,
   `go-reviewer`, skills go-style-guide+use-modern-go préchargés) ; Opus = design algo
-  (`algo-architect`) + audit sécu (`security-auditor`). Politique inter-agents : `CLAUDE.md`.
+  (`algo-architect`+`research-grounding`) + audit sécu (`security-auditor`+secret/vuln-guard).
+  Préchargement seulement là où aucun hook ne couvre déjà le skill. Politique inter-agents : `CLAUDE.md`.
   Ne PAS définir `CLAUDE_CODE_SUBAGENT_MODEL` (écraserait les `model:`).
-- **GitHub** : repo privé `oioio-space/unpixel` (poussé), CI Actions active.
-  `README.md` + `LICENSE` **GPL-3.0** (port d'un original GPL-3.0). Hook `.githooks/pre-push`
-  = `mise run ci` complet avant chaque push. Couverture : `mise run cover[:check]`
-  (seuil `COVER_MIN`, à 0) + upload Codecov en CI.
-  Secret-scanning GitHub = 422 (besoin GHAS) → passer **public** pour l'activer gratuitement.
 - **Recherche d'abord** : skill `research-grounding` + hook `UserPromptSubmit`
   (`.claude/hooks/research-grounding.sh`) qui rappelle à chaque prompt de fonder les
   réponses non-triviales sur l'existant (web/SOTA, GitHub via `ghx.sh`, docs officielles)
@@ -95,14 +105,17 @@ Outillage qualité en place ; **cœur du portage terminé**.
 - [x] Choisir les libs Go (rendu de police/texte, manipulation d'image).
 - [x] Structurer le code (`internal/…`) et écrire les tests de caractérisation.
 - [x] Implémenter le cœur de l'attaque.
+- [x] Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
+- [x] Monter COVER_MIN à 85.
 - [ ] Implémenter une CLI ergonomique (package → CLI au-dessus).
 - [ ] **Phase 2** (cf. `docs/DESIGN.md`) : beam search, goroutine fan-out, renderer
       chromedp pour fidélité Chromium, inférence auto block-size/offset, classement top-N
       par confiance.
-- [ ] (Optionnel) Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
 
 ## 🧭 Décisions clés
 
+- **Repo public** et **v0.1.0 publié** : module consommable sur pkg.go.dev. API stable
+  pré-1.0 (peut évoluer avant 1.0.0) ; CLI phase 2.
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
@@ -143,3 +156,11 @@ Outillage qualité en place ; **cœur du portage terminé**.
 - `6498640` 2026-06-18 — feat(core): faithful pure-Go port of the unredacter algorithm _(25 fichiers)_
 - `88505e4` 2026-06-18 — test(bench): add hot-path benchmarks for the search core _(5 fichiers)_
 - `f24f941` 2026-06-18 — build: enforce no-CGO rule and strengthen the benchmark gate _(5 fichiers)_
+- `dd40832` 2026-06-18 — docs: record the port, the no-CGO and benchmark rules, and project state _(2 fichiers)_
+- `2dbfac3` 2026-06-18 — test: cover the real scorer/search, defaults and engine paths (61% → 94%) _(4 fichiers)_
+- `c133d0d` 2026-06-18 — feat(skill): add readme-author skill distilled from awesome-readme _(1 fichiers)_
+- `7c39e49` 2026-06-18 — chore(agents): route every skill and review hook to its cheapest competent agent _(8 fichiers)_
+- `55c7a6f` 2026-06-18 — docs(readme): rewrite README with the readme-author skill _(1 fichiers)_
+- `e358ebc` 2026-06-18 — docs(godoc): enrich package/symbol docs and add a runnable Example _(3 fichiers)_
+- `1d6a1a1` 2026-06-18 — feat(style): enforce GoDoc/pkg.go.dev quality in the style gate _(2 fichiers)_
+- `5c7d6eb` 2026-06-18 — docs(readme): add Go Reference and Go Report Card badges _(1 fichiers)_
