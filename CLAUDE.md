@@ -5,6 +5,14 @@ State & roadmap: see `PROGRESS.md`. Tooling is managed by **mise** — run every
 (secrets → vulns → style) and Claude PreToolUse hooks (style/simplify/secret/vuln review,
 modern-Go injection on `.go` edits).
 
+## Research-first
+
+Ground non-trivial / technical answers in CURRENT external sources before answering —
+WebSearch/WebFetch for the state of the art, GitHub (`scripts/ghx.sh`) for prior art &
+libraries, official docs (microsoft-docs MCP, claude-code-guide), `deep-research` for big
+questions. Prefer sources over memory, compare alternatives, cite. A `UserPromptSubmit` hook
+(`.claude/hooks/research-grounding.sh`) reinforces this every prompt; skip for trivial asks.
+
 ## Sub-agent routing (token-economical, no quality loss)
 
 Each agent in `.claude/agents/` pins its own tier via frontmatter (`model`, `effort`, `skills`,

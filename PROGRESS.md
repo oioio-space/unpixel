@@ -62,6 +62,10 @@ Outillage qualité en place ; **portage pas encore commencé**.
   = `mise run ci` complet avant chaque push. Couverture : `mise run cover[:check]`
   (seuil `COVER_MIN`, à 0) + upload Codecov en CI.
   Secret-scanning GitHub = 422 (besoin GHAS) → passer **public** pour l'activer gratuitement.
+- **Recherche d'abord** : skill `research-grounding` + hook `UserPromptSubmit`
+  (`.claude/hooks/research-grounding.sh`) qui rappelle à chaque prompt de fonder les
+  réponses non-triviales sur l'existant (web/SOTA, GitHub via `ghx.sh`, docs officielles)
+  plutôt que la mémoire (directive complète 1×/session puis nudge). Politique : `CLAUDE.md`.
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
 ## ✅ Reste à faire
@@ -102,3 +106,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `d5192f8` 2026-06-18 — docs: record GitHub remote, license, and open decisions in PROGRESS _(1 fichiers)_
 - `8c79f20` 2026-06-18 — feat: align module path with repo; add repo-janitor + go-benchmark skills _(14 fichiers)_
 - `fbc1e03` 2026-06-18 — docs: record repo-janitor and go-benchmark skills in PROGRESS _(1 fichiers)_
+- `e5265fc` 2026-06-18 — refactor: simplify tooling per /simplify review _(14 fichiers)_
