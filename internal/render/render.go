@@ -35,13 +35,15 @@ type faceMetrics struct {
 // XImage implements unpixel.Renderer using x/image/font/opentype.
 // The font metrics match Arial (Liberation Sans is metrically identical).
 type XImage struct {
-	regularTTF []byte
-	boldTTF    []byte
-	black      image.Image // reused uniform black source
+	black image.Image // reused uniform black source
 
-	mu          sync.Mutex
 	regularFace map[float64]faceMetrics
 	boldFace    map[float64]faceMetrics
+
+	regularTTF []byte
+	boldTTF    []byte
+
+	mu sync.Mutex
 
 	// glyphMu serializes glyph rasterization. opentype.Face (and the sfnt.Font
 	// it wraps) is not safe for concurrent use: MeasureString and DrawString

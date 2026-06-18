@@ -89,9 +89,33 @@ type Style struct {
 // are filled by importing the defaults package for its side-effect, or can be
 // supplied directly for custom implementations.
 type Config struct {
+	// Renderer is the component that rasterises candidate strings to RGBA.
+	// Defaults to the XImage renderer (wired by the defaults package).
+	Renderer Renderer
+	// Pixelator is the component that applies block-average pixelation.
+	// Defaults to BlockAverage (wired by the defaults package).
+	Pixelator Pixelator
+	// Metric is the component that measures pixel-level image distance.
+	// Defaults to Pixelmatch (wired by the defaults package).
+	Metric Metric
+	// Strategy is the component that drives the search algorithm.
+	// Defaults to GuidedDFS (wired by the defaults package).
+	Strategy Strategy
+
+	// ThresholdFor returns the acceptance threshold for a given candidate
+	// character. It defaults to a closure that returns SpaceThreshold for ' '
+	// and Threshold for all other runes. Override to apply per-class thresholds
+	// without modifying search logic.
+	ThresholdFor func(rune) float64
+
 	// Charset is the ordered set of candidate characters tried at each search
 	// depth. Defaults to DefaultCharset (a–z plus space).
 	Charset string
+
+	// Style controls the font size, weight, and padding used when rendering
+	// candidates. Zero fields use the design defaults (32 pt, 8 px padding).
+	Style Style
+
 	// MaxLength is the maximum number of characters the search will attempt
 	// before backtracking. Defaults to DefaultMaxLength.
 	MaxLength int
@@ -113,28 +137,6 @@ type Config struct {
 	// ties are broken by Guess string so results are deterministic. Zero or
 	// negative values are replaced by DefaultTopN in applyDefaults.
 	TopN int
-	// ThresholdFor returns the acceptance threshold for a given candidate
-	// character. It defaults to a closure that returns SpaceThreshold for ' '
-	// and Threshold for all other runes. Override to apply per-class thresholds
-	// without modifying search logic.
-	ThresholdFor func(rune) float64
-
-	// Style controls the font size, weight, and padding used when rendering
-	// candidates. Zero fields use the design defaults (32 pt, 8 px padding).
-	Style Style
-
-	// Renderer is the component that rasterises candidate strings to RGBA.
-	// Defaults to the XImage renderer (wired by the defaults package).
-	Renderer Renderer
-	// Pixelator is the component that applies block-average pixelation.
-	// Defaults to BlockAverage (wired by the defaults package).
-	Pixelator Pixelator
-	// Metric is the component that measures pixel-level image distance.
-	// Defaults to Pixelmatch (wired by the defaults package).
-	Metric Metric
-	// Strategy is the component that drives the search algorithm.
-	// Defaults to GuidedDFS (wired by the defaults package).
-	Strategy Strategy
 
 	// BeamWidth is the maximum number of candidates retained per depth level
 	// when using BeamStrategy. Values <= 0 are replaced by DefaultBeamWidth.
@@ -205,6 +207,9 @@ type Offset struct {
 
 // Eval holds the result of evaluating a single candidate string at one search node.
 type Eval struct {
+	// GuessImage is a cropped, pixelated rendering of Guess, populated only
+	// when the caller opts in via the Strategy implementation.
+	GuessImage *image.RGBA
 	// Guess is the candidate string evaluated at this node.
 	Guess string
 	// Score is the marginal region diff score for the most recently added
@@ -213,19 +218,16 @@ type Eval struct {
 	// TooBig is true when the rendered candidate is wider than the redacted
 	// image; such candidates are pruned regardless of score.
 	TooBig bool
-	// GuessImage is a cropped, pixelated rendering of Guess, populated only
-	// when the caller opts in via the Strategy implementation.
-	GuessImage *image.RGBA
 }
 
 // Result is the final output produced by Engine.Run for one surviving grid offset.
 // One Result is sent per offset on the results channel returned by Run.
 type Result struct {
+	// Err is non-nil if the search for this offset aborted due to an error.
+	Err error
 	// BestGuess is the candidate string with the lowest overall score found
 	// during the search rooted at this offset.
 	BestGuess string
-	// BestScore is the total image-distance score of BestGuess (lower is better).
-	BestScore float64
 	// Candidates holds every string that passed the threshold gate during the
 	// search, in discovery order.
 	Candidates []Eval
@@ -234,6 +236,10 @@ type Result struct {
 	// at most Config.TopN. TopN[0] is the same candidate as BestGuess when the
 	// search produces any result. TopN is nil when no candidates were found.
 	TopN []Eval
+	// Offset is the grid origin that was searched to produce this result.
+	Offset Offset
+	// BestScore is the total image-distance score of BestGuess (lower is better).
+	BestScore float64
 	// Confidence is 1 − TopN[0].Score, giving a value in [0, 1] where 1
 	// represents a pixel-perfect match. It is 0 when TopN is empty.
 	Confidence float64
@@ -241,10 +247,6 @@ type Result struct {
 	// best and second-best candidates. A larger gap means the best guess is
 	// more clearly distinguished from alternatives. It is 0 when len(TopN) < 2.
 	Ambiguity float64
-	// Offset is the grid origin that was searched to produce this result.
-	Offset Offset
-	// Err is non-nil if the search for this offset aborted due to an error.
-	Err error
 }
 
 // String returns a one-line human-readable summary of the result: the best
@@ -291,24 +293,32 @@ const (
 // by Engine.Run. Consumers should switch on Kind to decide which fields are
 // meaningful for a given event.
 type Progress struct {
-	// Kind identifies which event this Progress value represents.
-	Kind EventKind
+	// Err carries any terminal error that caused the search to abort.
+	Err error
+
+	// PreviewImage is an optional deep copy of the pixelated guess image.
+	// It is non-nil only when the Strategy implementation populates it.
+	PreviewImage *image.RGBA
 
 	// BestGuess is the candidate string with the lowest score found so far
 	// across all offsets.
 	BestGuess string
-	// BestScore is the total image-distance score of BestGuess (lower is better).
-	BestScore float64
 
 	// Guess is the candidate string that triggered this specific event.
 	Guess string
+	// Offset is the grid origin currently being searched.
+	Offset Offset
+	// Kind identifies which event this Progress value represents.
+	Kind EventKind
+
+	// BestScore is the total image-distance score of BestGuess (lower is better).
+	BestScore float64
+
 	// Score is the image-distance score of Guess.
 	Score float64
 
 	// Depth is the current search depth, equal to the character length of Guess.
 	Depth int
-	// Offset is the grid origin currently being searched.
-	Offset Offset
 	// Evaluated is the cumulative number of candidates evaluated since Run started.
 	Evaluated int
 	// OffsetsDone is the number of grid offsets fully searched so far.
@@ -316,16 +326,10 @@ type Progress struct {
 	// OffsetsTotal is the total number of surviving grid offsets to be searched.
 	OffsetsTotal int
 
-	// PreviewImage is an optional deep copy of the pixelated guess image.
-	// It is non-nil only when the Strategy implementation populates it.
-	PreviewImage *image.RGBA
-
 	// Elapsed is the wall-clock duration since Engine.Run was called.
 	Elapsed time.Duration
 	// Done is true only on the EventDone event.
 	Done bool
-	// Err carries any terminal error that caused the search to abort.
-	Err error
 }
 
 // OnProgress drains the progress channel returned by Engine.Run, calling fn

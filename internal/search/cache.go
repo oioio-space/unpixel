@@ -27,8 +27,8 @@ type cacheKey struct {
 // The img field must not be mutated after the entry is stored; see the
 // stageResult.img doc comment for the immutability invariant.
 type cacheEntry struct {
-	sr      stageResult
 	element *list.Element // back-pointer into the LRU list
+	sr      stageResult
 }
 
 // CachingScorer wraps a PipelineScorer and memoises stageImage (steps 1–7)
@@ -43,14 +43,15 @@ type cacheEntry struct {
 // *image.RGBA, so sharing the cached img across Eval calls is safe.
 type CachingScorer struct {
 	inner      *PipelineScorer
+	lru        *list.List // front = most recently used
+	entries    map[cacheKey]*cacheEntry
 	maxEntries int
 	styleKey   uint64
 
-	mu      sync.Mutex
-	lru     *list.List // front = most recently used
-	entries map[cacheKey]*cacheEntry
-	hits    int
-	misses  int
+	hits   int
+	misses int
+
+	mu sync.Mutex
 }
 
 // NewCachingScorer returns a CachingScorer that wraps inner with an LRU cache

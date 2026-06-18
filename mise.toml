@@ -29,6 +29,7 @@ gitleaks      = "latest"   # secret scanner (pre-commit gate + CI history scan)
 "go:github.com/securego/gosec/v2/cmd/gosec" = "latest"  # Go SAST (pre-commit gate)
 "go:golang.org/x/vuln/cmd/govulncheck"      = "latest"  # reachable dep/stdlib vulns (pre-commit gate)
 "go:golang.org/x/perf/cmd/benchstat"        = "latest"  # compare benchmark runs (A/B, regression check)
+"go:github.com/dkorunic/betteralign/cmd/betteralign" = "latest"  # struct field alignment (memory layout)
 syft          = "latest"   # SBOM generation (CI)
 grype         = "latest"   # scan SBOM for CVEs (CI)
 gotestsum     = "latest"   # nicer test output + JUnit for CI
@@ -69,6 +70,14 @@ run = "./scripts/rtkx.sh go vet ./..."
 [tasks.build]
 description = "Build all packages"
 run = "./scripts/rtkx.sh go build ./..."
+
+[tasks.align]
+description = "Reorder struct fields for optimal memory alignment (betteralign -apply)"
+run = "betteralign -apply ./... && gofumpt -w ."
+
+[tasks."align:check"]
+description = "Report structs whose field order wastes memory (betteralign, no changes)"
+run = "betteralign ./..."
 
 [tasks.gen]
 description = "Generate test fixtures (reference images + manifest) via go:generate"

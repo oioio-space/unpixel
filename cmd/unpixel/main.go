@@ -54,18 +54,18 @@ func main() {
 // buildConfig without touching the flag wiring.
 type flagParams struct {
 	charset        string
+	strategy       string
+	metric         string
+	format         string
 	maxLength      int
 	blockSize      int
 	threshold      float64
 	spaceThreshold float64
 	topN           int
 	workers        int
-	strategy       string
 	beamWidth      int
-	metric         string
-	format         string
-	quiet          bool
 	timeout        time.Duration
+	quiet          bool
 }
 
 // buildConfig maps flagParams to an unpixel.Config. Scalar zero values are left
@@ -130,11 +130,11 @@ func validateParams(p flagParams) error {
 // Field names use snake_case for CLI convention and are stable across versions.
 type resultJSON struct {
 	BestGuess  string     `json:"best_guess"`
-	BestScore  float64    `json:"best_score"`
+	Top        []topEntry `json:"top"`
 	Offset     offsetJSON `json:"offset"`
+	BestScore  float64    `json:"best_score"`
 	Confidence float64    `json:"confidence"`
 	Ambiguity  float64    `json:"ambiguity"`
-	Top        []topEntry `json:"top"`
 	Evaluated  int        `json:"evaluated"`
 	ElapsedMS  int64      `json:"elapsed_ms"`
 }
@@ -154,11 +154,11 @@ type topEntry struct {
 // recoveryResult collects the aggregated output of runRecovery.
 type recoveryResult struct {
 	bestGuess  string
-	bestScore  float64
+	top        []unpixel.Eval
 	offset     unpixel.Offset
+	bestScore  float64
 	confidence float64
 	ambiguity  float64
-	top        []unpixel.Eval
 }
 
 // runRecovery runs the unpixel engine on img with cfg and drains all channels.

@@ -291,3 +291,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `c1ee424` 2026-06-19 — feat(api): printable Result and Eval (String methods) _(3 fichiers)_
 - `a000af0` 2026-06-19 — test(matrix): reference-image recovery matrix + generator (+ WithStyle option) _(23 fichiers)_
 - `f934264` 2026-06-19 — build(mise): add gen and gen:check tasks for the test fixtures _(3 fichiers)_
+- `6a9e1ab` 2026-06-19 — perf(search): drop per-candidate totalScore (display-only) — ~3.4x faster discovery _(5 fichiers)_
