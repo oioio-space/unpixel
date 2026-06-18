@@ -278,3 +278,6 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `e05fceb` 2026-06-18 — docs: document the CLI and Phase-2 features in README/PROGRESS _(2 fichiers)_
 - `356d6cf` 2026-06-18 — docs(progress): record the v0.2.0 release _(1 fichiers)_
 - `6a20677` 2026-06-18 — ci: publish a goreleaser GitHub Release on v* tags _(1 fichiers)_
+- `a240b27` 2026-06-19 — docs(progress): add Phase 3 roadmap — zero-config image→text + code support _(1 fichiers)_
+- `4e18ac2` 2026-06-19 — feat(api): one-call Recover/RecoverFile/RecoverReader + functional options (P3.1) _(3 fichiers)_
+- `bf6352b` 2026-06-19 — feat(charset): charset presets (alnum, ascii/code) + --charset-preset (P3.13) _(5 fichiers)_

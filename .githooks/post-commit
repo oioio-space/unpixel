@@ -7,7 +7,8 @@
 # sections (Reste à faire, État) are maintained by hand.
 #
 # The appended line lands in the working tree (it is not part of the commit just
-# made); it rides along with the next commit. No auto-amend (that would be unsafe).
+# made) and is then staged, so it rides along with the next commit even when that
+# commit stages only specific files. No auto-amend (that would be unsafe).
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || exit 0)"
@@ -27,3 +28,7 @@ files="$(git show --pretty=format: --name-only HEAD | grep -c . || true)"
 
 # shellcheck disable=SC2016  # backticks/%s are printf format literals, not expansions
 printf -- '- `%s` %s — %s _(%s fichiers)_\n' "$short" "$date" "$subject" "$files" >> "$progress"
+
+# Stage the appended line so it is committed with the next commit, even one that
+# stages only specific files. Best-effort: never fail the (already-made) commit.
+git add -- "$progress" 2>/dev/null || true
