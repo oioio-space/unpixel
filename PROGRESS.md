@@ -45,6 +45,12 @@ Outillage qualité en place ; **portage pas encore commencé**.
   (`syft`) scanné par `grype` en CI (`mise run sbom` / `scan:sbom`, fail-on high).
   Tasks : `mise run scan:code[:staged]`.
 - Ordre des gates au commit : secrets → vulns code → style.
+- **Routage sous-agents** (économie tokens) : `.claude/agents/*.md`, tier dans le
+  frontmatter (`model`/`effort`/`skills`/`description`). Haiku = mécanique
+  (`quality-runner`, `scribe`, `explorer`) ; Sonnet = dev/review (`go-dev`,
+  `go-reviewer`, skills go-style-guide+use-modern-go préchargés) ; Opus = design algo
+  (`algo-architect`) + audit sécu (`security-auditor`). Politique inter-agents : `CLAUDE.md`.
+  Ne PAS définir `CLAUDE_CODE_SUBAGENT_MODEL` (écraserait les `model:`).
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
 ## ✅ Reste à faire
@@ -76,3 +82,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `5aec48e` 2026-06-18 — docs: record secret-scanning layers in PROGRESS _(1 fichiers)_
 - `3ad67bf` 2026-06-18 — feat: add gosec+govulncheck vuln gates, SBOM/grype CI scan, vuln-guard skill _(8 fichiers)_
 - `7664183` 2026-06-18 — feat: add JetBrains use-modern-go skill (broadened trigger) _(2 fichiers)_
+- `56a75de` 2026-06-18 — feat: auto-apply use-modern-go via PreToolUse hook on Go edits _(3 fichiers)_
