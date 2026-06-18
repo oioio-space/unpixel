@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/oioio-space/unpixel"
@@ -98,6 +99,23 @@ func TestRecoverReader_badImage(t *testing.T) {
 func TestRecoverFile_missing(t *testing.T) {
 	if _, err := unpixel.RecoverFile(t.Context(), filepath.Join(t.TempDir(), "nope.png")); err == nil {
 		t.Error("RecoverFile(missing) = nil error, want open error")
+	}
+}
+
+// TestResultString checks the human-readable Result/Eval summaries.
+func TestResultString(t *testing.T) {
+	r := unpixel.Result{BestGuess: "hello", BestScore: 0.0123, Confidence: 0.94}
+	if got := r.String(); !strings.Contains(got, `"hello"`) || !strings.Contains(got, "confidence") {
+		t.Errorf("Result.String() = %q, want guess + confidence", got)
+	}
+	if got := (unpixel.Result{}).String(); !strings.Contains(got, "no candidate") {
+		t.Errorf("empty Result.String() = %q, want 'no candidate'", got)
+	}
+	if got := (unpixel.Result{Err: errors.New("boom")}).String(); !strings.Contains(got, "boom") {
+		t.Errorf("errored Result.String() = %q, want the error", got)
+	}
+	if got := (unpixel.Eval{Guess: "ab", Score: 0.5}).String(); !strings.Contains(got, `"ab"`) {
+		t.Errorf("Eval.String() = %q, want the guess", got)
 	}
 }
 

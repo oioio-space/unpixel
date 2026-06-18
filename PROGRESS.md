@@ -285,3 +285,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `4e18ac2` 2026-06-19 — feat(api): one-call Recover/RecoverFile/RecoverReader + functional options (P3.1) _(3 fichiers)_
 - `bf6352b` 2026-06-19 — feat(charset): charset presets (alnum, ascii/code) + --charset-preset (P3.13) _(5 fichiers)_
 - `e95ed8a` 2026-06-19 — fix(hooks): stage the PROGRESS history line so it lands in a later commit _(2 fichiers)_
+- `0f919e4` 2026-06-19 — feat(auto): dark-background auto-contrast (P3.4, partial) _(3 fichiers)_

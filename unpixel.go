@@ -250,6 +250,24 @@ type Result struct {
 	Err error
 }
 
+// String returns a one-line human-readable summary of the result: the best
+// guess with its score and confidence, or an error / "no result" note.
+func (r Result) String() string {
+	switch {
+	case r.Err != nil:
+		return "unpixel: error: " + r.Err.Error()
+	case r.BestGuess == "":
+		return "unpixel: no candidate recovered"
+	default:
+		return fmt.Sprintf("%q (score %.4f, confidence %.2f)", r.BestGuess, r.BestScore, r.Confidence)
+	}
+}
+
+// String returns the candidate and its marginal score, e.g. `"hello" (0.0123)`.
+func (e Eval) String() string {
+	return fmt.Sprintf("%q (%.4f)", e.Guess, e.Score)
+}
+
 // EventKind identifies the type of a Progress event delivered on the channel
 // returned by Engine.Run.
 type EventKind int
