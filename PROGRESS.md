@@ -41,10 +41,12 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 - **README** : réécrit via skill `readme-author` (principes awesome-readme) : badges CI/Go
   Reference/Go Report Card/GPL-3.0, démo, features, install/usage vérifiés, config table,
   architecture, crédits/attribution.
-- **Tests** : 116+ tests passants (`-race` propre) ; auto-redaction round-trip récupère le
-  plaintext connu ("hello"). Couverture **~92%** ; seuil `COVER_MIN` à 85. Un test Phase-2 skippé :
-  récupérer le `secret.png` Chromium-original nécessite renderer `chromedp` (écart
-  moteur-fidélité documenté).
+- **Tests** : 150+ tests passants (`-race` propre). Couverture **~90%** ; seuil `COVER_MIN` à 85.
+  **Matrice de récupération** : `internal/fixture` génère des images de référence (PNG + `manifest.json`
+  liant chaque image à ses paramètres) via `go generate` ; `matrix_test.go` les recharge et vérifie
+  la récupération sur blocs (4/8/16), tailles, gras, charsets (minuscules/alnum/symboles), padding
+  (offset), formes de texte, dark-mode, et formats (PNG/GIF/JPEG). Un test Phase-2 skippé :
+  récupérer le `secret.png` Chromium-original nécessite renderer `chromedp` (écart moteur-fidélité).
 - **Design doc** : `docs/DESIGN.md` ajouté (algo fidèle + choix libs + API progression +
   plan TDD + améliorations Phase-2).
 - **⛔ AUCUN CGO** — règle absolue du projet. Go pur ; CGO interdit. `CGO_ENABLED=0` épinglé
@@ -286,3 +288,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `bf6352b` 2026-06-19 — feat(charset): charset presets (alnum, ascii/code) + --charset-preset (P3.13) _(5 fichiers)_
 - `e95ed8a` 2026-06-19 — fix(hooks): stage the PROGRESS history line so it lands in a later commit _(2 fichiers)_
 - `0f919e4` 2026-06-19 — feat(auto): dark-background auto-contrast (P3.4, partial) _(3 fichiers)_
+- `c1ee424` 2026-06-19 — feat(api): printable Result and Eval (String methods) _(3 fichiers)_

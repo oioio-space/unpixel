@@ -641,6 +641,10 @@ func WithBlockSize(n int) Option { return func(c *Config) { c.BlockSize = n } }
 // WithThreshold sets Config.Threshold (the per-block acceptance gate).
 func WithThreshold(t float64) Option { return func(c *Config) { c.Threshold = t } }
 
+// WithStyle sets Config.Style (font size, weight, and padding). It must match
+// the style of the redacted text for recovery to succeed.
+func WithStyle(s Style) Option { return func(c *Config) { c.Style = s } }
+
 // WithTopN sets Config.TopN (ranked candidates retained per offset).
 func WithTopN(n int) Option { return func(c *Config) { c.TopN = n } }
 
