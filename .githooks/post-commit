@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Git native post-commit hook — append each commit to PROGRESS.md history.
+#
+# Runs after every successful commit (via core.hooksPath=.githooks). It stamps the
+# commit number, date, subject and file count into the "Historique des commits"
+# section of PROGRESS.md, giving a continuous, resumable project log. The narrative
+# sections (Reste à faire, État) are maintained by hand.
+#
+# The appended line lands in the working tree (it is not part of the commit just
+# made); it rides along with the next commit. No auto-amend (that would be unsafe).
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || exit 0)"
+progress="$repo_root/PROGRESS.md"
+[[ -f "$progress" ]] || exit 0
+
+short="$(git rev-parse --short HEAD)"
+
+# Idempotent: skip if this commit is already logged (e.g. hook fired twice).
+if grep -qF -- "\`$short\`" "$progress"; then
+  exit 0
+fi
+
+date="$(git log -1 --pretty=%cd --date=format:'%Y-%m-%d')"
+subject="$(git log -1 --pretty=%s)"
+files="$(git show --pretty=format: --name-only HEAD | grep -c . || true)"
+
+printf -- '- `%s` %s — %s _(%s fichiers)_\n' "$short" "$date" "$subject" "$files" >> "$progress"
