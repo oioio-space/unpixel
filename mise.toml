@@ -26,6 +26,10 @@ golangci-lint = "2.12.2"   # aqua:golangci/golangci-lint
 gofumpt       = "latest"   # stricter gofmt (guide: Formatting)
 shellcheck    = "latest"   # lints our bash hook scripts
 gitleaks      = "latest"   # secret scanner (pre-commit gate + CI history scan)
+"go:github.com/securego/gosec/v2/cmd/gosec" = "latest"  # Go SAST (pre-commit gate)
+"go:golang.org/x/vuln/cmd/govulncheck"      = "latest"  # reachable dep/stdlib vulns (pre-commit gate)
+syft          = "latest"   # SBOM generation (CI)
+grype         = "latest"   # scan SBOM for CVEs (CI)
 gotestsum     = "latest"   # nicer test output + JUnit for CI
 goreleaser    = "latest"   # cross-platform release builds of the CLI
 actionlint    = "latest"   # lints GitHub Actions workflows
@@ -98,9 +102,26 @@ run = "./scripts/rtkx.sh gitleaks git --redact ."
 description = "Scan staged changes for secrets (pre-commit gate)"
 run = "./scripts/rtkx.sh gitleaks git --staged --redact"
 
+[tasks."scan:code"]
+description = "Code vuln scan: gosec (SAST) + govulncheck (reachable CVEs)"
+run = "./scripts/sec-scan.sh"
+
+[tasks."scan:code:staged"]
+description = "Code vuln scan on staged Go (pre-commit gate)"
+run = "./scripts/sec-scan.sh --staged"
+
+[tasks.sbom]
+description = "Generate a CycloneDX SBOM (syft)"
+run = "syft scan dir:. -o cyclonedx-json=sbom.cdx.json -q"
+
+[tasks."scan:sbom"]
+description = "Scan the SBOM for CVEs (grype) — fails on high/critical"
+depends = ["sbom"]
+run = "./scripts/rtkx.sh grype sbom:sbom.cdx.json --fail-on high"
+
 [tasks.ci]
 description = "Everything CI must pass"
-depends = ["scan:secrets", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
+depends = ["scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
 
 [tasks.release]
 description = "Cross-platform release build + publish (goreleaser)"

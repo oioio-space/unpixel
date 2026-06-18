@@ -3,10 +3,11 @@
 # Installed via `git config core.hooksPath .githooks` (see scripts/install-hooks.sh),
 # so it is versioned with the repo and fires for everyone on every `git commit`.
 #
-# Two gates, in order of severity:
+# Three gates, in order of severity:
 #   1. Secret scan (gitleaks) on staged changes — block leaks before they exist.
-#   2. Google Go style-guide gate (gofmt/vet/golangci-lint/build/test) on staged Go.
-# A non-zero exit from either aborts the commit.
+#   2. Code vuln scan (gosec + govulncheck) on staged Go — block insecure code.
+#   3. Google Go style-guide gate (gofmt/vet/golangci-lint/build/test) on staged Go.
+# A non-zero exit from any of them aborts the commit.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -36,7 +37,21 @@ else
   printf '\033[33m⚠ gitleaks not found — skipping secret scan. Install: mise install gitleaks\033[0m\n' >&2
 fi
 
-# ── Gate 2: Go style-guide ────────────────────────────────────────────────────
+# ── Gate 2: code vulnerabilities ──────────────────────────────────────────────
+printf '\033[34m▶ Scanning staged Go for vulnerabilities (gosec + govulncheck)…\033[0m\n'
+if [[ $use_mise -eq 1 ]]; then
+  run_vulns() { mise run "scan:code:staged"; }
+else
+  run_vulns() { "$repo_root/scripts/sec-scan.sh" --staged; }
+fi
+if ! run_vulns; then
+  printf '\033[31m✗ Commit blocked: a security vulnerability was found in the staged code.\033[0m\n' >&2
+  printf '  Fix it, or annotate a true false positive narrowly (//nolint:gosec // reason).\n' >&2
+  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
+  exit 1
+fi
+
+# ── Gate 3: Go style-guide ────────────────────────────────────────────────────
 printf '\033[34m▶ Running Google Go style-guide checks (pre-commit)…\033[0m\n'
 if [[ $use_mise -eq 1 ]]; then
   run_gate() { mise run "lint:staged"; }
