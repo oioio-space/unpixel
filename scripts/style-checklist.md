@@ -25,6 +25,15 @@ confirm, fix it or call it out. Then proceed only if the diff is clean.
 - [ ] Comments explain WHY (non-obvious rationale), not WHAT the code already says.
 - [ ] Package comment present, directly above `package`, `// Package x …` form.
 
+## GoDoc / pkg.go.dev (write docs that render, not just exist)
+Exported API is read on pkg.go.dev — make it read well there, before each commit:
+- [ ] Exported **struct fields**, interface methods, and `const`/`var` each carry their own doc comment (they render individually; don't rely on the type comment alone).
+- [ ] Package doc gives a real **overview**: what it does, the approach in a sentence, and how to USE it — blank `//` lines between paragraphs; an indented code snippet for a usage hint renders as a code block.
+- [ ] Doc comments state **contracts**: zero-value/default behavior, ownership (who closes a channel / frees a resource), nil handling, and which error a func returns when.
+- [ ] Public packages have a runnable **`Example`** (in `pkg_test`) so pkg.go.dev shows usage; it must compile (omit `// Output:` if it shouldn't run under `go test`).
+- [ ] GoDoc formatting is valid: headings (`# Heading`), lists, and `[Type]`/`[pkg.Symbol]` doc links where they help; no stale signatures in prose.
+- [ ] Sanity-check with `go doc ./<pkg>` (and `go doc ./<pkg> Symbol`) — it should read as good standalone documentation.
+
 ## Errors
 - [ ] Error strings lowercase, no trailing punctuation.
 - [ ] Errors handled immediately; happy path un-indented; no `else` after a returning `if`.

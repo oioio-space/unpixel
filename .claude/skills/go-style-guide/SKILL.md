@@ -46,6 +46,12 @@ From `references/guide.md`. When principles conflict, earlier wins:
 - `MixedCaps`, never `under_scores`; initialisms keep case (`URL`, `ID`, `userID`).
 - Exported symbols have doc comments starting with the symbol name, full sentences
   ending in a period.
+- **GoDoc / pkg.go.dev**: write exported docs to render well on pkg.go.dev, not just
+  to exist. Document every exported struct field / interface method / const-var
+  individually; give the package doc a real overview (what + approach + how to use,
+  with a usage snippet); state contracts (zero-value/default behavior, channel/resource
+  ownership, nil handling, which error when); add a runnable `Example` (in `pkg_test`)
+  for public packages so usage shows on pkg.go.dev. Sanity-check with `go doc ./<pkg>`.
 - Error strings: lowercase, no trailing punctuation. Wrap with `%w` (at the end)
   when callers need `errors.Is`/`errors.As`; `%v` at system boundaries.
 - Handle errors immediately; indent the error path, keep the happy path un-indented;
