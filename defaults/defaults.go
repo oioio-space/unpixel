@@ -1,10 +1,19 @@
-// Package defaults wires the standard internal components (XImage renderer,
-// BlockAverage pixelator, Pixelmatch metric, GuidedDFS strategy) into an
-// unpixel.Config. Import this package for its side-effect to enable
-// Engine.Run with a zero-value Config.
+// Package defaults wires the standard internal components into an unpixel.Config.
 //
-// This package exists solely to break the import cycle between the root
-// unpixel package and its internal implementations.
+// The four standard components are:
+//   - XImage renderer — rasterises text via the golang.org/x/image font stack.
+//   - BlockAverage pixelator — replaces each block with its mean RGBA colour.
+//   - Pixelmatch metric — measures pixel-level distance with a 0.02 threshold.
+//   - GuidedDFS strategy — guided depth-first search over the candidate alphabet.
+//
+// Import this package for its side-effect alone to make Engine.Run work with a
+// zero-value Config:
+//
+//	import _ "github.com/oioio-space/unpixel/defaults"
+//
+// This package exists solely to break the import cycle between the root unpixel
+// package and its internal implementations. Applications that supply all four
+// component fields in Config explicitly do not need to import it.
 package defaults
 
 import (
@@ -21,8 +30,12 @@ func init() {
 	unpixel.DefaultComponents = Wire
 }
 
-// Wire fills nil component fields in cfg with the standard implementations.
-// It returns an error if the renderer cannot be initialised (font parse failure).
+// Wire fills any nil component fields in cfg with the standard implementations.
+// It is called automatically by Engine.Run via the DefaultComponents hook when
+// this package is imported for its side-effect. It may also be called directly
+// to pre-initialise a Config before passing it to New.
+// Wire returns an error if the XImage renderer cannot be initialised, which
+// indicates a font-parsing failure in the embedded font data.
 func Wire(cfg *unpixel.Config) error {
 	if cfg.Renderer == nil {
 		r, err := render.NewXImage()
