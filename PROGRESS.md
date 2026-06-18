@@ -334,3 +334,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `f934264` 2026-06-19 — build(mise): add gen and gen:check tasks for the test fixtures _(3 fichiers)_
 - `6a9e1ab` 2026-06-19 — perf(search): drop per-candidate totalScore (display-only) — ~3.4x faster discovery _(5 fichiers)_
 - `598304d` 2026-06-19 — perf(layout): align struct fields with betteralign + add mise align tasks _(6 fichiers)_
+- `3ba80c3` 2026-06-19 — docs(progress): add Phase 4 — search performance roadmap _(1 fichiers)_
