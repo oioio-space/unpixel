@@ -32,7 +32,11 @@ package unpixel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
+	_ "image/png" // register PNG decoding for RecoverReader/RecoverFile
+	"io"
+	"os"
 	"runtime"
 	"time"
 )
@@ -526,4 +530,143 @@ func toRGBA(src image.Image) *image.RGBA {
 		}
 	}
 	return dst
+}
+
+// Option configures a Config for the high-level Recover helpers. Options are
+// applied in order, so a later option overrides an earlier one; WithConfig
+// (which replaces the whole Config) is therefore best passed first.
+type Option func(*Config)
+
+// WithConfig uses cfg as the starting point before any other options are
+// applied. Pass it first to layer further options on top of a full Config.
+func WithConfig(cfg Config) Option { return func(c *Config) { *c = cfg } }
+
+// WithCharset sets Config.Charset (the ordered candidate alphabet).
+func WithCharset(charset string) Option { return func(c *Config) { c.Charset = charset } }
+
+// WithMaxLength sets Config.MaxLength (the maximum candidate length).
+func WithMaxLength(n int) Option { return func(c *Config) { c.MaxLength = n } }
+
+// WithBlockSize sets Config.BlockSize. A non-positive value lets New auto-detect
+// the block size from the image (see InferBlockSize).
+func WithBlockSize(n int) Option { return func(c *Config) { c.BlockSize = n } }
+
+// WithThreshold sets Config.Threshold (the per-block acceptance gate).
+func WithThreshold(t float64) Option { return func(c *Config) { c.Threshold = t } }
+
+// WithTopN sets Config.TopN (ranked candidates retained per offset).
+func WithTopN(n int) Option { return func(c *Config) { c.TopN = n } }
+
+// WithWorkers sets Config.Workers (max grid offsets searched concurrently;
+// non-positive means runtime.GOMAXPROCS).
+func WithWorkers(n int) Option { return func(c *Config) { c.Workers = n } }
+
+// WithStrategy sets Config.Strategy (the search algorithm).
+func WithStrategy(s Strategy) Option { return func(c *Config) { c.Strategy = s } }
+
+// WithMetric sets Config.Metric (the image-distance metric).
+func WithMetric(m Metric) Option { return func(c *Config) { c.Metric = m } }
+
+// ErrNoComponents is returned by the Recover helpers when the Config leaves a
+// component (Renderer, Pixelator, Metric, or Strategy) nil and the defaults
+// package has not been imported to wire them.
+var ErrNoComponents = errors.New("unpixel: missing component and no DefaultComponents wired; " +
+	"import github.com/oioio-space/unpixel/defaults or set the component via options")
+
+// Recover is the one-call entry point: it runs the full search on the redacted
+// image and returns the single best Result across all grid offsets. It builds a
+// Config from opts, auto-detects what it can (e.g. the block size), wires the
+// default components (when the defaults package is imported), runs the search,
+// and drains the channels for the caller.
+//
+// The common usage is a side-effect import of the defaults package:
+//
+//	import _ "github.com/oioio-space/unpixel/defaults"
+//	res, err := unpixel.Recover(ctx, img)
+//	fmt.Println(res.BestGuess)
+//
+// Recover returns ErrNilImage for a nil image and ErrNoComponents when a
+// component is missing and no defaults are wired. A search that finds nothing
+// returns the zero Result and a nil error.
+func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result, error) {
+	if redacted == nil {
+		return Result{}, ErrNilImage
+	}
+	var cfg Config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if componentsMissing(cfg) && DefaultComponents == nil {
+		return Result{}, ErrNoComponents
+	}
+
+	eng, err := New(redacted, cfg)
+	if err != nil {
+		return Result{}, err
+	}
+
+	progCh, resultCh := eng.Run(ctx)
+	// Drain progress concurrently: high-priority events (EventNewBest/EventDone)
+	// are blocking sends, so the search would stall if nothing reads them.
+	progDone := make(chan struct{})
+	go func() {
+		defer close(progDone)
+		for range progCh { //nolint:revive // intentional drain
+		}
+	}()
+
+	// Every offset's Result carries the same global BestScore, so rank offsets by
+	// their own top candidate to return the one that actually holds the winner.
+	var (
+		best     Result
+		bestRank = 2.0 // worse than any score in [0, 1]
+		found    bool
+	)
+	for r := range resultCh {
+		if r.Err != nil {
+			err = r.Err
+			continue
+		}
+		rank := 1.0
+		if len(r.TopN) > 0 {
+			rank = r.TopN[0].Score
+		}
+		if !found || rank < bestRank {
+			best = r
+			bestRank = rank
+			found = true
+		}
+	}
+	<-progDone
+
+	if !found {
+		return Result{}, err
+	}
+	return best, nil
+}
+
+// RecoverReader decodes an image (PNG is registered; register other formats by
+// importing their image/<fmt> package) from r and calls Recover.
+func RecoverReader(ctx context.Context, r io.Reader, opts ...Option) (Result, error) {
+	img, _, err := image.Decode(r)
+	if err != nil {
+		return Result{}, fmt.Errorf("decode image: %w", err)
+	}
+	return Recover(ctx, img, opts...)
+}
+
+// RecoverFile opens the image at path and calls RecoverReader. Pass "-" handling
+// at the call site if stdin support is needed; RecoverFile always opens a file.
+func RecoverFile(ctx context.Context, path string, opts ...Option) (Result, error) {
+	f, err := os.Open(path) // #nosec G304 -- caller-provided image path is the operation's purpose
+	if err != nil {
+		return Result{}, fmt.Errorf("open image: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return RecoverReader(ctx, f, opts...)
+}
+
+// componentsMissing reports whether any pluggable component is still nil.
+func componentsMissing(cfg Config) bool {
+	return cfg.Renderer == nil || cfg.Pixelator == nil || cfg.Metric == nil || cfg.Strategy == nil
 }

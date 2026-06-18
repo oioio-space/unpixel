@@ -108,7 +108,7 @@ stderr. `--format json` emits a stable schema (`best_guess`, `confidence`, `top`
 
 ## Quick start
 
-Recover the text behind a pixelated PNG:
+One call — give it an image (or a path), get the text back:
 
 ```go
 package main
@@ -116,46 +116,61 @@ package main
 import (
 	"context"
 	"fmt"
-	"image/png"
-	"os"
 
 	"github.com/oioio-space/unpixel"
 	_ "github.com/oioio-space/unpixel/defaults" // wires the default renderer/pixelator/metric/strategy
 )
 
 func main() {
-	f, err := os.Open("redacted.png")
+	res, err := unpixel.RecoverFile(context.Background(), "redacted.png")
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
-
-	img, err := png.Decode(f)
-	if err != nil {
-		panic(err)
-	}
-
-	eng, err := unpixel.New(img, unpixel.Config{}) // zero Config = faithful defaults
-	if err != nil {
-		panic(err)
-	}
-
-	progress, results := eng.Run(context.Background())
-	go unpixel.OnProgress(progress, func(p unpixel.Progress) {
-		fmt.Printf("\rbest: %-20q (%.3f)", p.BestGuess, p.BestScore)
-	})
-
-	fmt.Println("\nrecovered:", (<-results).BestGuess)
+	fmt.Println("recovered:", res.BestGuess)
 }
 ```
+
+`Recover` / `RecoverReader` / `RecoverFile` take functional options for the common knobs while
+auto-detecting the rest (block size, …):
+
+```go
+res, err := unpixel.Recover(ctx, img,
+	unpixel.WithCharset("abcdefghijklmnopqrstuvwxyz0123456789 "),
+	unpixel.WithWorkers(8),
+)
+```
+
+For streaming progress or full control, drop to the low-level `Engine` (the helpers wrap exactly
+this):
+
+<details><summary>Low-level <code>Engine</code> API</summary>
+
+```go
+eng, err := unpixel.New(img, unpixel.Config{}) // zero Config = faithful defaults
+if err != nil {
+	panic(err)
+}
+progress, results := eng.Run(context.Background())
+go unpixel.OnProgress(progress, func(p unpixel.Progress) {
+	fmt.Printf("\rbest: %-20q (%.3f)", p.BestGuess, p.BestScore)
+})
+fmt.Println("\nrecovered:", (<-results).BestGuess)
+```
+
+</details>
 
 Public API (root package `unpixel`):
 
 | Symbol | Purpose |
 |--------|---------|
+| `Recover(ctx, image.Image, ...Option) (Result, error)` | One call: search and return the best result |
+| `RecoverReader(ctx, io.Reader, ...Option)` / `RecoverFile(ctx, path, ...Option)` | Decode then `Recover` |
+| `With*` options (`WithCharset`, `WithWorkers`, `WithStrategy`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
 | `New(redacted image.Image, cfg Config) (*Engine, error)` | Build an engine; zero `Config` = faithful defaults |
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
+| `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
 | `OnProgress(ch <-chan Progress, fn func(Progress))` | Drain progress events into a callback (any UI) |
+| `InferBlockSize(image.Image) int` | Detect the mosaic block size |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
 | `Config`, `Style`, `Result`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
 
