@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Git native pre-commit hook (deterministic style-guide gate).
+# Installed via `git config core.hooksPath .githooks` (see scripts/install-hooks.sh),
+# so it is versioned with the repo and fires for everyone on every `git commit`.
+#
+# It delegates to scripts/lint.sh, limited to the staged Go files. A non-zero exit
+# aborts the commit.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+printf '\033[34m▶ Running Google Go style-guide checks (pre-commit)…\033[0m\n'
+
+if ! "$repo_root/scripts/lint.sh" --staged; then
+  printf '\033[31m✗ Commit blocked: fix the style-guide violations above.\033[0m\n' >&2
+  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
+  exit 1
+fi

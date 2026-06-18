@@ -1,0 +1,11 @@
+# Binaries
+/unpixel
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.*
+
+# OS / editor
+.DS_Store
