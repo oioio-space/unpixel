@@ -2,7 +2,7 @@
 # Repo janitor — keep regenerable build/scan artifacts out of the repo.
 #
 #   --check  : pre-commit gate. Removes KNOWN untracked artifacts from the worktree,
-#              then BLOCKS the commit if any staged file looks like an artifact.
+#              then BLOCKS the commit if any staged file is gitignored (an artifact).
 #   (default): full local clean (`mise run clean`) — artifacts + go build cache.
 #
 # Only ever deletes paths that are NOT tracked by git, so it can never remove source.
@@ -11,45 +11,32 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-# Regenerable artifact paths (all gitignored tool outputs).
-artifacts=(dist coverage.out junit.xml sbom.cdx.json unpixel)
-glob_artifacts=("*.test" "*.out" "*.exe" "coverage.*" "bench-*.txt" "*.prof")
-
+# Regenerable artifacts to proactively delete (conservative explicit list — we do NOT
+# `git clean -X` because that would also wipe local-only config like mise.local.toml).
+# Globs are expanded here (nullglob drops non-matches); literal names stay as-is.
 remove_untracked() {
-  local removed=()
-  local p pat
-  for p in "${artifacts[@]}"; do
+  shopt -s nullglob
+  local items=(dist coverage.* junit.xml sbom.cdx.json unpixel *.test *.out *.exe bench-*.txt *.prof)
+  shopt -u nullglob
+  local removed=() p
+  for p in "${items[@]}"; do
     [[ -e "$p" ]] || continue
     git ls-files --error-unmatch "$p" >/dev/null 2>&1 && continue # tracked → never delete
     rm -rf -- "$p" && removed+=("$p")
   done
-  shopt -s nullglob
-  for pat in "${glob_artifacts[@]}"; do
-    for p in $pat; do
-      [[ -e "$p" ]] || continue
-      git ls-files --error-unmatch "$p" >/dev/null 2>&1 && continue
-      rm -f -- "$p" && removed+=("$p")
-    done
-  done
-  shopt -u nullglob
-  if ((${#removed[@]})); then
-    printf '🧹 removed regenerable artifacts: %s\n' "${removed[*]}"
-  fi
-}
-
-# Staged paths that must never be committed.
-staged_offenders() {
-  git diff --cached --name-only --diff-filter=ACM | grep -E \
-    '(^|/)dist/|(^|/)coverage\.|(^|/)junit\.xml$|(^|/)sbom\.cdx\.json$|\.(test|out|exe)$|^unpixel$' || true
+  ((${#removed[@]})) && printf '🧹 removed regenerable artifacts: %s\n' "${removed[*]}"
+  return 0
 }
 
 remove_untracked
 
 if [[ "${1:-}" == "--check" ]]; then
-  off="$(staged_offenders)"
-  if [[ -n "$off" ]]; then
-    printf 'These build/scan artifacts are staged and must not be committed:\n%s\n' "$off" >&2
-    printf 'Unstage them (git restore --staged <f>) and ensure they are gitignored.\n' >&2
+  # Authoritative artifact definition = .gitignore. Any staged file that matches an
+  # ignore rule is an artifact that must not be committed (e.g. via `git add -f`).
+  offenders="$(git diff --cached --name-only --diff-filter=ACM | git check-ignore --no-index --stdin 2>/dev/null || true)"
+  if [[ -n "$offenders" ]]; then
+    printf 'These gitignored artifacts are staged and must not be committed:\n%s\n' "$offenders" >&2
+    printf 'Unstage them (git restore --staged <f>); they are already in .gitignore.\n' >&2
     exit 1
   fi
   echo "✓ No build/scan artifacts staged."

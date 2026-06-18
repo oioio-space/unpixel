@@ -1,38 +1,20 @@
 #!/usr/bin/env bash
 # Claude Code PreToolUse hook (AI repo-janitor layer).
-#
-# On `git commit`, injects the repo-janitor checklist so Claude double-checks that no
-# regenerable/stray artifacts are being committed. Non-blocking (the deterministic
-# clean gate is the hard block); silent for any other command.
+# On `git commit`, reminds Claude to keep regenerable/stray artifacts out of the commit.
+# Non-blocking (clean:check is the hard gate). Silent for any other command.
 set -euo pipefail
+# shellcheck source=lib/hooklib.sh
+source "$(dirname "$0")/lib/hooklib.sh"
 
-input="$(cat)"
+hook_is_git_commit "$(hook_cmd)" || exit 0
 
-if command -v jq >/dev/null 2>&1; then
-  cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
-else
-  cmd="$(printf '%s' "$input" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed -E 's/.*:[[:space:]]*"(.*)"/\1/')"
-fi
+hook_emit_context "REPO-JANITOR PRE-COMMIT CHECK:
 
-if ! printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit($|[[:space:]])'; then
-  exit 0
-fi
-case "$cmd" in
-  *--help*|*' -h'*) exit 0 ;;
-esac
+Run \`git diff --cached --name-only\` and make sure nothing gitignored/regenerable is
+staged — build output (dist/, the unpixel binary, *.exe, *.test), test/scan output
+(coverage.*, junit.xml, sbom.cdx.json, bench-*.txt, *.prof, *.out), or junk
+(.DS_Store, mise.local.toml, .env*). The authoritative list is .gitignore.
 
-context="REPO-JANITOR PRE-COMMIT CHECK:
-
-Make sure NO regenerable/stray artifacts are being committed:
-- build: dist/, the unpixel binary, *.exe, *.test
-- test/scan: coverage.out, junit.xml, sbom.cdx.json, *.out
-- junk: .DS_Store, mise.local.toml, .env*
-
-Run \`git diff --cached --name-only\` to confirm. If any artifact is staged, unstage it,
-gitignore it, and (for a new artifact kind) add it to scripts/clean-artifacts.sh. See the
-repo-janitor skill. (mise run clean:check also runs as a hard gate.)"
-
-jq -cn --arg ctx "$context" '{
-  hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: $ctx }
-}'
-exit 0
+If an artifact is staged, unstage it and gitignore it; for a new artifact kind, add it
+to scripts/clean-artifacts.sh too. See the repo-janitor skill. (mise run clean:check
+also runs as a hard gate.)"

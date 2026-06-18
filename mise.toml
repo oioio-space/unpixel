@@ -71,8 +71,8 @@ description = "Run tests (gotestsum, readable output)"
 run = "./scripts/rtkx.sh gotestsum --format pkgname -- ./..."
 
 [tasks."test:ci"]
-description = "Run tests with a JUnit report for CI"
-run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- ./..."
+description = "Run tests once, producing a JUnit report AND coverage.out"
+run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- -covermode=atomic -coverprofile=coverage.out ./..."
 
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
@@ -95,7 +95,8 @@ description = "Test coverage report (coverage.out + total %)"
 run = "./scripts/cover.sh"
 
 [tasks."cover:check"]
-description = "Enforce minimum coverage (COVER_MIN, default 0)"
+description = "Enforce minimum coverage (COVER_MIN); reuses coverage.out from test:ci"
+depends = ["test:ci"]
 run = "./scripts/cover.sh --check"
 
 [tasks.lint]
@@ -108,7 +109,7 @@ run = "./scripts/rtkx.sh ./scripts/lint.sh --staged"
 
 [tasks."lint:sh"]
 description = "Lint the bash hook scripts with shellcheck"
-run = "shellcheck .githooks/* .claude/hooks/*.sh scripts/*.sh"
+run = "shellcheck -x --source-path=SCRIPTDIR .githooks/* .claude/hooks/*.sh .claude/hooks/lib/*.sh scripts/*.sh"
 
 [tasks."lint:yaml"]
 description = "Lint YAML config formatting with yamlfmt"

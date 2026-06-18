@@ -10,12 +10,13 @@
 #    or: mise run gh -- <gh args...>
 set -uo pipefail
 
-# Inner command: prefer rtk's compact gh, else plain gh (resolved from PATH).
-# shellcheck disable=SC2016  # $@ is expanded by the inner `bash -c`, not here.
-inner='if command -v rtk >/dev/null 2>&1; then exec rtk gh "$@"; else exec gh "$@"; fi'
+# Prefer rtk's compact gh; run under `mise exec` so gh resolves to the mise-managed
+# version. Each branch degrades gracefully if mise or rtk is absent.
+have() { command -v "$1" >/dev/null 2>&1; }
 
-if command -v mise >/dev/null 2>&1; then
-  # Run under mise so `gh` resolves to the mise-managed version.
-  exec mise exec -- bash -c "$inner" _ "$@"
+if have mise; then
+  if have rtk; then exec mise exec -- rtk gh "$@"; fi
+  exec mise exec -- gh "$@"
 fi
-exec bash -c "$inner" _ "$@"
+if have rtk; then exec rtk gh "$@"; fi
+exec gh "$@"

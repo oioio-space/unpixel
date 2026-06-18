@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Git native pre-commit hook (deterministic gates).
-# Installed via `git config core.hooksPath .githooks` (see scripts/install-hooks.sh),
-# so it is versioned with the repo and fires for everyone on every `git commit`.
+# Installed via `git config core.hooksPath .githooks`, so it is versioned and fires for
+# everyone on every `git commit`.
 #
 # Four gates, in order:
 #   0. Repo janitor — tidy regenerable artifacts + block any staged artifact.
@@ -13,67 +13,39 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 
-# Prefer mise so the pinned tool versions (mise.toml) are used; fall back to plain
-# script/binary runs when mise isn't installed.
+# Prefer the mise task (pinned tool versions); fall back to the raw script/binary.
 use_mise=0
-if command -v mise >/dev/null 2>&1 && [[ -f "$repo_root/mise.toml" ]]; then
-  use_mise=1
-fi
+if command -v mise >/dev/null 2>&1 && [[ -f "$repo_root/mise.toml" ]]; then use_mise=1; fi
+mise_or() { # $1 = mise task, rest = fallback command
+  local task="$1"
+  shift
+  if [[ $use_mise -eq 1 ]]; then mise run "$task"; else "$@"; fi
+}
 
-# ── Gate 0: repo janitor ──────────────────────────────────────────────────────
-printf '\033[34m▶ Tidying artifacts (repo-janitor)…\033[0m\n'
-if [[ $use_mise -eq 1 ]]; then
-  run_clean() { mise run "clean:check"; }
-else
-  run_clean() { "$repo_root/scripts/clean-artifacts.sh" --check; }
-fi
-if ! run_clean; then
-  printf '\033[31m✗ Commit blocked: build/scan artifacts are staged (see above).\033[0m\n' >&2
-  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
-  exit 1
-fi
-
-# ── Gate 1: secret scan ───────────────────────────────────────────────────────
-printf '\033[34m▶ Scanning staged changes for secrets (gitleaks)…\033[0m\n'
-if [[ $use_mise -eq 1 ]]; then
-  run_secrets() { mise run "scan:secrets:staged"; }
-else
-  run_secrets() { gitleaks git --staged --redact; }
-fi
-if command -v gitleaks >/dev/null 2>&1 || [[ $use_mise -eq 1 ]]; then
-  if ! run_secrets; then
-    printf '\033[31m✗ Commit blocked: a secret was detected in the staged changes.\033[0m\n' >&2
-    printf '  Remove it, move it to an env var / secret manager, and rotate it if it was real.\n' >&2
+# gate <header> <fail-msg> <mise-task> <fallback-cmd...>
+gate() {
+  local header="$1" fail="$2" task="$3"
+  shift 3
+  printf '\033[34m▶ %s\033[0m\n' "$header"
+  if ! mise_or "$task" "$@"; then
+    printf '\033[31m✗ %s\033[0m\n' "$fail" >&2
     printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
     exit 1
   fi
-else
-  printf '\033[33m⚠ gitleaks not found — skipping secret scan. Install: mise install gitleaks\033[0m\n' >&2
-fi
+}
 
-# ── Gate 2: code vulnerabilities ──────────────────────────────────────────────
-printf '\033[34m▶ Scanning staged Go for vulnerabilities (gosec + govulncheck)…\033[0m\n'
-if [[ $use_mise -eq 1 ]]; then
-  run_vulns() { mise run "scan:code:staged"; }
-else
-  run_vulns() { "$repo_root/scripts/sec-scan.sh" --staged; }
-fi
-if ! run_vulns; then
-  printf '\033[31m✗ Commit blocked: a security vulnerability was found in the staged code.\033[0m\n' >&2
-  printf '  Fix it, or annotate a true false positive narrowly (//nolint:gosec // reason).\n' >&2
-  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
-  exit 1
-fi
+gate "Tidying artifacts (repo-janitor)…" \
+  "Commit blocked: build/scan artifacts are staged (see above)." \
+  "clean:check" "$repo_root/scripts/clean-artifacts.sh" --check
 
-# ── Gate 3: Go style-guide ────────────────────────────────────────────────────
-printf '\033[34m▶ Running Google Go style-guide checks (pre-commit)…\033[0m\n'
-if [[ $use_mise -eq 1 ]]; then
-  run_gate() { mise run "lint:staged"; }
-else
-  run_gate() { "$repo_root/scripts/lint.sh" --staged; }
-fi
-if ! run_gate; then
-  printf '\033[31m✗ Commit blocked: fix the style-guide violations above.\033[0m\n' >&2
-  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
-  exit 1
-fi
+gate "Scanning staged changes for secrets (gitleaks)…" \
+  "Commit blocked: a secret was detected in the staged changes. Remove/rotate it." \
+  "scan:secrets:staged" gitleaks git --staged --redact
+
+gate "Scanning staged Go for vulnerabilities (gosec + govulncheck)…" \
+  "Commit blocked: a security vulnerability was found. Fix it or annotate //nolint:gosec." \
+  "scan:code:staged" "$repo_root/scripts/sec-scan.sh" --staged
+
+gate "Running Google Go style-guide checks…" \
+  "Commit blocked: fix the style-guide violations above." \
+  "lint:staged" "$repo_root/scripts/lint.sh" --staged
