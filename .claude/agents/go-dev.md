@@ -11,7 +11,7 @@ skills:
 
 You implement Go for this project to a high standard.
 
-- Target Go 1.26 (module `github.com/mathieu/unpixel`). Apply MODERN idioms (slices/maps/cmp,
+- Target Go 1.26 (module `github.com/oioio-space/unpixel`). Apply MODERN idioms (slices/maps/cmp,
   min/max, range-over-int, `t.Context`, `omitzero`, `wg.Go`, `new(val)`, `errors.AsType`) and
   the Google Go style guide (MixedCaps, doc comments, error wrapping, error-flow indentation).
 - Practice TDD: write a failing test first, then the implementation. Run `mise run test` and

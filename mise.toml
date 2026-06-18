@@ -28,6 +28,7 @@ shellcheck    = "latest"   # lints our bash hook scripts
 gitleaks      = "latest"   # secret scanner (pre-commit gate + CI history scan)
 "go:github.com/securego/gosec/v2/cmd/gosec" = "latest"  # Go SAST (pre-commit gate)
 "go:golang.org/x/vuln/cmd/govulncheck"      = "latest"  # reachable dep/stdlib vulns (pre-commit gate)
+"go:golang.org/x/perf/cmd/benchstat"        = "latest"  # compare benchmark runs (A/B, regression check)
 syft          = "latest"   # SBOM generation (CI)
 grype         = "latest"   # scan SBOM for CVEs (CI)
 gotestsum     = "latest"   # nicer test output + JUnit for CI
@@ -76,6 +77,18 @@ run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- ./.
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
 run = "mise watch -t test"
+
+[tasks.bench]
+description = "Run Go benchmarks (-benchmem)"
+run = "./scripts/bench.sh run"
+
+[tasks."bench:baseline"]
+description = "Run benchmarks and save bench-baseline.txt (before optimizing)"
+run = "./scripts/bench.sh baseline"
+
+[tasks."bench:compare"]
+description = "Run benchmarks and benchstat vs baseline (after optimizing)"
+run = "./scripts/bench.sh compare"
 
 [tasks.cover]
 description = "Test coverage report (coverage.out + total %)"
@@ -162,6 +175,14 @@ exit 0
 [tasks.gh]
 description = "GitHub CLI via mise + rtk (use: mise run gh -- pr list)"
 run = "./scripts/ghx.sh"
+
+[tasks.clean]
+description = "Remove regenerable build/scan artifacts + go build cache"
+run = "./scripts/clean-artifacts.sh"
+
+[tasks."clean:check"]
+description = "Pre-commit gate: tidy artifacts + block any staged artifact"
+run = "./scripts/clean-artifacts.sh --check"
 
 [tasks."hooks:install"]
 description = "Point git at .githooks (pre-commit + post-commit)"

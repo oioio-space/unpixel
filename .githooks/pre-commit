@@ -3,7 +3,8 @@
 # Installed via `git config core.hooksPath .githooks` (see scripts/install-hooks.sh),
 # so it is versioned with the repo and fires for everyone on every `git commit`.
 #
-# Three gates, in order of severity:
+# Four gates, in order:
+#   0. Repo janitor — tidy regenerable artifacts + block any staged artifact.
 #   1. Secret scan (gitleaks) on staged changes — block leaks before they exist.
 #   2. Code vuln scan (gosec + govulncheck) on staged Go — block insecure code.
 #   3. Google Go style-guide gate (gofmt/vet/golangci-lint/build/test) on staged Go.
@@ -17,6 +18,19 @@ repo_root="$(git rev-parse --show-toplevel)"
 use_mise=0
 if command -v mise >/dev/null 2>&1 && [[ -f "$repo_root/mise.toml" ]]; then
   use_mise=1
+fi
+
+# ── Gate 0: repo janitor ──────────────────────────────────────────────────────
+printf '\033[34m▶ Tidying artifacts (repo-janitor)…\033[0m\n'
+if [[ $use_mise -eq 1 ]]; then
+  run_clean() { mise run "clean:check"; }
+else
+  run_clean() { "$repo_root/scripts/clean-artifacts.sh" --check; }
+fi
+if ! run_clean; then
+  printf '\033[31m✗ Commit blocked: build/scan artifacts are staged (see above).\033[0m\n' >&2
+  printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
+  exit 1
 fi
 
 # ── Gate 1: secret scan ───────────────────────────────────────────────────────

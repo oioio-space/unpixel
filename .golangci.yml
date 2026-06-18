@@ -14,7 +14,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/mathieu/unpixel # decisions: Import grouping (own package last group)
+        - github.com/oioio-space/unpixel # decisions: Import grouping (own package last group)
 linters:
   # Start from nothing and opt in, so every enabled linter is a deliberate,
   # style-guide-mapped choice.

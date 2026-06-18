@@ -65,14 +65,11 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - [ ] Choisir les libs Go (rendu de police/texte, manipulation d'image).
 - [ ] Structurer le code (`internal/…`) et écrire les tests de caractérisation.
 - [ ] Implémenter le cœur de l'attaque, puis une CLI.
-- [ ] **À trancher** : module path `github.com/mathieu/unpixel` ≠ repo `oioio-space/unpixel`.
-      Renommer en `github.com/oioio-space/unpixel` (go.mod + `.golangci.yml` local-prefixes
-      + agents) si `go install` doit fonctionner.
 - [ ] (Optionnel) Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
 
 ## 🧭 Décisions clés
 
-- Module : `github.com/mathieu/unpixel`, Go 1.26 (⚠ à aligner sur le repo, cf. Reste à faire).
+- Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
 - Hooks scindés git-natif (universel) / Claude Code (revue & gates pilotés par Claude).
@@ -96,3 +93,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `d276b49` 2026-06-18 — feat: add token-economical sub-agent routing (.claude/agents + CLAUDE.md) _(9 fichiers)_
 - `545772c` 2026-06-18 — docs: sync PROGRESS history before handoff _(1 fichiers)_
 - `f0c6324` 2026-06-18 — ci: add README, GPL-3.0 LICENSE, pre-push CI gate, coverage+Codecov _(7 fichiers)_
+- `d5192f8` 2026-06-18 — docs: record GitHub remote, license, and open decisions in PROGRESS _(1 fichiers)_
