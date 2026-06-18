@@ -10,8 +10,10 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-# Make Go-installed tools (golangci-lint, gofumpt) reachable.
-export PATH="$PATH:$(go env GOPATH)/bin"
+# Make Go-installed tools (golangci-lint, gofumpt) reachable (fallback when not
+# running under mise, which already puts the pinned tools on PATH).
+gopath_bin="$(go env GOPATH)/bin"
+export PATH="$PATH:$gopath_bin"
 
 staged_only=0
 [[ "${1:-}" == "--staged" ]] && staged_only=1

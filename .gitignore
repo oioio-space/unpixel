@@ -7,5 +7,9 @@
 # Coverage
 coverage.*
 
+# mise local overrides (per-machine, not shared)
+mise.local.toml
+.mise.local.toml
+
 # OS / editor
 .DS_Store

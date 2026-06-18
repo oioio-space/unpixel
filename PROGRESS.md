@@ -15,10 +15,13 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 
 Outillage qualité en place ; **portage pas encore commencé**.
 
+- Toolchain reproductible via **mise** (`mise.toml`) : go 1.26.4, golangci-lint 2.12.2,
+  gofumpt, shellcheck. Bootstrap : `mise run setup`. Commandes : `mise run lint|test|ci|fmt`.
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
+  (le hook git passe par `mise run lint:staged`).
 - Revue IA pre-commit (style-guide) : `.claude/hooks/commit-style-review.sh`
-- Gate `/simplify` pre-commit : `.claude/hooks/pre-commit-simplify.sh`
+- Gate `/simplify` pre-commit (bloquant) : `.claude/hooks/pre-commit-simplify.sh`
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
 ## ✅ Reste à faire
@@ -40,3 +43,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 <!-- Lignes ajoutées automatiquement par .githooks/post-commit (ne pas éditer à la main) -->
 
 - `705a884` 2026-06-18 — chore: bootstrap Go style-guide skill + pre-commit hooks
+- `a593117` 2026-06-18 — feat: add /simplify pre-commit gate and post-commit progress tracking _(4 fichiers)_

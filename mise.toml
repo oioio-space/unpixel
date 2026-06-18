@@ -1,0 +1,69 @@
+# mise — single source of truth for the toolchain, env, and project commands.
+# Docs: https://mise.jdx.dev
+#
+#   mise install        # install every pinned tool below (reproducible toolchain)
+#   mise run            # list available tasks
+#   mise run setup      # install tools + wire git hooks (one-shot bootstrap)
+#   mise run lint       # full Go style-guide gate
+#   mise run ci         # what CI runs (lint + tests)
+
+min_version = "2024.1.0"
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+# Pinned versions → everyone (and CI) gets the exact same binaries. Replaces the
+# manual `go install …@latest` steps.
+[tools]
+go            = "1.26.4"
+golangci-lint = "2.12.2"   # aqua:golangci/golangci-lint
+gofumpt       = "latest"   # aqua:mvdan/gofumpt — stricter gofmt (guide: Formatting)
+shellcheck    = "latest"   # lints our bash hook scripts (.githooks/*, .claude/hooks/*)
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# Auto-loaded when you cd into the project (with mise shell activation).
+[env]
+# Reproducible builds: fail instead of silently editing go.mod during build/test.
+GOFLAGS = "-mod=readonly"
+# Put `go install`ed helpers on PATH for tools not (yet) managed by mise.
+_.path = ["{{ env.HOME }}/go/bin"]
+
+# ── Tasks (the commands to run) ───────────────────────────────────────────────
+[tasks.fmt]
+description = "Format all Go code with gofumpt"
+run = "gofumpt -w ."
+
+[tasks.vet]
+description = "go vet"
+run = "go vet ./..."
+
+[tasks.build]
+description = "Build all packages"
+run = "go build ./..."
+
+[tasks.test]
+description = "Run tests"
+run = "go test ./..."
+
+[tasks.lint]
+description = "Full Google Go style-guide gate (gofmt + vet + golangci-lint + build + test)"
+run = "./scripts/lint.sh"
+
+[tasks."lint:staged"]
+description = "Style-guide gate on staged files only (used by the git pre-commit hook)"
+run = "./scripts/lint.sh --staged"
+
+[tasks."lint:sh"]
+description = "Lint the bash hook scripts with shellcheck"
+run = "shellcheck .githooks/* .claude/hooks/*.sh scripts/*.sh"
+
+[tasks.ci]
+description = "Everything CI must pass"
+depends = ["lint"]
+
+[tasks."hooks:install"]
+description = "Point git at .githooks (pre-commit + post-commit)"
+run = "./scripts/install-hooks.sh"
+
+[tasks.setup]
+description = "One-shot bootstrap: install tools + wire git hooks"
+depends = ["hooks:install"]
+run = "mise install"

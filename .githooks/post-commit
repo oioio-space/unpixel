@@ -25,4 +25,5 @@ date="$(git log -1 --pretty=%cd --date=format:'%Y-%m-%d')"
 subject="$(git log -1 --pretty=%s)"
 files="$(git show --pretty=format: --name-only HEAD | grep -c . || true)"
 
+# shellcheck disable=SC2016  # backticks/%s are printf format literals, not expansions
 printf -- '- `%s` %s — %s _(%s fichiers)_\n' "$short" "$date" "$subject" "$files" >> "$progress"
