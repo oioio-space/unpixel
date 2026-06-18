@@ -1,24 +1,48 @@
 #!/usr/bin/env bash
-# Git native pre-commit hook (deterministic style-guide gate).
+# Git native pre-commit hook (deterministic gates).
 # Installed via `git config core.hooksPath .githooks` (see scripts/install-hooks.sh),
 # so it is versioned with the repo and fires for everyone on every `git commit`.
 #
-# It delegates to scripts/lint.sh, limited to the staged Go files. A non-zero exit
-# aborts the commit.
+# Two gates, in order of severity:
+#   1. Secret scan (gitleaks) on staged changes — block leaks before they exist.
+#   2. Google Go style-guide gate (gofmt/vet/golangci-lint/build/test) on staged Go.
+# A non-zero exit from either aborts the commit.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 
-printf '\033[34m▶ Running Google Go style-guide checks (pre-commit)…\033[0m\n'
-
-# Prefer mise so the pinned tool versions (mise.toml) are used; fall back to a
-# plain script run when mise isn't installed.
+# Prefer mise so the pinned tool versions (mise.toml) are used; fall back to plain
+# script/binary runs when mise isn't installed.
+use_mise=0
 if command -v mise >/dev/null 2>&1 && [[ -f "$repo_root/mise.toml" ]]; then
+  use_mise=1
+fi
+
+# ── Gate 1: secret scan ───────────────────────────────────────────────────────
+printf '\033[34m▶ Scanning staged changes for secrets (gitleaks)…\033[0m\n'
+if [[ $use_mise -eq 1 ]]; then
+  run_secrets() { mise run "scan:secrets:staged"; }
+else
+  run_secrets() { gitleaks git --staged --redact; }
+fi
+if command -v gitleaks >/dev/null 2>&1 || [[ $use_mise -eq 1 ]]; then
+  if ! run_secrets; then
+    printf '\033[31m✗ Commit blocked: a secret was detected in the staged changes.\033[0m\n' >&2
+    printf '  Remove it, move it to an env var / secret manager, and rotate it if it was real.\n' >&2
+    printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2
+    exit 1
+  fi
+else
+  printf '\033[33m⚠ gitleaks not found — skipping secret scan. Install: mise install gitleaks\033[0m\n' >&2
+fi
+
+# ── Gate 2: Go style-guide ────────────────────────────────────────────────────
+printf '\033[34m▶ Running Google Go style-guide checks (pre-commit)…\033[0m\n'
+if [[ $use_mise -eq 1 ]]; then
   run_gate() { mise run "lint:staged"; }
 else
   run_gate() { "$repo_root/scripts/lint.sh" --staged; }
 fi
-
 if ! run_gate; then
   printf '\033[31m✗ Commit blocked: fix the style-guide violations above.\033[0m\n' >&2
   printf '  (To bypass in an emergency only: git commit --no-verify)\n' >&2

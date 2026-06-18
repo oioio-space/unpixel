@@ -25,6 +25,7 @@ gh            = "latest"   # GitHub CLI (aqua:cli/cli) — used project-wide via
 golangci-lint = "2.12.2"   # aqua:golangci/golangci-lint
 gofumpt       = "latest"   # stricter gofmt (guide: Formatting)
 shellcheck    = "latest"   # lints our bash hook scripts
+gitleaks      = "latest"   # secret scanner (pre-commit gate + CI history scan)
 gotestsum     = "latest"   # nicer test output + JUnit for CI
 goreleaser    = "latest"   # cross-platform release builds of the CLI
 actionlint    = "latest"   # lints GitHub Actions workflows
@@ -89,9 +90,17 @@ run = "yamlfmt -lint .golangci.yml .github/workflows"
 description = "Lint GitHub Actions workflows with actionlint"
 run = "actionlint"
 
+[tasks."scan:secrets"]
+description = "Scan full git history for leaked secrets (gitleaks)"
+run = "./scripts/rtkx.sh gitleaks git --redact ."
+
+[tasks."scan:secrets:staged"]
+description = "Scan staged changes for secrets (pre-commit gate)"
+run = "./scripts/rtkx.sh gitleaks git --staged --redact"
+
 [tasks.ci]
 description = "Everything CI must pass"
-depends = ["lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
+depends = ["scan:secrets", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci"]
 
 [tasks.release]
 description = "Cross-platform release build + publish (goreleaser)"
