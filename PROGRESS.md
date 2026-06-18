@@ -28,8 +28,9 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
   dans `internal/` : `imutil` (utilitaires image), `pixelate` (pixelisation par blocs),
   `metric` (distance d'image ; défaut `pixelmatch`, fidèle à Jimp), `render` (pure-Go
   `golang.org/x/image/font/opentype` + Liberation Sans embarquée, compatible métriquement Arial),
-  `search` (découverte offset + DFS guidée). Package `defaults` assure les dépendances.
-  CLI à `cmd/unpixel` : placeholder.
+  `search` (découverte offset + DFS guidée/beam, fan-out goroutines). Package `defaults` assure
+  les dépendances et expose les choix de stratégie/métrique. **CLI `cmd/unpixel` opérationnelle**
+  (urfave/cli/v3).
 - **GoDoc/pkg.go.dev** : package et symboles exportés enrichis (overviews avec snippet d'usage,
   chaque symbole/champ/const documenté avec son contrat, `Example` exécutable). Qualité
   pkg.go.dev appliquée et documentée dans la gate style (`.claude/skills/go-style-guide`,
@@ -37,8 +38,8 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - **README** : réécrit via skill `readme-author` (principes awesome-readme) : badges CI/Go
   Reference/Go Report Card/GPL-3.0, démo, features, install/usage vérifiés, config table,
   architecture, crédits/attribution.
-- **Tests** : 34+ tests passants ; auto-redaction round-trip récupère le plaintext connu
-  ("hello"). Couverture **~94%** ; seuil `COVER_MIN` relevé à 85. Un test Phase-2 skippé :
+- **Tests** : 116+ tests passants (`-race` propre) ; auto-redaction round-trip récupère le
+  plaintext connu ("hello"). Couverture **~92%** ; seuil `COVER_MIN` à 85. Un test Phase-2 skippé :
   récupérer le `secret.png` Chromium-original nécessite renderer `chromedp` (écart
   moteur-fidélité documenté).
 - **Design doc** : `docs/DESIGN.md` ajouté (algo fidèle + choix libs + API progression +
@@ -107,15 +108,26 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - [x] Implémenter le cœur de l'attaque.
 - [x] Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
 - [x] Monter COVER_MIN à 85.
-- [ ] Implémenter une CLI ergonomique (package → CLI au-dessus).
+- [x] **CLI ergonomique** (`cmd/unpixel`, urfave/cli/v3) : stdin (`-`), `--format json|text`,
+      `--top`, `--strategy guided|beam`, `--beam-width`, `--metric pixelmatch|ssim`, `--workers`,
+      `--block-size 0`=auto, `--timeout`, progress live sur stderr, meilleur résultat sur stdout.
+      Tests bout-en-bout (run/JSON/texte/validation). `go install …/cmd/unpixel@latest`.
 - [x] **Phase 2 — beam search + mémoïsation** : `BeamStrategy` (largeur bornée par niveau) +
       `CachingScorer` (cache LRU prefix-render, clé `guess+offset+style`), exposés publiquement
       via `defaults.BeamStrategy(width)` et les champs `Config.BeamWidth`/`CacheSize`. Course de
       données du renderer (face `opentype` partagée) corrigée (`glyphMu`), non-régression
       prouvée au benchstat.
 - [x] **Phase 2 — classement top-N par confiance** : `Result.TopN`/`Confidence`/`Ambiguity`.
-- [ ] **Phase 2 (suite)** (cf. `docs/DESIGN.md`) : goroutine fan-out, renderer chromedp pour
-      fidélité Chromium, inférence auto block-size/offset, métriques SSIM/edge-aware.
+- [x] **Phase 2 — métrique SSIM** : `metric.SSIM` (structure locale, tolère AA/hinting),
+      exposée via `defaults.SSIMMetric(window)`. Métrique alternative derrière l'interface.
+- [x] **Phase 2 — inférence auto block-size** : `unpixel.InferBlockSize` (détection de la grille
+      par PGCD des écarts de bordures) ; `New` l'applique quand `BlockSize<=0`. `Engine.Config()`.
+- [x] **Phase 2 — fan-out goroutines** : `DiscoverOffsets` et la recherche par offset parallélisées
+      sur `Config.Workers` (défaut GOMAXPROCS) avec **merge déterministe** ; les deux stratégies
+      partagent `searchOffsets`. ~4× sur la découverte d'offsets (benchstat), aucune régression
+      sur le chemin séquentiel (`Workers=1`), `-race` propre.
+- [ ] **Phase 2 (reporté)** : renderer `chromedp` (fidélité Chromium) — dép. lourde exigeant un
+      binaire Chrome au runtime/CI ; métriques edge-aware. Cf. `docs/DESIGN.md`.
 
 ## 🧭 Décisions clés
 
@@ -173,3 +185,6 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - `6a42682` 2026-06-18 — feat(cli): ergonomic CLI (urfave/cli/v3) + Top-N/confidence reporting _(8 fichiers)_
 - `8bc53bc` 2026-06-18 — feat(skill): helper-ergonomics skill + pre-commit hook (human-facing API) _(4 fichiers)_
 - `a00192f` 2026-06-18 — feat(search): beam-search strategy + prefix-render cache via defaults _(12 fichiers)_
+- `45772ef` 2026-06-18 — docs(claude): add Commands and Architecture sections to CLAUDE.md _(2 fichiers)_
+- `37d1be1` 2026-06-18 — feat: Phase-2 — SSIM metric, block-size inference, offset fan-out _(12 fichiers)_
+- `0191899` 2026-06-18 — feat(cli): expose strategy, metric, workers, and auto block-size _(2 fichiers)_

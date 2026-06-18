@@ -4,14 +4,15 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** the core **library is usable** (~94% test coverage, all gates green). The
-> **CLI** (`cmd/unpixel`) is still a placeholder. See [`PROGRESS.md`](PROGRESS.md) for the roadmap.
+> **Status:** the **library and CLI are usable** (~92% test coverage, all gates green).
+> See [`PROGRESS.md`](PROGRESS.md) for the roadmap.
 
 ## Table of contents
 
 - [How it works](#how-it-works)
 - [Features](#features)
 - [Install](#install)
+- [Command-line tool](#command-line-tool)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Architecture](#architecture)
@@ -38,14 +39,20 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   (best guess, current candidate, score, depth, offsets probed/total, evaluated count, elapsed),
   so any UI — web/SSE, TUI, desktop — can subscribe via the channel or the `OnProgress` callback.
 - **Pluggable everything.** Swap the `Renderer`, `Pixelator`, `Metric`, or search `Strategy`
-  through `Config`; the faithful defaults are wired by importing the `defaults` package.
+  through `Config`; the faithful defaults are wired by importing the `defaults` package. Built-in
+  choices: guided-DFS or beam search; pixelmatch or SSIM (structural) distance.
+- **Concurrent by default.** Grid-offset discovery and per-offset search fan out across
+  `Config.Workers` goroutines (default: all CPUs) with a **deterministic merge** — same output
+  regardless of scheduling. ~4× faster offset discovery on a typical laptop.
+- **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
+  grid from the image (`InferBlockSize`), so callers don't have to measure it.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
   offset (sorted by score, ties broken deterministically) plus `Confidence` and `Ambiguity`
   scores, so callers can surface alternatives instead of a single best guess.
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
-- **~94% test coverage** across rendering, pixelation, metrics, search, and end-to-end.
+- **~92% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
 
 ## Install
 
@@ -53,6 +60,12 @@ As a library:
 
 ```bash
 go get github.com/oioio-space/unpixel
+```
+
+As a command-line tool:
+
+```bash
+go install github.com/oioio-space/unpixel/cmd/unpixel@latest
 ```
 
 From source (development) — uses [mise](https://mise.jdx.dev) for the toolchain and tasks:
@@ -66,6 +79,32 @@ mise run           # list all tasks
 ```
 
 Requires Go 1.26+.
+
+## Command-line tool
+
+```bash
+unpixel redacted.png                       # recover; best guess to stdout
+cat redacted.png | unpixel -               # read PNG from stdin
+unpixel --format json --top 10 redacted.png
+unpixel --strategy beam --metric ssim --workers 8 redacted.png
+```
+
+Key flags (`unpixel --help` for the full list):
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--charset` | `a–z` + space | Candidate characters to try |
+| `--block-size`, `-b` | `0` (auto) | Pixelation block size; `0` auto-detects from the image |
+| `--strategy` | `guided` | `guided` (full DFS) or `beam` (bounded, faster) |
+| `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
+| `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
+| `--workers` | `0` (all CPUs) | Grid offsets searched concurrently |
+| `--top`, `-n` | `5` | Ranked candidates to report |
+| `--format`, `-f` | `text` | `text` or machine-readable `json` |
+| `--timeout` | `0` (none) | Max recovery time |
+
+The best guess prints to stdout (so it pipes cleanly); the ranked table and live progress go to
+stderr. `--format json` emits a stable schema (`best_guess`, `confidence`, `top`, …).
 
 ## Quick start
 
@@ -128,7 +167,7 @@ Pass a `Config` to `unpixel.New`. Every zero value falls back to a documented de
 |-------|------|---------|---------|
 | `Charset` | `string` | `"abcdefghijklmnopqrstuvwxyz "` | Candidate characters to search |
 | `MaxLength` | `int` | `20` | Maximum plaintext length |
-| `BlockSize` | `int` | `8` | Pixelation block size, in pixels |
+| `BlockSize` | `int` | `0` → auto / `8` | Pixelation block size; `≤0` auto-detects via `InferBlockSize`, else falls back to `8` |
 | `Threshold` | `float64` | `0.25` | Max image-distance score (0–1) to keep a candidate |
 | `SpaceThreshold` | `float64` | `0.5` | Looser threshold for extending with a space (whitespace blur) |
 | `ThresholdFor` | `func(rune) float64` | space→`SpaceThreshold`, else `Threshold` | Per-character threshold; override for new char classes |
@@ -140,6 +179,7 @@ Pass a `Config` to `unpixel.New`. Every zero value falls back to a documented de
 | `Strategy` | `Strategy` | guided DFS | Candidate-space search (`defaults.GuidedStrategy()` / `defaults.BeamStrategy(width)`) |
 | `BeamWidth` | `int` | `16` | Candidates kept per depth level — beam strategy only |
 | `CacheSize` | `int` | `4096` | LRU size for prefix-render memoization — beam strategy only (`0` disables) |
+| `Workers` | `int` | `0` → all CPUs | Grid offsets probed/searched concurrently; `1` forces sequential. Never changes output |
 
 Selecting beam search (bounded branching + prefix-render caching) instead of the default DFS:
 
@@ -179,11 +219,12 @@ hinting/anti-aliasing), so **correctness is judged by self-consistency**: redact
 plaintext with UnPixel's own renderer, then recover it. Recovering a Chromium-produced redaction
 (e.g. the original `secret.png`) is a Phase-2 goal requiring a `chromedp` renderer.
 
-**Landed:** top-N confidence/ambiguity reporting, plus a **beam-search strategy** with
-**prefix-render memoization** — both public via `defaults.BeamStrategy(width)` and the
-`BeamWidth`/`CacheSize` config. **Still ahead** (behind the interfaces; the faithful default
-stays put): goroutine fan-out over candidates/offsets, SSIM / edge-aware metrics, automatic
-block-size & offset inference, and the `chromedp` fidelity renderer. Details in
+**Landed:** top-N confidence/ambiguity reporting; a **beam-search strategy** with
+**prefix-render memoization** (`defaults.BeamStrategy`); an **SSIM metric** (`defaults.SSIMMetric`);
+**automatic block-size inference** (`InferBlockSize`); and **goroutine fan-out** over offset
+discovery and per-offset search (`Config.Workers`, deterministic merge). **Still ahead** (behind
+the interfaces; the faithful default stays put): edge-aware metrics and the `chromedp` fidelity
+renderer (deferred — it would require a Chrome binary at runtime/CI). Details in
 [`docs/DESIGN.md`](docs/DESIGN.md) § Phase-2.
 
 </details>
