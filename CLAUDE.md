@@ -73,6 +73,7 @@ but PreToolUse hooks DO fire inside subagents.
 | `repo-janitor` | `quality-runner` (Haiku) | preloaded |
 | `secret-guard`, `vuln-guard` | `security-auditor` (Opus) | preloaded |
 | `research-grounding` | `algo-architect` (Opus) | preloaded (UserPromptSubmit hook skips subagents) |
+| `helper-ergonomics` | `go-reviewer` (Sonnet) review, `go-dev` (Sonnet) implement | hook-driven (`commit-ergonomics-review`) — not preloaded |
 
 ### Review-hook → agent routing
 
@@ -86,6 +87,7 @@ cost more than it saves):
 | `commit-cleanup-review` | `quality-runner` (Haiku) |
 | `commit-secret-review` | `security-auditor` (Opus, only if ambiguous) |
 | `commit-vuln-review` | `security-auditor` (Opus) |
+| `commit-ergonomics-review` | `go-reviewer` (Sonnet/medium) review → `go-dev` implement |
 
 Deterministic gates (`.githooks/*`, `cgo:check`) and pure context-injection hooks
 (`modern-go-context`, `benchmark-context`, `research-grounding`) do no AI work → no routing.
