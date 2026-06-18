@@ -44,7 +44,13 @@ Outillage qualité en place ; **portage pas encore commencé**.
   + skill `vuln-guard` IA (`.claude/hooks/commit-vuln-review.sh`) + **SBOM** CycloneDX
   (`syft`) scanné par `grype` en CI (`mise run sbom` / `scan:sbom`, fail-on high).
   Tasks : `mise run scan:code[:staged]`.
-- Ordre des gates au commit : secrets → vulns code → style.
+- **Nettoyage artefacts** : skill `repo-janitor` + gate déterministe `clean:check`
+  (hook git, **gate 0**) qui supprime les artefacts régénérables non suivis et bloque
+  tout artefact stagé + hook IA `commit-cleanup-review.sh`. Task : `mise run clean`.
+- **Benchmark/perf** : skill `go-benchmark` + hook `PreToolUse` (Write|Edit) déclenché
+  à l'écriture d'un `func Benchmark…` (`.claude/hooks/benchmark-context.sh`) + `benchstat`.
+  Tasks : `mise run bench` / `bench:baseline` / `bench:compare` (prouve le gain, A/B).
+- Ordre des gates au commit : **artefacts (gate 0)** → secrets → vulns code → style.
 - **Routage sous-agents** (économie tokens) : `.claude/agents/*.md`, tier dans le
   frontmatter (`model`/`effort`/`skills`/`description`). Haiku = mécanique
   (`quality-runner`, `scribe`, `explorer`) ; Sonnet = dev/review (`go-dev`,
@@ -94,3 +100,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `545772c` 2026-06-18 — docs: sync PROGRESS history before handoff _(1 fichiers)_
 - `f0c6324` 2026-06-18 — ci: add README, GPL-3.0 LICENSE, pre-push CI gate, coverage+Codecov _(7 fichiers)_
 - `d5192f8` 2026-06-18 — docs: record GitHub remote, license, and open decisions in PROGRESS _(1 fichiers)_
+- `8c79f20` 2026-06-18 — feat: align module path with repo; add repo-janitor + go-benchmark skills _(14 fichiers)_
