@@ -13,8 +13,28 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 
 ## 📍 État actuel
 
-Outillage qualité en place ; **portage pas encore commencé**.
+Outillage qualité en place ; **cœur du portage terminé**.
 
+- **Package core** : port Go fidèle de l'algorithme unredacter implémenté et testé. Le package
+  racine (`unpixel`) expose `Engine`, `Config`, `Result`, `Eval`, `Offset`, les interfaces
+  pluggables `Renderer`/`Pixelator`/`Metric`/`Strategy`, et une **API de progression library-agnostique**
+  (`Progress` struct + `EventKind` + callback `OnProgress`) pour intégrer tout type d'UI
+  (web/SSE, TUI, desktop). Flux : render → re-pixelate → image-distance → guided DFS.
+- **Layout du package** : structure sous module `github.com/oioio-space/unpixel`. Internes
+  dans `internal/` : `imutil` (utilitaires image), `pixelate` (pixelisation par blocs),
+  `metric` (distance d'image ; défaut `pixelmatch`, fidèle à Jimp), `render` (pure-Go
+  `golang.org/x/image/font/opentype` + Liberation Sans embarquée, compatible métriquement Arial),
+  `search` (découverte offset + DFS guidée). Package `defaults` assure les dépendances.
+  CLI à `cmd/unpixel` : placeholder.
+- **Tests** : 34 tests passants ; auto-redaction round-trip récupère le plaintext connu
+  ("hello"). Couverture 58.2% ; seuil `COVER_MIN` relevé 0 → 55. Un test Phase-2 skippé :
+  récupérer le `secret.png` Chromium-original nécessite renderer `chromedp` (écart
+  moteur-fidélité documenté).
+- **Design doc** : `docs/DESIGN.md` ajouté (algo fidèle + choix libs + API progression +
+  plan TDD + améliorations Phase-2).
+- **⛔ AUCUN CGO** — règle absolue du projet. Go pur ; CGO interdit. `CGO_ENABLED=0` épinglé
+  en `[env]` `mise.toml`, gate déterministe `cgo:check` (`scripts/cgo-check.sh`) intégré
+  à `mise run ci` et hook pre-commit, documenté `CLAUDE.md`.
 - Toolchain reproductible via **mise** (`mise.toml`) : go 1.26.4, golangci-lint 2.12.2,
   gofumpt, shellcheck, gotestsum, goreleaser, actionlint, yamlfmt, watchexec.
   Bootstrap : `mise run setup` (ou auto via le hook mise `enter`). Commandes :
@@ -70,11 +90,15 @@ Outillage qualité en place ; **portage pas encore commencé**.
 
 ## ✅ Reste à faire
 
-- [ ] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
+- [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
       re-pixelisation, comparaison de distance d'image).
-- [ ] Choisir les libs Go (rendu de police/texte, manipulation d'image).
-- [ ] Structurer le code (`internal/…`) et écrire les tests de caractérisation.
-- [ ] Implémenter le cœur de l'attaque, puis une CLI.
+- [x] Choisir les libs Go (rendu de police/texte, manipulation d'image).
+- [x] Structurer le code (`internal/…`) et écrire les tests de caractérisation.
+- [x] Implémenter le cœur de l'attaque.
+- [ ] Implémenter une CLI ergonomique (package → CLI au-dessus).
+- [ ] **Phase 2** (cf. `docs/DESIGN.md`) : beam search, goroutine fan-out, renderer
+      chromedp pour fidélité Chromium, inférence auto block-size/offset, classement top-N
+      par confiance.
 - [ ] (Optionnel) Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
 
 ## 🧭 Décisions clés
@@ -83,6 +107,13 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
 - Hooks scindés git-natif (universel) / Claude Code (revue & gates pilotés par Claude).
+- **⛔ AUCUN CGO** : projet Go pur, CGO interdit. `CGO_ENABLED=0` épinglé en `mise.toml`,
+  gate déterministe `cgo:check` en pre-commit et CI, documenté `CLAUDE.md`.
+- **API de progression library-agnostique** : `Progress` struct + `EventKind` + callback
+  `OnProgress` pour que tout UI (web, TUI, desktop) puisse suivre la recherche.
+- **Renderer pure-Go** : `golang.org/x/image/font/opentype` + Liberation Sans embarquée
+  (metriquement compatible Arial). Fidélité jugée par auto-cohérence moteur ; écart vs
+  Chromium (moteur-rendering) comblé plus tard via renderer chromedp Phase-2.
 
 ## 🗂️ Historique des commits
 
@@ -108,3 +139,7 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `fbc1e03` 2026-06-18 — docs: record repo-janitor and go-benchmark skills in PROGRESS _(1 fichiers)_
 - `e5265fc` 2026-06-18 — refactor: simplify tooling per /simplify review _(14 fichiers)_
 - `c41d004` 2026-06-18 — feat: add research-grounding skill + UserPromptSubmit hook _(5 fichiers)_
+- `38de483` 2026-06-18 — feat(research-grounding): go beyond the existing — seek improvements and out-of-the-box ideas _(4 fichiers)_
+- `6498640` 2026-06-18 — feat(core): faithful pure-Go port of the unredacter algorithm _(25 fichiers)_
+- `88505e4` 2026-06-18 — test(bench): add hot-path benchmarks for the search core _(5 fichiers)_
+- `f24f941` 2026-06-18 — build: enforce no-CGO rule and strengthen the benchmark gate _(5 fichiers)_

@@ -5,6 +5,26 @@ State & roadmap: see `PROGRESS.md`. Tooling is managed by **mise** — run every
 (secrets → vulns → style) and Claude PreToolUse hooks (style/simplify/secret/vuln review,
 modern-Go injection on `.go` edits).
 
+## ⛔ Absolute rule: NO CGO
+
+This project is **pure Go — CGO is forbidden, no exceptions.** Never add `import "C"`, a
+cgo-requiring dependency, or anything that needs a C toolchain. `CGO_ENABLED=0` is pinned in
+`mise.toml [env]` (so every build/test is cgo-free) and enforced by the `cgo:check` gate
+(`mise run cgo:check`, part of `ci` and the pre-commit gate). Pick pure-Go libraries only
+(e.g. `golang.org/x/image`, not bindings). If a task seems to need CGO, find a pure-Go path or
+stop and raise it — do not relax the rule.
+
+## ⚡ Absolute rule: benchmark the hot path & prove perf changes
+
+The per-candidate **render → re-pixelate → image-distance → search** core is a hot loop run over
+a large space. It is an **absolute rule** that these hot-path packages (`internal/render`,
+`internal/search`, `internal/pixelate`, `internal/metric`, `internal/imutil`) carry `Benchmark…`
+tests, and that **any perf-affecting change is proven with benchstat** — never optimize by feel.
+Workflow (go-benchmark skill): `mise run bench:baseline` → change → `mise run bench:compare`
+(`-count` ≥ 10, `-benchmem`); keep the change only on a statistically significant gain with no
+alloc/throughput regression. A `PreToolUse` hook (`.claude/hooks/benchmark-context.sh`) injects
+benchmark guidance when you write a `func Benchmark…` and nudges when you edit a hot-path package.
+
 ## Research-first
 
 Ground non-trivial / technical answers in CURRENT external sources before answering —
