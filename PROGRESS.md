@@ -29,7 +29,9 @@ Outillage qualité en place ; **portage pas encore commencé**.
   gh authentifié (compte `oioio-space`).
 - Skill `go-style-guide` (3 guides Google itemisés) — `.claude/skills/go-style-guide/`
 - Skill `use-modern-go` (JetBrains) — idiomes Go modernes selon la version détectée
-  (1.26.4). Déclencheur élargi : à l'écriture/édition/revue de Go. Détection via `!`cmd``.
+  (1.26.4). **Déclenchement sûr** : hook `PreToolUse` sur `Write|Edit|MultiEdit`
+  (`.claude/hooks/modern-go-context.sh`) qui injecte les idiomes dès qu'un `.go` est
+  écrit/édité (règles complètes 1×/session puis nudge). En plus de la description élargie.
 - Gate déterministe pre-commit : gofmt + go vet + golangci-lint v2 + build + test
   (le hook git passe par `mise run lint:staged`).
 - Revue IA pre-commit (style-guide) : `.claude/hooks/commit-style-review.sh`
@@ -73,3 +75,4 @@ Outillage qualité en place ; **portage pas encore commencé**.
 - `e0ced80` 2026-06-18 — feat: add gitleaks secret-scan gate + secret-guard skill/hook _(7 fichiers)_
 - `5aec48e` 2026-06-18 — docs: record secret-scanning layers in PROGRESS _(1 fichiers)_
 - `3ad67bf` 2026-06-18 — feat: add gosec+govulncheck vuln gates, SBOM/grype CI scan, vuln-guard skill _(8 fichiers)_
+- `7664183` 2026-06-18 — feat: add JetBrains use-modern-go skill (broadened trigger) _(2 fichiers)_
