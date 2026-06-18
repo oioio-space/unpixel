@@ -221,6 +221,47 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
       OFL/redistribuables les plus courantes (JetBrains Mono, Fira Code, Source Code Pro, IBM Plex
       Mono, Liberation Mono≈Courier New, DejaVu Sans Mono, Hack/MIT, Cascadia Code).
 
+### ⚡ Phase 4 — performance de la recherche (mesurée d'abord, prouvée au benchstat)
+
+Profilage CPU (pprof) : le **coût est dominé par la métrique** (`pixelmatch.Compare` ~72 % de la
+recherche, `isAntiAliased` 36 % + `colorDelta` 29 %) et, au rendu, par `FillWhite` 22 % + la
+rastérisation des glyphes ~30 %. Règle : **mesurer (pprof) → optimiser → benchstat** (gain
+significatif, zéro régression alloc/débit) ; **aucune perte de qualité de récupération** (les tests
+matrix + round-trip sont le garde-fou).
+
+Faites (gains prouvés, sortie de récupération inchangée) :
+- [x] **P4.1 — supprimer `totalScore` du chemin chaud** : c'était une 2e passe pixelmatch
+      pleine-image, *display-only*, lue par personne. `Score` (signal d'élagage) inchangé.
+      benchstat `DiscoverOffsets` : **−71 % sec/op** (98,6 ms → 28,6 ms), −38 % B/op, −31 % allocs.
+- [x] **P4.2 — alignement des structures** (`betteralign`, `mise run align`/`align:check`) :
+      empreinte mémoire réduite ; neutre en CPU (pas de régression), `-race` propre.
+
+À faire (par ordre d'impact mesuré ; chacune prouvée au benchstat, récupération inchangée) :
+- [ ] **P4.3 — comparaison à la résolution des blocs** : les deux images comparées sont
+      constantes par bloc → échantillonner 1 px/bloc donne le **même** ratio de différence avec
+      ~`blockSize²`× moins d'opérations (≈64× à bloc 8). **Attention alignement** : ne s'applique
+      qu'aux crops restés alignés sur la grille (sinon faux) → valider le rappel sur images réelles
+      avant d'activer (risque qualité).
+- [ ] **P4.4 — métrique sans détection d'anti-aliasing** : `isAntiAliased` (36 %) est inutile sur
+      des blocs plats. Métrique bloc-aware / pixelmatch AA off. Valider que le rappel ne baisse pas.
+- [ ] **P4.5 — prédiction de la lettre suivante / ordre Markov par position (OMEN/PCFG)** : trier
+      le charset par probabilité, essayer les plus probables d'abord, élaguer tôt ; combiner au
+      prior LM (P3.2). Réduit le **nombre** de candidats (chacun = 1 rendu + 1 compare). Réf.
+      Prob-Hashcat (RAID'24), hashcat per-position Markov.
+- [ ] **P4.6 — câbler `CachingScorer` dans toutes les stratégies + cacher le rendu `prevGuess`**
+      (re-rendu redondant par candidat aujourd'hui).
+- [ ] **P4.7 — rendu moins cher** : éviter le `FillWhite` complet (buffer blanc réutilisé / pooled),
+      cache de glyphes rastérisés par (rune,taille,poids), rendu incrémental (seul le nouveau
+      caractère).
+- [ ] **P4.8 — pooling des buffers image** (`sync.Pool`) pour réduire le GC (~9 % du profil).
+- [ ] **P4.9 — PGO** (Go ≥1.21) : `default.pgo` issu d'une récupération représentative ; ~4,5 %+
+      CPU-bound, risque quasi nul. Réf. Uber/Google.
+- [ ] **P4.10 — SIMD** (Go 1.26 `simd/archsimd` sous `GOEXPERIMENT=simd`, ou asm AVX2) sur la
+      boucle de comparaison — **seulement après** P4.3 (qui réduit la boucle 64×, rendant peut-être
+      la SIMD superflue) ; attention surcoût `VZEROUPPER` et tension avec le build pur-Go.
+- [ ] **P4.11 — concurrence accrue** : paralléliser `evalChildren` (charset d'un nœud), pool
+      work-stealing au lieu de goroutine-par-offset ; benchstat + `-race`.
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public) puis **v0.2.0** (Phase 2 + CLI) publiées
@@ -292,3 +333,4 @@ police **monospace** → la grille de pixelisation s'aligne sur une grille de ce
 - `a000af0` 2026-06-19 — test(matrix): reference-image recovery matrix + generator (+ WithStyle option) _(23 fichiers)_
 - `f934264` 2026-06-19 — build(mise): add gen and gen:check tasks for the test fixtures _(3 fichiers)_
 - `6a9e1ab` 2026-06-19 — perf(search): drop per-candidate totalScore (display-only) — ~3.4x faster discovery _(5 fichiers)_
+- `598304d` 2026-06-19 — perf(layout): align struct fields with betteralign + add mise align tasks _(6 fichiers)_
