@@ -102,10 +102,15 @@ func (GuidedStrategy) Search(
 			}
 		})
 
+		topN := RankTopN(candidates, cfg.TopN)
+		conf, ambiguity := Confidence(topN)
 		results <- unpixel.Result{
 			BestGuess:  bestGuess,
 			BestScore:  bestScore,
 			Candidates: candidates,
+			TopN:       topN,
+			Confidence: conf,
+			Ambiguity:  ambiguity,
 			Offset:     offset,
 		}
 	}

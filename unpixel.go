@@ -101,6 +101,11 @@ type Config struct {
 	// space character, which is harder to distinguish visually. Defaults to
 	// DefaultSpaceThreshold.
 	SpaceThreshold float64
+	// TopN is the maximum number of ranked candidates retained per grid offset
+	// in Result.TopN. Candidates are sorted ascending by score (lowest first);
+	// ties are broken by Guess string so results are deterministic. Zero or
+	// negative values are replaced by DefaultTopN in applyDefaults.
+	TopN int
 	// ThresholdFor returns the acceptance threshold for a given candidate
 	// character. It defaults to a closure that returns SpaceThreshold for ' '
 	// and Threshold for all other runes. Override to apply per-class thresholds
@@ -139,6 +144,9 @@ const (
 	// DefaultSpaceThreshold is the per-block score gate for the space character,
 	// which is visually ambiguous and requires a more permissive threshold.
 	DefaultSpaceThreshold = 0.5
+	// DefaultTopN is the default maximum number of ranked candidates retained
+	// per grid offset and exposed on Result.TopN.
+	DefaultTopN = 5
 )
 
 // Offset represents one candidate grid origin for the pixelation block alignment.
@@ -182,6 +190,18 @@ type Result struct {
 	// Candidates holds every string that passed the threshold gate during the
 	// search, in discovery order.
 	Candidates []Eval
+	// TopN holds the best candidates sorted ascending by score (lowest score
+	// first), with ties broken by Guess string for determinism. Its length is
+	// at most Config.TopN. TopN[0] is the same candidate as BestGuess when the
+	// search produces any result. TopN is nil when no candidates were found.
+	TopN []Eval
+	// Confidence is 1 − TopN[0].Score, giving a value in [0, 1] where 1
+	// represents a pixel-perfect match. It is 0 when TopN is empty.
+	Confidence float64
+	// Ambiguity is TopN[1].Score − TopN[0].Score: the score gap between the
+	// best and second-best candidates. A larger gap means the best guess is
+	// more clearly distinguished from alternatives. It is 0 when len(TopN) < 2.
+	Ambiguity float64
 	// Offset is the grid origin that was searched to produce this result.
 	Offset Offset
 	// Err is non-nil if the search for this offset aborted due to an error.
@@ -346,6 +366,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.SpaceThreshold == 0 {
 		cfg.SpaceThreshold = DefaultSpaceThreshold
+	}
+	if cfg.TopN <= 0 {
+		cfg.TopN = DefaultTopN
 	}
 	if cfg.ThresholdFor == nil {
 		// Capture the resolved thresholds so the closure is independent of
