@@ -206,6 +206,50 @@ func whitePNG(t *testing.T, w, h int) string {
 	return path
 }
 
+// TestCharsetForPreset verifies preset name → charset mapping and rejection.
+func TestCharsetForPreset(t *testing.T) {
+	cases := map[string]string{
+		"lower": unpixel.CharsetLower,
+		"alnum": unpixel.CharsetAlnum,
+		"ascii": unpixel.CharsetASCII,
+		"code":  unpixel.CharsetASCII,
+	}
+	for name, want := range cases {
+		got, err := charsetForPreset(name)
+		if err != nil {
+			t.Errorf("charsetForPreset(%q): %v", name, err)
+		}
+		if got != want {
+			t.Errorf("charsetForPreset(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if _, err := charsetForPreset("klingon"); err == nil {
+		t.Error("charsetForPreset(unknown) = nil error, want error")
+	}
+}
+
+// TestRun_charsetPreset drives the CLI with --charset-preset end to end.
+func TestRun_charsetPreset(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+	out := captureStdout(t, func() {
+		args := []string{"unpixel", "--quiet", "--charset-preset", "alnum", "--max-length", "1", "--block-size", "8", path}
+		if err := buildApp().Run(t.Context(), args); err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("expected a newline-terminated result, got %q", out)
+	}
+}
+
+// TestRun_badCharsetPreset rejects an unknown preset.
+func TestRun_badCharsetPreset(t *testing.T) {
+	path := whitePNG(t, 8, 8)
+	if err := buildApp().Run(t.Context(), []string{"unpixel", "--charset-preset", "nope", path}); err == nil {
+		t.Error("expected error for bad --charset-preset")
+	}
+}
+
 // TestValidateParams checks the enum-style flag validation.
 func TestValidateParams(t *testing.T) {
 	base := flagParams{format: "text", strategy: "guided", metric: "pixelmatch"}

@@ -96,6 +96,21 @@ func buildConfig(p flagParams) unpixel.Config {
 	return cfg
 }
 
+// charsetForPreset maps a --charset-preset name to a charset constant.
+func charsetForPreset(name string) (string, error) {
+	switch name {
+	case "lower":
+		return unpixel.CharsetLower, nil
+	case "alnum":
+		return unpixel.CharsetAlnum, nil
+	case "ascii", "code":
+		return unpixel.CharsetASCII, nil
+	default:
+		return "", fmt.Errorf("--charset-preset must be %q, %q or %q/%q, got %q",
+			"lower", "alnum", "ascii", "code", name)
+	}
+}
+
 // validateParams rejects unknown enum-style flag values before any work begins,
 // returning an error naming the offending flag and the accepted values.
 func validateParams(p flagParams) error {
@@ -248,6 +263,10 @@ Examples:
 				Usage: "ordered set of candidate characters (default: a-z plus space)",
 				Value: unpixel.DefaultCharset,
 			},
+			&cli.StringFlag{
+				Name:  "charset-preset",
+				Usage: `named charset when --charset is unset: "lower", "alnum", or "ascii"/"code"`,
+			},
 			&cli.IntFlag{
 				Name:    "max-length",
 				Aliases: []string{"m"},
@@ -324,8 +343,18 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 	imgPath := cmd.Args().First()
 
+	charset := cmd.String("charset")
+	// An explicit --charset always wins; otherwise a preset name expands to a charset.
+	if !cmd.IsSet("charset") && cmd.IsSet("charset-preset") {
+		cs, err := charsetForPreset(cmd.String("charset-preset"))
+		if err != nil {
+			return err
+		}
+		charset = cs
+	}
+
 	p := flagParams{
-		charset:        cmd.String("charset"),
+		charset:        charset,
 		maxLength:      cmd.Int("max-length"),
 		blockSize:      cmd.Int("block-size"),
 		threshold:      cmd.Float("threshold"),

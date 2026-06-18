@@ -101,6 +101,36 @@ func TestRecoverFile_missing(t *testing.T) {
 	}
 }
 
+// TestCharsetPresets checks the exported charset presets are well-formed and
+// progressively wider.
+func TestCharsetPresets(t *testing.T) {
+	if unpixel.CharsetLower != unpixel.DefaultCharset {
+		t.Errorf("CharsetLower = %q, want DefaultCharset", unpixel.CharsetLower)
+	}
+	if len(unpixel.CharsetASCII) != 95 { // printable ASCII 0x20..0x7E
+		t.Errorf("CharsetASCII length = %d, want 95", len(unpixel.CharsetASCII))
+	}
+	for _, c := range unpixel.CharsetASCII {
+		if c < 0x20 || c > 0x7E {
+			t.Errorf("CharsetASCII contains non-printable %q", c)
+		}
+	}
+	if len(unpixel.CharsetLower) >= len(unpixel.CharsetAlnum) || len(unpixel.CharsetAlnum) >= len(unpixel.CharsetASCII) {
+		t.Errorf("presets not progressively wider: lower=%d alnum=%d ascii=%d",
+			len(unpixel.CharsetLower), len(unpixel.CharsetAlnum), len(unpixel.CharsetASCII))
+	}
+	// No duplicate characters within a preset (ordered set).
+	for name, cs := range map[string]string{"alnum": unpixel.CharsetAlnum, "ascii": unpixel.CharsetASCII} {
+		seen := map[rune]bool{}
+		for _, c := range cs {
+			if seen[c] {
+				t.Errorf("%s preset has duplicate %q", name, c)
+			}
+			seen[c] = true
+		}
+	}
+}
+
 // TestOptions verifies that each Option mutates the intended Config field, and
 // that WithConfig provides a base that later options override.
 func TestOptions(t *testing.T) {

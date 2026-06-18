@@ -94,6 +94,7 @@ Key flags (`unpixel --help` for the full list):
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--charset` | `a–z` + space | Candidate characters to try |
+| `--charset-preset` | — | Named charset when `--charset` is unset: `lower`, `alnum`, `ascii`/`code` |
 | `--block-size`, `-b` | `0` (auto) | Pixelation block size; `0` auto-detects from the image |
 | `--strategy` | `guided` | `guided` (full DFS) or `beam` (bounded, faster) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |

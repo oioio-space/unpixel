@@ -151,6 +151,20 @@ type Config struct {
 	Workers int
 }
 
+// Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
+// charset recovers more text but enlarges the search space, so prefer the
+// narrowest one that fits the target.
+const (
+	// CharsetLower is lowercase ASCII letters plus space (the faithful default).
+	CharsetLower = DefaultCharset
+	// CharsetAlnum adds uppercase letters and digits to CharsetLower.
+	CharsetAlnum = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+	// CharsetASCII is every printable ASCII character (0x20–0x7E). Use it for
+	// source code and other symbol-heavy text.
+	CharsetASCII = " !\"#$%&'()*+,-./0123456789:;<=>?@" +
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+)
+
 // Default configuration values, matching the original unredacter reference implementation.
 const (
 	// DefaultCharset is the candidate alphabet: lowercase ASCII letters and space.
