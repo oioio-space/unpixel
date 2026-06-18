@@ -5,13 +5,14 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oioio-space/unpixel"
-	_ "github.com/oioio-space/unpixel/defaults"
 )
 
 // TestBuildConfig verifies that buildConfig maps flag values to unpixel.Config
@@ -158,5 +159,170 @@ func TestLoadImage(t *testing.T) {
 	_, err = loadImage(filepath.Join(dir, "nonexistent.png"))
 	if err == nil {
 		t.Error("loadImage(missing): expected error, got nil")
+	}
+}
+
+// captureStdout redirects os.Stdout while fn runs and returns everything written.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	fn()
+	_ = w.Close()
+	return <-done
+}
+
+// whitePNG writes a white w×h PNG to a temp file and returns its path.
+func whitePNG(t *testing.T, w, h int) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "redacted.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		_ = f.Close()
+		t.Fatalf("encode: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	return path
+}
+
+// TestValidateParams checks the enum-style flag validation.
+func TestValidateParams(t *testing.T) {
+	base := flagParams{format: "text", strategy: "guided", metric: "pixelmatch"}
+	if err := validateParams(base); err != nil {
+		t.Errorf("valid params rejected: %v", err)
+	}
+	cases := map[string]func(*flagParams){
+		"bad format":   func(p *flagParams) { p.format = "xml" },
+		"bad strategy": func(p *flagParams) { p.strategy = "astar" },
+		"bad metric":   func(p *flagParams) { p.metric = "psnr" },
+	}
+	for name, mut := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := base
+			mut(&p)
+			if err := validateParams(p); err == nil {
+				t.Error("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestBuildConfig_strategyAndMetric covers the beam/SSIM selection branches and
+// the worker/beam-width passthrough.
+func TestBuildConfig_strategyAndMetric(t *testing.T) {
+	cfg := buildConfig(flagParams{strategy: "beam", beamWidth: 8, metric: "ssim", workers: 3})
+	if cfg.Strategy == nil {
+		t.Error("beam: Strategy is nil")
+	}
+	if cfg.Metric == nil {
+		t.Error("ssim: Metric is nil")
+	}
+	if cfg.BeamWidth != 8 {
+		t.Errorf("BeamWidth: got %d, want 8", cfg.BeamWidth)
+	}
+	if cfg.Workers != 3 {
+		t.Errorf("Workers: got %d, want 3", cfg.Workers)
+	}
+
+	def := buildConfig(flagParams{strategy: "guided", metric: "pixelmatch"})
+	if def.Strategy == nil || def.Metric == nil {
+		t.Error("guided/pixelmatch: Strategy or Metric is nil")
+	}
+}
+
+// TestRun_endToEndJSON drives the full CLI through buildApp on a temp PNG and
+// asserts the emitted stdout is valid result JSON.
+func TestRun_endToEndJSON(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+	out := captureStdout(t, func() {
+		app := buildApp()
+		args := []string{"unpixel", "--quiet", "--format", "json", "--max-length", "1", "--charset", "a", "--block-size", "8", path}
+		if err := app.Run(t.Context(), args); err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	var r resultJSON
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\ngot: %s", err, out)
+	}
+}
+
+// TestRun_endToEndText drives the text output path.
+func TestRun_endToEndText(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+	out := captureStdout(t, func() {
+		app := buildApp()
+		args := []string{"unpixel", "--quiet", "--max-length", "1", "--charset", "a", "--block-size", "8", path}
+		if err := app.Run(t.Context(), args); err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	// A white image yields an empty best guess; the path must still print a line.
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("text output should end with a newline, got %q", out)
+	}
+}
+
+// TestRun_validationAndArgErrors covers the early error returns of run.
+func TestRun_validationAndArgErrors(t *testing.T) {
+	path := whitePNG(t, 8, 8)
+	cases := map[string][]string{
+		"bad format":    {"unpixel", "--format", "xml", path},
+		"bad strategy":  {"unpixel", "--strategy", "astar", path},
+		"bad metric":    {"unpixel", "--metric", "psnr", path},
+		"missing arg":   {"unpixel"},
+		"too many args": {"unpixel", path, path},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := buildApp().Run(t.Context(), args); err == nil {
+				t.Error("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestPrintJSONAndText exercises the formatters directly.
+func TestPrintJSONAndText(t *testing.T) {
+	r := recoveryResult{
+		bestGuess:  "hi",
+		bestScore:  0.1,
+		offset:     unpixel.Offset{X: 1, Y: 2},
+		confidence: 0.9,
+		ambiguity:  0.1,
+		top:        []unpixel.Eval{{Guess: "hi", Score: 0.1}},
+	}
+	jsonOut := captureStdout(t, func() {
+		if err := printJSON(r, 5, 10*time.Millisecond); err != nil {
+			t.Errorf("printJSON: %v", err)
+		}
+	})
+	if !strings.Contains(jsonOut, `"best_guess": "hi"`) {
+		t.Errorf("printJSON missing best_guess: %s", jsonOut)
+	}
+	textOut := captureStdout(t, func() { printText(r, false) })
+	if !strings.Contains(textOut, "hi") {
+		t.Errorf("printText missing guess: %s", textOut)
 	}
 }

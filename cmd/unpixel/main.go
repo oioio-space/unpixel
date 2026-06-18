@@ -32,7 +32,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/oioio-space/unpixel"
-	_ "github.com/oioio-space/unpixel/defaults"
+	"github.com/oioio-space/unpixel/defaults" // named: strategy/metric constructors; init() still wires defaults
 )
 
 // version and commit are injected by goreleaser via -ldflags -X.
@@ -59,22 +59,56 @@ type flagParams struct {
 	threshold      float64
 	spaceThreshold float64
 	topN           int
+	workers        int
+	strategy       string
+	beamWidth      int
+	metric         string
 	format         string
 	quiet          bool
 	timeout        time.Duration
 }
 
-// buildConfig maps flagParams to an unpixel.Config. Zero values are intentionally
-// left as zero so that unpixel.New's applyDefaults fills in package defaults.
+// buildConfig maps flagParams to an unpixel.Config. Scalar zero values are left
+// as zero so unpixel.New's applyDefaults (and BlockSize inference) fill them in;
+// the strategy and metric are selected from their validated flag names.
+// buildConfig assumes p.strategy and p.metric were already validated by run.
 func buildConfig(p flagParams) unpixel.Config {
-	return unpixel.Config{
+	cfg := unpixel.Config{
 		Charset:        p.charset,
 		MaxLength:      p.maxLength,
 		BlockSize:      p.blockSize,
 		Threshold:      p.threshold,
 		SpaceThreshold: p.spaceThreshold,
 		TopN:           p.topN,
+		Workers:        p.workers,
+		BeamWidth:      p.beamWidth,
 	}
+	if p.strategy == "beam" {
+		cfg.Strategy = defaults.BeamStrategy(p.beamWidth)
+	} else {
+		cfg.Strategy = defaults.GuidedStrategy()
+	}
+	if p.metric == "ssim" {
+		cfg.Metric = defaults.SSIMMetric(0)
+	} else {
+		cfg.Metric = defaults.PixelmatchMetric()
+	}
+	return cfg
+}
+
+// validateParams rejects unknown enum-style flag values before any work begins,
+// returning an error naming the offending flag and the accepted values.
+func validateParams(p flagParams) error {
+	if p.format != "text" && p.format != "json" {
+		return fmt.Errorf("--format must be %q or %q, got %q", "text", "json", p.format)
+	}
+	if p.strategy != "guided" && p.strategy != "beam" {
+		return fmt.Errorf("--strategy must be %q or %q, got %q", "guided", "beam", p.strategy)
+	}
+	if p.metric != "pixelmatch" && p.metric != "ssim" {
+		return fmt.Errorf("--metric must be %q or %q, got %q", "pixelmatch", "ssim", p.metric)
+	}
+	return nil
 }
 
 // resultJSON is the stable JSON schema emitted by --format json.
@@ -223,8 +257,8 @@ Examples:
 			&cli.IntFlag{
 				Name:    "block-size",
 				Aliases: []string{"b"},
-				Usage:   "pixelation block side length in pixels (must match the redaction)",
-				Value:   unpixel.DefaultBlockSize,
+				Usage:   "pixelation block side length in pixels (0 = auto-detect from the image)",
+				Value:   0,
 			},
 			&cli.FloatFlag{
 				Name:  "threshold",
@@ -241,6 +275,26 @@ Examples:
 				Aliases: []string{"n"},
 				Usage:   "maximum number of ranked top candidates to retain per offset",
 				Value:   unpixel.DefaultTopN,
+			},
+			&cli.StringFlag{
+				Name:  "strategy",
+				Usage: `search strategy: "guided" (full DFS) or "beam" (bounded, faster)`,
+				Value: "guided",
+			},
+			&cli.IntFlag{
+				Name:  "beam-width",
+				Usage: "candidates kept per depth level when --strategy beam (0 = default)",
+				Value: 0,
+			},
+			&cli.StringFlag{
+				Name:  "metric",
+				Usage: `image-distance metric: "pixelmatch" (faithful) or "ssim" (structural)`,
+				Value: "pixelmatch",
+			},
+			&cli.IntFlag{
+				Name:  "workers",
+				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
+				Value: 0,
 			},
 			&cli.StringFlag{
 				Name:    "format",
@@ -277,13 +331,17 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		threshold:      cmd.Float("threshold"),
 		spaceThreshold: cmd.Float("space-threshold"),
 		topN:           cmd.Int("top"),
+		workers:        cmd.Int("workers"),
+		strategy:       cmd.String("strategy"),
+		beamWidth:      cmd.Int("beam-width"),
+		metric:         cmd.String("metric"),
 		format:         cmd.String("format"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}
 
-	if p.format != "text" && p.format != "json" {
-		return fmt.Errorf("--format must be %q or %q, got %q", "text", "json", p.format)
+	if err := validateParams(p); err != nil {
+		return err
 	}
 
 	if p.timeout > 0 {
