@@ -14,6 +14,11 @@
 // This package exists solely to break the import cycle between the root unpixel
 // package and its internal implementations. Applications that supply all four
 // component fields in Config explicitly do not need to import it.
+//
+// To pick a non-default search strategy, assign one of the exported strategy
+// constructors to Config.Strategy:
+//
+//	cfg := unpixel.Config{Strategy: defaults.BeamStrategy(0)}
 package defaults
 
 import (
@@ -55,4 +60,26 @@ func Wire(cfg *unpixel.Config) error {
 		cfg.Strategy = search.NewGuidedStrategy()
 	}
 	return nil
+}
+
+// GuidedStrategy returns the guided depth-first search strategy as an
+// unpixel.Strategy, ready to assign to Config.Strategy. It is the same strategy
+// Wire installs when Config.Strategy is nil; call it explicitly only for
+// symmetry with BeamStrategy or to make the choice visible at the call site.
+func GuidedStrategy() unpixel.Strategy {
+	return search.NewGuidedStrategy()
+}
+
+// BeamStrategy returns the beam-search strategy as an unpixel.Strategy, ready to
+// assign to Config.Strategy. width caps the number of candidates retained per
+// depth level; pass 0 to defer to Config.BeamWidth (or DefaultBeamWidth when
+// that is also unset).
+//
+// Beam search bounds the branching factor for a faster, lower-recall search than
+// the default guided DFS. It memoises the shared render→pixelate→crop prefix
+// work in an LRU cache sized by Config.CacheSize (zero disables the cache):
+//
+//	cfg := unpixel.Config{Strategy: defaults.BeamStrategy(0)}
+func BeamStrategy(width int) unpixel.Strategy {
+	return search.NewBeamStrategy(width)
 }

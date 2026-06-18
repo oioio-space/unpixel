@@ -108,9 +108,14 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - [x] Passer le repo public → CodeQL + secret-scanning + Codecov gratuits.
 - [x] Monter COVER_MIN à 85.
 - [ ] Implémenter une CLI ergonomique (package → CLI au-dessus).
-- [ ] **Phase 2** (cf. `docs/DESIGN.md`) : beam search, goroutine fan-out, renderer
-      chromedp pour fidélité Chromium, inférence auto block-size/offset, classement top-N
-      par confiance.
+- [x] **Phase 2 — beam search + mémoïsation** : `BeamStrategy` (largeur bornée par niveau) +
+      `CachingScorer` (cache LRU prefix-render, clé `guess+offset+style`), exposés publiquement
+      via `defaults.BeamStrategy(width)` et les champs `Config.BeamWidth`/`CacheSize`. Course de
+      données du renderer (face `opentype` partagée) corrigée (`glyphMu`), non-régression
+      prouvée au benchstat.
+- [x] **Phase 2 — classement top-N par confiance** : `Result.TopN`/`Confidence`/`Ambiguity`.
+- [ ] **Phase 2 (suite)** (cf. `docs/DESIGN.md`) : goroutine fan-out, renderer chromedp pour
+      fidélité Chromium, inférence auto block-size/offset, métriques SSIM/edge-aware.
 
 ## 🧭 Décisions clés
 
@@ -164,3 +169,6 @@ Outillage qualité en place ; **cœur du portage terminé** ; **v0.1.0 publié**
 - `e358ebc` 2026-06-18 — docs(godoc): enrich package/symbol docs and add a runnable Example _(3 fichiers)_
 - `1d6a1a1` 2026-06-18 — feat(style): enforce GoDoc/pkg.go.dev quality in the style gate _(2 fichiers)_
 - `5c7d6eb` 2026-06-18 — docs(readme): add Go Reference and Go Report Card badges _(1 fichiers)_
+- `8dd956d` 2026-06-18 — docs: sync PROGRESS — public repo, v0.1.0, GoDoc, README, routing _(1 fichiers)_
+- `6a42682` 2026-06-18 — feat(cli): ergonomic CLI (urfave/cli/v3) + Top-N/confidence reporting _(8 fichiers)_
+- `8bc53bc` 2026-06-18 — feat(skill): helper-ergonomics skill + pre-commit hook (human-facing API) _(4 fichiers)_

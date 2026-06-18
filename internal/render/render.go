@@ -42,6 +42,13 @@ type XImage struct {
 	mu          sync.Mutex
 	regularFace map[float64]faceMetrics
 	boldFace    map[float64]faceMetrics
+
+	// glyphMu serializes glyph rasterization. opentype.Face (and the sfnt.Font
+	// it wraps) is not safe for concurrent use: MeasureString and DrawString
+	// both mutate a shared internal glyph cache. Render may be called from
+	// multiple goroutines (e.g. CachingScorer, future offset fan-out), so the
+	// font-touching operations must be guarded.
+	glyphMu sync.Mutex
 }
 
 // NewXImage parses the embedded TTF fonts and returns an XImage renderer.
@@ -127,7 +134,10 @@ func (r *XImage) Render(text string, style unpixel.Style) (*image.RGBA, int, err
 	paddingTop := style.PaddingTop
 
 	// Measure the text advance; fixed.Int26_6.Ceil() converts to pixels.
+	// MeasureString rasterizes glyphs, so guard the shared face (see glyphMu).
+	r.glyphMu.Lock()
 	textW := font.MeasureString(fm.face, text).Ceil()
+	r.glyphMu.Unlock()
 
 	imgH := paddingTop + fm.ascent + fm.descent + 4 // small bottom margin
 	imgW := paddingLeft + textW + sentinelWidth + 8 // right margin
@@ -145,7 +155,9 @@ func (r *XImage) Render(text string, style unpixel.Style) (*image.RGBA, int, err
 			Y: fixed.I(paddingTop + fm.ascent),
 		},
 	}
+	r.glyphMu.Lock()
 	drawer.DrawString(text)
+	r.glyphMu.Unlock()
 
 	// sentinelX is the pixel column where the blue sentinel starts.
 	// We use paddingLeft + textW (the measured advance) so that it tracks

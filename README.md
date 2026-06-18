@@ -39,6 +39,9 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   so any UI — web/SSE, TUI, desktop — can subscribe via the channel or the `OnProgress` callback.
 - **Pluggable everything.** Swap the `Renderer`, `Pixelator`, `Metric`, or search `Strategy`
   through `Config`; the faithful defaults are wired by importing the `defaults` package.
+- **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
+  offset (sorted by score, ties broken deterministically) plus `Confidence` and `Ambiguity`
+  scores, so callers can surface alternatives instead of a single best guess.
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
@@ -129,11 +132,20 @@ Pass a `Config` to `unpixel.New`. Every zero value falls back to a documented de
 | `Threshold` | `float64` | `0.25` | Max image-distance score (0–1) to keep a candidate |
 | `SpaceThreshold` | `float64` | `0.5` | Looser threshold for extending with a space (whitespace blur) |
 | `ThresholdFor` | `func(rune) float64` | space→`SpaceThreshold`, else `Threshold` | Per-character threshold; override for new char classes |
+| `TopN` | `int` | `5` | Ranked candidates kept per offset in `Result.TopN` |
 | `Style` | `Style` | Liberation Sans, 32 px, white bg | Font family/size/weight/padding for rendering |
 | `Renderer` | `Renderer` | `x/image/font` (pure Go) | Text → raster |
 | `Pixelator` | `Pixelator` | block-average | Raster → pixelated |
 | `Metric` | `Metric` | `orisano/pixelmatch` | Image-distance score |
-| `Strategy` | `Strategy` | guided DFS | Candidate-space search |
+| `Strategy` | `Strategy` | guided DFS | Candidate-space search (`defaults.GuidedStrategy()` / `defaults.BeamStrategy(width)`) |
+| `BeamWidth` | `int` | `16` | Candidates kept per depth level — beam strategy only |
+| `CacheSize` | `int` | `4096` | LRU size for prefix-render memoization — beam strategy only (`0` disables) |
+
+Selecting beam search (bounded branching + prefix-render caching) instead of the default DFS:
+
+```go
+cfg := unpixel.Config{Strategy: defaults.BeamStrategy(0)} // 0 = use BeamWidth (default 16)
+```
 
 ## Architecture
 
@@ -167,9 +179,11 @@ hinting/anti-aliasing), so **correctness is judged by self-consistency**: redact
 plaintext with UnPixel's own renderer, then recover it. Recovering a Chromium-produced redaction
 (e.g. the original `secret.png`) is a Phase-2 goal requiring a `chromedp` renderer.
 
-Phase-2 ideas (behind the interfaces; the faithful default stays put): beam search, goroutine
-fan-out over candidates/offsets, SSIM / edge-aware metrics, automatic block-size & offset
-inference, the `chromedp` fidelity renderer, and top-N confidence/ambiguity reporting. Details in
+**Landed:** top-N confidence/ambiguity reporting, plus a **beam-search strategy** with
+**prefix-render memoization** — both public via `defaults.BeamStrategy(width)` and the
+`BeamWidth`/`CacheSize` config. **Still ahead** (behind the interfaces; the faithful default
+stays put): goroutine fan-out over candidates/offsets, SSIM / edge-aware metrics, automatic
+block-size & offset inference, and the `chromedp` fidelity renderer. Details in
 [`docs/DESIGN.md`](docs/DESIGN.md) § Phase-2.
 
 </details>

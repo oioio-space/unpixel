@@ -1,10 +1,11 @@
 // Package search (scorer.go) provides the pipeline Scorer that connects the
 // renderer, pixelator, imutil helpers, and metric into the Eval call used by
-// GuidedDFS and DiscoverOffsets.
+// GuidedDFS, BeamDFS, and DiscoverOffsets.
 package search
 
 import (
 	"context"
+	"errors"
 	"image"
 	"image/color"
 
@@ -24,81 +25,148 @@ func NewPipelineScorer(redacted *image.RGBA, cfg unpixel.Config) *PipelineScorer
 	return &PipelineScorer{redacted: redacted, cfg: cfg}
 }
 
-// Eval renders guess, pixelates it, performs the marginal-region crop, and
-// returns the diff score against the redacted image.
+// RedactedImage returns the redacted image held by this scorer.
+// It is used by tests that need access to the image after construction.
+func (s *PipelineScorer) RedactedImage() *image.RGBA { return s.redacted }
+
+// stageResult holds the outputs of stageImage (pipeline steps 1–7).
+type stageResult struct {
+	// img is the rendered, pixelated, vertically-cropped image for the guess.
+	// Invariant: img is never mutated after stageImage returns.
+	// imutil.Crop always allocates a fresh *image.RGBA, so sharing across
+	// goroutines and caching are safe without copying.
+	img *image.RGBA
+	// blueMargin is the raw right-edge x-coordinate of the text (step 2).
+	blueMargin int
+	// leftEdge is the first non-white column after pixelation (step 6).
+	leftEdge int
+	// cropY is the top row used for the step-7 vertical crop. evalFromStage
+	// reuses it when re-staging prevGuess so both images share the same band.
+	cropY int
+}
+
+// stageImage executes pipeline steps 1–7 for guess at the given offset:
+// render → blueMargin → crop-to-origin → white-pad → pixelate → leftEdge →
+// vertical crop.
 //
-// faithful: main.ts redact() steps 1–6, see DESIGN.md §Faithful pipeline.
-func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offset unpixel.Offset) EvalResult {
+// The returned stageResult.img is a fresh allocation (imutil.Crop always
+// allocates). Callers must not mutate it; see the stageResult.img doc comment.
+func (s *PipelineScorer) stageImage(ctx context.Context, guess string, offset unpixel.Offset) (stageResult, error) {
 	if ctx.Err() != nil {
-		return EvalResult{Score: 1}
+		return stageResult{}, ctx.Err()
 	}
 
 	// Step 1: Render.
-	img, blueMargin, err := s.cfg.Renderer.Render(guess, s.cfg.Style)
+	rendered, sentinelX, err := s.cfg.Renderer.Render(guess, s.cfg.Style)
 	if err != nil {
-		return EvalResult{Score: 1}
+		return stageResult{}, err
 	}
 
 	// Step 2: BlueMargin — right edge of text + vertical center.
-	bm, imageCenter := imutil.BlueMargin(img)
+	bm, imageCenter := imutil.BlueMargin(rendered)
 	if bm == 0 {
-		bm = blueMargin // fall back to measured advance if scan finds nothing
+		bm = sentinelX // fall back to measured advance if scan finds nothing
 	}
 
 	// Step 3: Crop to grid origin.
 	ox, oy := offset.X, offset.Y
 	cropW := bm - ox
 	if cropW <= 0 {
-		return EvalResult{Score: 1}
+		return stageResult{}, errCropEmpty
 	}
-	img = imutil.Crop(img, ox, oy, cropW, img.Bounds().Dy()-oy)
+	rendered = imutil.Crop(rendered, ox, oy, cropW, rendered.Bounds().Dy()-oy)
 	imageCenter -= oy
 
 	// Step 4: White-pad to block multiple.
 	bs := s.cfg.BlockSize
-	w := img.Bounds().Dx()
+	w := rendered.Bounds().Dx()
 	if rem := bs - (w % bs); rem < bs {
-		img = imutil.PadWhite(img, w+rem, img.Bounds().Dy())
+		rendered = imutil.PadWhite(rendered, w+rem, rendered.Bounds().Dy())
 	}
 
 	// Step 5: Pixelate.
-	img = s.cfg.Pixelator.Pixelate(img, 0, 0)
+	rendered = s.cfg.Pixelator.Pixelate(rendered, 0, 0)
 
 	// Step 6: LeftEdge.
-	leftEdge := imutil.LeftEdge(img)
+	le := imutil.LeftEdge(rendered)
 
 	// Step 7: Vertical crop around block-aligned center.
 	redactedH := s.redacted.Bounds().Dy()
 	adjustedCenter := imageCenter - (imageCenter % bs) + 4
-	cropY := adjustedCenter - redactedH/2
-	img = imutil.Crop(img, leftEdge, cropY, img.Bounds().Dx()-leftEdge, redactedH)
+	cy := adjustedCenter - redactedH/2
+	rendered = imutil.Crop(rendered, le, cy, rendered.Bounds().Dx()-le, redactedH)
+
+	return stageResult{img: rendered, blueMargin: bm, leftEdge: le, cropY: cy}, nil
+}
+
+// errCropEmpty is returned by stageImage when the crop width is non-positive.
+var errCropEmpty = errors.New("crop region is empty")
+
+// Eval renders guess, pixelates it, performs the marginal-region crop, and
+// returns the diff score against the redacted image.
+//
+// faithful: main.ts redact() steps 1–10, see DESIGN.md §Faithful pipeline.
+func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offset unpixel.Offset) EvalResult {
+	if ctx.Err() != nil {
+		return EvalResult{Score: 1}
+	}
+	sr, err := s.stageImage(ctx, guess, offset)
+	if err != nil {
+		return EvalResult{Score: 1}
+	}
+	return s.evalFromStage(ctx, sr, prevGuess, offset)
+}
+
+// evalFromStage completes steps 8–10 given the already-staged image for guess.
+// It is called by both Eval and CachingScorer.Eval (which supplies the cached
+// stageResult). sr.cropY is reused for the prevGuess re-render so that both
+// images are vertically aligned to the same row band — faithful to the original
+// which derived cropY once from the current guess.
+func (s *PipelineScorer) evalFromStage(
+	ctx context.Context,
+	sr stageResult,
+	prevGuess string,
+	offset unpixel.Offset,
+) EvalResult {
+	// Steps 8–10 do real work (a prevGuess re-render), so bail early on cancel.
+	if ctx.Err() != nil {
+		return EvalResult{Score: 1}
+	}
+	img := sr.img
+	bm := sr.blueMargin
+	le := sr.leftEdge
+	ox := offset.X
+	bs := s.cfg.BlockSize
+	redactedH := s.redacted.Bounds().Dy()
 
 	// Step 8: Marginal region — diff against previous guess to find changed band.
-	guessImg := img // save for totalScore
+	// faithful: main.ts uses the same cropY derived from the current guess for both renders.
+	guessImg := img // saved for totalScore
 	leftBoundary := 0
 	if prevGuess != "" {
-		prevImg, prevBlue, err := s.cfg.Renderer.Render(prevGuess, s.cfg.Style)
-		if err == nil {
-			prevBm, _ := imutil.BlueMargin(prevImg)
+		prevRendered, prevBlue, prevErr := s.cfg.Renderer.Render(prevGuess, s.cfg.Style)
+		if prevErr == nil {
+			prevBm, _ := imutil.BlueMargin(prevRendered)
 			if prevBm == 0 {
 				prevBm = prevBlue
 			}
-			prevImg = imutil.Crop(prevImg, ox, oy, prevBm-ox, prevImg.Bounds().Dy()-oy)
-			if rem := bs - (prevImg.Bounds().Dx() % bs); rem < bs {
-				prevImg = imutil.PadWhite(prevImg, prevImg.Bounds().Dx()+rem, prevImg.Bounds().Dy())
+			prevRendered = imutil.Crop(prevRendered, ox, offset.Y, prevBm-ox, prevRendered.Bounds().Dy()-offset.Y)
+			if rem := bs - (prevRendered.Bounds().Dx() % bs); rem < bs {
+				prevRendered = imutil.PadWhite(prevRendered, prevRendered.Bounds().Dx()+rem, prevRendered.Bounds().Dy())
 			}
-			prevImg = s.cfg.Pixelator.Pixelate(prevImg, 0, 0)
-			prevLeftEdge := imutil.LeftEdge(prevImg)
-			prevImg = imutil.Crop(prevImg, prevLeftEdge, cropY, prevImg.Bounds().Dx()-prevLeftEdge, redactedH)
+			prevRendered = s.cfg.Pixelator.Pixelate(prevRendered, 0, 0)
+			prevLE := imutil.LeftEdge(prevRendered)
+			// Reuse cropY from current guess — faithful to original behaviour.
+			prevImg := imutil.Crop(prevRendered, prevLE, sr.cropY, prevRendered.Bounds().Dx()-prevLE, redactedH)
 
-			// Pad prevImg to match current img width for diffing.
-			if prevImg.Bounds().Dx() < img.Bounds().Dx() {
+			// Equalise widths before diffing.
+			switch {
+			case prevImg.Bounds().Dx() < img.Bounds().Dx():
 				prevImg = imutil.PadWhite(prevImg, img.Bounds().Dx(), img.Bounds().Dy())
-			} else if prevImg.Bounds().Dx() > img.Bounds().Dx() {
+			case prevImg.Bounds().Dx() > img.Bounds().Dx():
 				prevImg = imutil.Crop(prevImg, 0, 0, img.Bounds().Dx(), prevImg.Bounds().Dy())
 			}
 
-			// Diff current vs previous to find changed band.
 			diffImg := diffRed(img, prevImg)
 			lb := imutil.Margins(diffImg)
 			if lb == 0 {
@@ -111,8 +179,8 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 	}
 
 	// Step 9: Crop to changed band and trim rightmost block.
-	// faithful: main.ts step 4 — adjustedBlueMargin = (blueMargin-left_boundary)-leftEdge-offset_x
-	adjustedBM := (bm - leftBoundary) - leftEdge - ox
+	// faithful: main.ts — adjustedBlueMargin = (blueMargin-left_boundary)-leftEdge-offset_x
+	adjustedBM := (bm - leftBoundary) - le - ox
 
 	imgCropped := imutil.Crop(img, leftBoundary, 0, img.Bounds().Dx()-leftBoundary, img.Bounds().Dy())
 	redactedCropped := imutil.Crop(s.redacted, leftBoundary, 0, s.redacted.Bounds().Dx()-leftBoundary, redactedH)
@@ -124,7 +192,6 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 		redactedCropped = imutil.Crop(redactedCropped, 0, 0, adjustedBM, redactedCropped.Bounds().Dy())
 	}
 
-	// Equalise dimensions before comparing.
 	imgCropped, redactedCropped = equalise(imgCropped, redactedCropped)
 
 	// Step 10: Score.
@@ -132,10 +199,9 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 	score := s.cfg.Metric.Compare(imgCropped, redactedCropped)
 
 	// TooBig: redacted width < scaled guess width.
-	scaledGuessW := guessImg.Bounds().Dx()
-	tooBig := s.redacted.Bounds().Dx() < scaledGuessW
+	tooBig := s.redacted.Bounds().Dx() < guessImg.Bounds().Dx()
 
-	// TotalScore: diff whole guess vs whole redacted.
+	// TotalScore: diff whole guess vs whole redacted (display only).
 	paddedGuess, paddedRedacted := equalise(guessImg, s.redacted)
 	totalScore := s.cfg.Metric.Compare(paddedGuess, paddedRedacted)
 
@@ -147,7 +213,7 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 }
 
 // diffRed produces an image whose pixels are red where a and b differ and
-// white elsewhere, matching the output that Jimp.diff produces for getMargins.
+// white elsewhere, matching the output Jimp.diff produces for getMargins.
 // a and b must have the same dimensions.
 func diffRed(a, b *image.RGBA) *image.RGBA {
 	bounds := a.Bounds()
@@ -169,8 +235,7 @@ func diffRed(a, b *image.RGBA) *image.RGBA {
 	return out
 }
 
-// equalise pads the smaller image with white so both have identical bounds,
-// then returns updated (a, b).
+// equalise pads the smaller image with white so both have identical bounds.
 func equalise(a, b *image.RGBA) (*image.RGBA, *image.RGBA) {
 	aw, ah := a.Bounds().Dx(), a.Bounds().Dy()
 	bw, bh := b.Bounds().Dx(), b.Bounds().Dy()

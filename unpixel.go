@@ -128,6 +128,16 @@ type Config struct {
 	// Strategy is the component that drives the search algorithm.
 	// Defaults to GuidedDFS (wired by the defaults package).
 	Strategy Strategy
+
+	// BeamWidth is the maximum number of candidates retained per depth level
+	// when using BeamStrategy. Values <= 0 are replaced by DefaultBeamWidth.
+	// Has no effect when Strategy is GuidedStrategy.
+	BeamWidth int
+	// CacheSize is the maximum number of stageImage results held by
+	// CachingScorer. Zero disables prefix-render memoization; positive values
+	// enable an LRU cache of that capacity shared across all Eval calls for a
+	// single Search invocation. Defaults to DefaultCacheSize.
+	CacheSize int
 }
 
 // Default configuration values, matching the original unredacter reference implementation.
@@ -147,6 +157,12 @@ const (
 	// DefaultTopN is the default maximum number of ranked candidates retained
 	// per grid offset and exposed on Result.TopN.
 	DefaultTopN = 5
+	// DefaultBeamWidth is the number of candidates retained per depth level by
+	// BeamStrategy. Larger values improve recall at the cost of more evaluations.
+	DefaultBeamWidth = 16
+	// DefaultCacheSize is the maximum number of stageImage results held by
+	// CachingScorer. Zero disables caching.
+	DefaultCacheSize = 4096
 )
 
 // Offset represents one candidate grid origin for the pixelation block alignment.
@@ -390,6 +406,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Style.PaddingLeft == 0 {
 		cfg.Style.PaddingLeft = 8
+	}
+	if cfg.BeamWidth <= 0 {
+		cfg.BeamWidth = DefaultBeamWidth
+	}
+	if cfg.CacheSize == 0 {
+		cfg.CacheSize = DefaultCacheSize
 	}
 	return cfg
 }

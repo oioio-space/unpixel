@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	_ "github.com/oioio-space/unpixel/defaults" // wire default components via init()
+	"github.com/oioio-space/unpixel/defaults" // also wires default components via init()
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
@@ -176,6 +176,72 @@ func TestEngine_roundTrip(t *testing.T) {
 	}
 	if !slices.Contains(allCandidates, plaintext) {
 		t.Errorf("plaintext %q not found in candidates; bestGuess=%q", plaintext, bestGuess)
+	}
+}
+
+// TestEngine_roundTrip_beamViaDefaults verifies the public path for selecting the
+// beam-search strategy: defaults.BeamStrategy assigned to Config.Strategy recovers
+// the plaintext end-to-end, with prefix-render caching enabled via CacheSize.
+func TestEngine_roundTrip_beamViaDefaults(t *testing.T) {
+	const (
+		plaintext = "go"
+		blockSize = 8
+	)
+	style := unpixel.Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+	c := buildComponents(t, blockSize)
+	redacted := makeSyntheticRedacted(t, c, plaintext, style, blockSize)
+
+	cfg := makeConfig(c, blockSize, len(plaintext)+2, style)
+	cfg.Strategy = defaults.BeamStrategy(0) // public beam selection
+	cfg.BeamWidth = 32
+	cfg.CacheSize = 4096
+
+	eng, err := unpixel.New(redacted, cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	progCh, resultCh := eng.Run(t.Context())
+
+	// Drain both channels concurrently (see TestEngine_roundTrip for why).
+	var (
+		mu            sync.Mutex
+		allCandidates []string
+		bestGuess     string
+		gotDone       bool
+	)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for res := range resultCh {
+			if res.Err != nil {
+				t.Errorf("result error: %v", res.Err)
+			}
+			mu.Lock()
+			bestGuess = res.BestGuess
+			for _, e := range res.Candidates {
+				allCandidates = append(allCandidates, e.Guess)
+			}
+			mu.Unlock()
+		}
+	})
+	wg.Go(func() {
+		for p := range progCh {
+			if p.Kind == unpixel.EventDone {
+				mu.Lock()
+				gotDone = true
+				mu.Unlock()
+			}
+		}
+	})
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !gotDone {
+		t.Error("progress channel closed without EventDone")
+	}
+	if !slices.Contains(allCandidates, plaintext) {
+		t.Errorf("beam via defaults: plaintext %q not recovered; bestGuess=%q", plaintext, bestGuess)
 	}
 }
 

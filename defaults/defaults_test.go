@@ -67,6 +67,32 @@ func TestInit_setsDefaultComponents(t *testing.T) {
 	}
 }
 
+// TestStrategyConstructors verifies the exported strategy constructors return
+// non-nil unpixel.Strategy values that can be assigned to Config.Strategy.
+func TestStrategyConstructors(t *testing.T) {
+	if defaults.GuidedStrategy() == nil {
+		t.Error("GuidedStrategy() = nil, want non-nil")
+	}
+	for _, width := range []int{0, 1, 16} {
+		if defaults.BeamStrategy(width) == nil {
+			t.Errorf("BeamStrategy(%d) = nil, want non-nil", width)
+		}
+	}
+}
+
+// TestWire_preservesBeamStrategy verifies that Wire does not overwrite an
+// explicitly chosen beam strategy with the default guided one.
+func TestWire_preservesBeamStrategy(t *testing.T) {
+	want := defaults.BeamStrategy(8)
+	cfg := &unpixel.Config{BlockSize: 8, Strategy: want}
+	if err := defaults.Wire(cfg); err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	if cfg.Strategy != want {
+		t.Error("Wire overwrote an explicit BeamStrategy")
+	}
+}
+
 // stubComponent satisfies all four component interfaces with no-op methods so
 // we can pass a single value for all fields in TestWire_preservesExistingComponents.
 type stubComponent struct{}
