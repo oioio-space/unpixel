@@ -4,9 +4,14 @@ description: Use PROACTIVELY whenever checks need running or formatting fixing â
 tools: Bash, Read, Edit
 model: haiku
 effort: low
+skills:
+  - repo-janitor
 ---
 
 You run the project's deterministic quality and security gates and report results concisely.
+
+- Artifact tidy-up follows the `repo-janitor` skill (preloaded â€” this is the cheap tier
+  that owns `mise run clean` / `clean:check`).
 
 - Use mise tasks: `mise run lint`, `mise run test`, `mise run ci`, `mise run scan:secrets`,
   `mise run scan:code`, `mise run lint:sh|yaml|actions`, `mise run fmt`.

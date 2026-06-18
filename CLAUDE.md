@@ -57,3 +57,35 @@ Code has no frontmatter field for a global policy, and the one global lever
 Rule of thumb: mechanical → Haiku; writing/reviewing Go → Sonnet; novel algorithm design or
 security judgement → Opus. Never use Opus for what a cheaper tier handles at equal quality.
 Run independent sub-tasks in parallel.
+
+### Skill → agent routing (cheapest competent tier)
+
+Every skill is owned by the cheapest agent that runs it at full quality. Preload (frontmatter
+`skills:`) only where no subagent-visible hook already injects the skill — otherwise the hook
+would double the cost. Subagents do NOT receive the `UserPromptSubmit` hook (main-loop only),
+but PreToolUse hooks DO fire inside subagents.
+
+| Skill | Owner agent (tier) | Wiring |
+|-------|--------------------|--------|
+| `go-style-guide`, `use-modern-go` | `go-dev` / `go-reviewer` (Sonnet) | preloaded + `modern-go-context` hook |
+| `go-benchmark` | `go-dev` (Sonnet) | hook-driven (`benchmark-context` fires in subagents) — not preloaded |
+| `readme-author` | `scribe` (Haiku) | preloaded (no hook covers it) |
+| `repo-janitor` | `quality-runner` (Haiku) | preloaded |
+| `secret-guard`, `vuln-guard` | `security-auditor` (Opus) | preloaded |
+| `research-grounding` | `algo-architect` (Opus) | preloaded (UserPromptSubmit hook skips subagents) |
+
+### Review-hook → agent routing
+
+The AI-review PreToolUse hooks (fire on `git commit`) name the cost-appropriate agent to
+delegate to for a **substantial** diff; a trivial diff is cleared inline (delegating it would
+cost more than it saves):
+
+| Hook | Delegate to (tier) |
+|------|--------------------|
+| `commit-style-review` | `go-reviewer` (Sonnet) |
+| `commit-cleanup-review` | `quality-runner` (Haiku) |
+| `commit-secret-review` | `security-auditor` (Opus, only if ambiguous) |
+| `commit-vuln-review` | `security-auditor` (Opus) |
+
+Deterministic gates (`.githooks/*`, `cgo:check`) and pure context-injection hooks
+(`modern-go-context`, `benchmark-context`, `research-grounding`) do no AI work → no routing.

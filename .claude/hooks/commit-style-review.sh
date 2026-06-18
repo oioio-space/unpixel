@@ -20,4 +20,7 @@ hook_emit_context "GO STYLE-GUIDE PRE-COMMIT REVIEW (required before this commit
 $checklist
 
 Run \`git diff --cached\` and verify the staged changes against every item above.
-If any item is violated, fix it before committing."
+If any item is violated, fix it before committing.
+
+Routing (token economy, no quality loss): for a substantial Go diff, delegate this review to
+the go-reviewer sub-agent (Sonnet) instead of the main loop; clear a trivial diff inline."

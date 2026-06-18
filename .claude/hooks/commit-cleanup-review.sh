@@ -17,4 +17,7 @@ staged — build output (dist/, the unpixel binary, *.exe, *.test), test/scan ou
 
 If an artifact is staged, unstage it and gitignore it; for a new artifact kind, add it
 to scripts/clean-artifacts.sh too. See the repo-janitor skill. (mise run clean:check
-also runs as a hard gate.)"
+also runs as a hard gate.)
+
+Routing (token economy): this is mechanical — beyond a glance, hand it to the quality-runner
+sub-agent (Haiku, owns repo-janitor) rather than spending main-loop tokens."

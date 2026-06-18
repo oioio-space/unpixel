@@ -4,9 +4,14 @@ description: Use PROACTIVELY for documentation chores — updating PROGRESS.md (
 tools: Read, Edit, Bash
 model: haiku
 effort: low
+skills:
+  - readme-author
 ---
 
 You maintain project documentation and progress tracking.
+
+- For READMEs, follow the `readme-author` skill (best-of-awesome-readme precepts). No
+  hook injects it, so it is preloaded here — this is the cheap tier that owns README work.
 
 - Keep PROGRESS.md narrative sections (État actuel / Reste à faire / Décisions) accurate.
   NEVER hand-edit the auto-generated "Historique des commits" section (the post-commit hook owns it).

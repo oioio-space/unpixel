@@ -21,4 +21,7 @@ Run \`git diff --cached\` and check the staged Go changes for:
 
 Fix findings before committing, or annotate a true false positive narrowly
 (//nolint:gosec // reason). See the vuln-guard skill. (gosec + govulncheck also run
-as hard gates; syft+grype scan the SBOM in CI.)"
+as hard gates; syft+grype scan the SBOM in CI.)
+
+Routing (no quality loss on security): for non-trivial security-sensitive Go, delegate this
+review to the security-auditor sub-agent (Opus) rather than the main loop; clear a trivial diff inline."

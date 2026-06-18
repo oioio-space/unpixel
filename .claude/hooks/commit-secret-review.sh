@@ -19,4 +19,7 @@ Run \`git diff --cached\` and confirm the staged changes contain NONE of:
 
 If anything sensitive is present, do NOT commit: remove it, move it to an env var /
 secret manager, .gitignore it, and rotate it if it was ever real. See the
-secret-guard skill for details. (gitleaks also runs as a hard gate.)"
+secret-guard skill for details. (gitleaks also runs as a hard gate.)
+
+Routing (no quality loss on security): if a potential leak is ambiguous, delegate the
+judgement to the security-auditor sub-agent (Opus); a clean trivial diff can be cleared inline."
