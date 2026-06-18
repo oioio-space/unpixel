@@ -2,7 +2,7 @@
 
 A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bishopfox/unredacter) — reconstructs text hidden behind **pixelation/mosaic** redaction. Background: [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
 
-[![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
+[![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
 > **Status:** the core **library is usable** (~94% test coverage, all gates green). The
 > **CLI** (`cmd/unpixel`) is still a placeholder. See [`PROGRESS.md`](PROGRESS.md) for the roadmap.
