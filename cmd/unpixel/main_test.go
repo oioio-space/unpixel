@@ -361,6 +361,30 @@ func TestBundleCandidates(t *testing.T) {
 	}
 }
 
+// TestRunEscalation_runsTiersWithoutError drives the charset-escalation path on
+// a white image (no recovery): it must walk the tiers and print without error.
+func TestRunEscalation_runsTiersWithoutError(t *testing.T) {
+	cands, err := bundleCandidates()
+	if err != nil {
+		t.Fatalf("bundleCandidates: %v", err)
+	}
+	cands = cands[:1] // one font keeps the test fast across all three tiers
+	img := image.NewRGBA(image.Rect(0, 0, 24, 16))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	base := buildConfig(flagParams{maxLength: 1, blockSize: 8, threshold: 0.25, spaceThreshold: 0.5, topN: 5, strategy: "guided", metric: "pixelmatch"})
+
+	out := captureStdout(t, func() {
+		if err := runEscalation(t.Context(), img, base, cands, flagParams{format: "text", quiet: true}); err != nil {
+			t.Errorf("runEscalation: %v", err)
+		}
+	})
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("runEscalation output should end with a newline, got %q", out)
+	}
+}
+
 // TestReportConfidence covers the verdict + honest-abort gate.
 func TestReportConfidence(t *testing.T) {
 	// Below --min-confidence → error (honest abort).
