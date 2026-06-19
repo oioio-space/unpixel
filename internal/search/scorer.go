@@ -165,6 +165,25 @@ func (s *PipelineScorer) stageImage(ctx context.Context, guess string, offset un
 // errCropEmpty is returned by stageImage when the crop width is non-positive.
 var errCropEmpty = errors.New("crop region is empty")
 
+// TotalScore renders guess and scores the entire pixelated candidate against the
+// entire redacted image (white-padding the narrower one to equal width), with no
+// marginal-region cropping. It measures how well the full candidate explains the
+// whole redaction, so it disambiguates the final answer: a correct prefix leaves
+// the rest of the redaction unexplained (high total score) and a coincidental
+// glyph match differs across the image, while the complete string scores lowest.
+// It returns 1 (worst) if the candidate cannot be staged.
+//
+// faithful: main.ts computed this same full-image diff as totalScore; UnPixel
+// drops it from the per-candidate hot loop (P4.1) and uses it only for ranking.
+func (s *PipelineScorer) TotalScore(ctx context.Context, guess string, offset unpixel.Offset) float64 {
+	sr, err := s.stageImage(ctx, guess, offset)
+	if err != nil {
+		return 1
+	}
+	g, red := equalise(sr.img, s.redacted)
+	return s.cfg.Metric.Compare(g, red)
+}
+
 // Eval renders guess, pixelates it, performs the marginal-region crop, and
 // returns the diff score against the redacted image.
 //

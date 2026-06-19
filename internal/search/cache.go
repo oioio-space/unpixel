@@ -75,8 +75,16 @@ func styleHash(st unpixel.Style) uint64 {
 	h := fnv.New64a()
 	// NUL separators keep distinct field combinations from colliding on field
 	// boundaries. Computed once per scorer (Style is fixed for a search).
-	_, _ = fmt.Fprintf(h, "%v\x00%v\x00%v\x00%v", st.FontSize, st.Bold, st.PaddingTop, st.PaddingLeft)
+	_, _ = fmt.Fprintf(h, "%v\x00%v\x00%v\x00%v\x00%v",
+		st.FontSize, st.Bold, st.PaddingTop, st.PaddingLeft, st.LetterSpacing)
 	return h.Sum64()
+}
+
+// TotalScore delegates to the inner PipelineScorer so CachingScorer satisfies
+// TotalScorer. The whole-image score is only computed for the small final-ranking
+// pool, so it is not worth caching separately from the stageImage LRU.
+func (c *CachingScorer) TotalScore(ctx context.Context, guess string, offset unpixel.Offset) float64 {
+	return c.inner.TotalScore(ctx, guess, offset)
 }
 
 // Eval scores guess at offset, using the LRU cache for the stageImage result.

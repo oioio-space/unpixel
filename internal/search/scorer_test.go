@@ -83,6 +83,26 @@ func TestPipelineScorer_correctGuessLowScore(t *testing.T) {
 	}
 }
 
+// TestPipelineScorer_totalScoreFavoursCompleteAnswer verifies the whole-image
+// TotalScore: the complete correct text scores lowest, while a correct prefix
+// (which leaves the rest of the redaction unexplained) and an unrelated guess
+// both score higher. This is the signal that disambiguates the final answer.
+func TestPipelineScorer_totalScoreFavoursCompleteAnswer(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	complete := scorer.TotalScore(t.Context(), "ab", offset)
+	prefix := scorer.TotalScore(t.Context(), "a", offset)
+	wrong := scorer.TotalScore(t.Context(), "zz", offset)
+
+	if complete >= prefix {
+		t.Errorf("TotalScore: complete %q (%.4f) should beat prefix %q (%.4f)", "ab", complete, "a", prefix)
+	}
+	if complete >= wrong {
+		t.Errorf("TotalScore: complete %q (%.4f) should beat wrong %q (%.4f)", "ab", complete, "zz", wrong)
+	}
+}
+
 // TestPipelineScorer_wrongGuessScoresWorse verifies that an unrelated guess
 // scores higher than the correct guess.
 func TestPipelineScorer_wrongGuessScoresWorse(t *testing.T) {

@@ -69,6 +69,16 @@ type Scorer interface {
 	Eval(ctx context.Context, guess, prevGuess string, offset unpixel.Offset) EvalResult
 }
 
+// TotalScorer is an optional Scorer capability: it scores the WHOLE rendered
+// candidate against the WHOLE redacted image (no marginal cropping). The search
+// uses it only to rank the final answer — a correct prefix or a coincidental
+// glyph match drives the marginal Eval score to ~0, so marginal score cannot
+// tell "go" or a fluke from the complete "go run", but the total score can.
+// A Scorer that does not implement it falls back to marginal-score ranking.
+type TotalScorer interface {
+	TotalScore(ctx context.Context, guess string, offset unpixel.Offset) float64
+}
+
 // node is an internal DFS stack entry.
 type node struct {
 	guess  string

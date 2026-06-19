@@ -132,6 +132,7 @@ type offsetOutcome struct {
 	topN       []unpixel.Eval
 	confidence float64
 	ambiguity  float64
+	bestTotal  float64 // whole-image score of topN[0]; ranks offsets against each other
 	offset     unpixel.Offset
 	done       bool
 }
@@ -226,35 +227,49 @@ func searchOffsets(
 				})
 			}
 		})
-		// Rank only substantive candidates: an all-whitespace guess scores ~0 and
-		// would otherwise dominate the Top-N with a misleading confidence of 1.
-		topN := RankTopN(substantiveOnly(candidates), cfg.TopN)
+		// Rank for the final answer. With a whole-image scorer, disambiguate the
+		// candidates that tie at ~0 marginal score (correct prefixes, flukes) by
+		// total fidelity so the complete string wins; otherwise fall back to the
+		// marginal ranking. All-whitespace candidates are dropped either way.
+		var topN []unpixel.Eval
+		bestTotal := 1.0
+		if ts, ok := scorer.(TotalScorer); ok {
+			topN, bestTotal = RankFinal(ctx, ts, candidates, offset, cfg.TopN)
+		} else {
+			topN = RankTopN(substantiveOnly(candidates), cfg.TopN)
+			if len(topN) > 0 {
+				bestTotal = topN[0].Score
+			}
+		}
 		conf, ambiguity := Confidence(topN)
 		outcomes[i] = offsetOutcome{
 			candidates: candidates,
 			topN:       topN,
 			confidence: conf,
 			ambiguity:  ambiguity,
+			bestTotal:  bestTotal,
 			offset:     offset,
 			done:       true,
 		}
 	})
 
-	// Deterministic merge: the authoritative best is the lowest-scoring
-	// substantive candidate scanned in offset then discovery order, so it never
-	// depends on scheduling. All-whitespace candidates are skipped — they score
-	// ~0 against blank regions and are never a real recovery (see Substantive).
+	// Deterministic merge: the authoritative best is the winning offset's
+	// top-ranked candidate, where offsets are compared by the whole-image
+	// fidelity of their best candidate (bestTotal). This picks the full answer
+	// over a correct prefix that ties on marginal score, and picks the right grid
+	// origin over one that merely produced a low-marginal fluke. Ties break on
+	// offset then discovery order, so the result never depends on scheduling.
 	finalScore := 1.0
 	var finalGuess string
+	bestTotal := 2.0 // worse than any score in [0, 1]
 	for _, oc := range outcomes {
-		if !oc.done {
+		if !oc.done || len(oc.topN) == 0 {
 			continue
 		}
-		for _, e := range oc.candidates {
-			if e.Score < finalScore && Substantive(e.Guess) {
-				finalScore = e.Score
-				finalGuess = e.Guess
-			}
+		if oc.bestTotal < bestTotal {
+			bestTotal = oc.bestTotal
+			finalGuess = oc.topN[0].Guess
+			finalScore = oc.topN[0].Score
 		}
 	}
 	for _, oc := range outcomes {
