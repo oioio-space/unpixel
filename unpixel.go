@@ -802,10 +802,12 @@ type FontResult struct {
 // errors is omitted. RecoverMultiFont returns an error only when redacted is nil,
 // renderers is empty, or every renderer failed.
 //
-// The runs execute in parallel within a fixed core budget (runtime.GOMAXPROCS):
-// min(len(renderers), budget) run concurrently, each search using an equal share
-// of workers, so the two layers never oversubscribe the CPU. A WithRenderer or
-// WithWorkers option in opts is overridden per run.
+// The runs execute in parallel within a core budget — the resolved
+// Config.Workers (set via WithWorkers or WithConfig), or runtime.GOMAXPROCS when
+// unset: min(len(renderers), budget) run concurrently, each search using an
+// equal share of workers, so the two layers never oversubscribe the CPU. The
+// per-run renderer and worker count are set internally, overriding any
+// WithRenderer/WithWorkers already in opts.
 //
 // Build the renderers with [github.com/oioio-space/unpixel/defaults.RendererFromFonts]:
 //
@@ -826,8 +828,19 @@ func RecoverMultiFont(ctx context.Context, redacted image.Image, renderers []Ren
 	}
 
 	// Split the core budget between fonts in parallel and each font's offset
-	// fan-out so the two layers don't oversubscribe (mirrors the CLI sweep).
-	budget := runtime.GOMAXPROCS(0)
+	// fan-out so the two layers don't oversubscribe. The budget is the resolved
+	// Config.Workers (WithWorkers/WithConfig), defaulting to runtime.GOMAXPROCS.
+	budget := 0
+	{
+		var probe Config
+		for _, opt := range opts {
+			opt(&probe)
+		}
+		budget = probe.Workers
+	}
+	if budget <= 0 {
+		budget = runtime.GOMAXPROCS(0)
+	}
 	concurrency := max(1, min(len(renderers), budget))
 	workersPerFont := max(1, budget/concurrency)
 

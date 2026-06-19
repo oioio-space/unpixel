@@ -19,7 +19,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,10 +27,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -324,108 +321,76 @@ func collectFonts(p flagParams) ([]string, error) {
 func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts []string, p flagParams) error {
 	verbose := !p.quiet && p.format != "json"
 
-	// Split a fixed core budget between sweeping fonts in parallel and the
-	// per-font offset fan-out, so the two layers never oversubscribe the CPU:
-	// concurrency fonts run at once, each search using budget/concurrency workers.
-	budget := p.workers
-	if budget <= 0 {
-		budget = runtime.GOMAXPROCS(0)
+	// Build a renderer per font, dropping (with a note) any that fail to parse.
+	// paths stays parallel to renderers so a FontResult.Index maps back to a name.
+	var renderers []unpixel.Renderer
+	var paths []string
+	for _, f := range fonts {
+		r, err := loadRenderer(f, "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
+			continue
+		}
+		renderers = append(renderers, r)
+		paths = append(paths, f)
 	}
-	concurrency := max(1, min(len(fonts), budget))
-	workersPerFont := max(1, budget/concurrency)
+	if len(renderers) == 0 {
+		return fmt.Errorf("no usable font among %d candidates", len(fonts))
+	}
 	if verbose {
-		fmt.Fprintf(os.Stderr, "Sweeping %d fonts (%d in parallel, %d workers each)…\n",
-			len(fonts), concurrency, workersPerFont)
+		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(renderers))
 	}
 
-	// outcome per font, indexed by font order for a deterministic collection.
-	type outcome struct {
-		res       recoveryResult
-		evaluated int
-		ok        bool
-	}
-	outcomes := make([]outcome, len(fonts))
-	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	var printMu sync.Mutex
+	// The library helper owns the parallel sweep + ranking by whole-image
+	// fidelity; WithConfig carries the shared search settings (and Workers as the
+	// core budget). Per-font renderer/worker count are set inside the helper.
 	start := time.Now()
-
-	for i, f := range fonts {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if ctx.Err() != nil {
-				return
-			}
-			renderer, err := loadRenderer(f, "")
-			if err != nil {
-				printMu.Lock()
-				fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
-				printMu.Unlock()
-				return
-			}
-			cfg := base
-			cfg.Renderer = renderer
-			cfg.Workers = workersPerFont
-			res, elapsed, evaluated, err := runRecovery(ctx, img, cfg)
-			if err != nil {
-				printMu.Lock()
-				fmt.Fprintf(os.Stderr, "unpixel: font %q: %v\n", f, err)
-				printMu.Unlock()
-				return
-			}
-			res.font = f
-			outcomes[i] = outcome{res: res, evaluated: evaluated, ok: true}
-			if verbose {
-				printMu.Lock()
-				fmt.Fprintf(os.Stderr, "  %-32s → %-20q total=%.4f (%s)\n",
-					filepath.Base(f), res.bestGuess, res.bestTotal, elapsed.Round(time.Millisecond))
-				printMu.Unlock()
-			}
-		})
+	ranked, err := unpixel.RecoverMultiFont(ctx, img, renderers, unpixel.WithConfig(base))
+	if err != nil {
+		return err
 	}
-	wg.Wait()
-	totalElapsed := time.Since(start)
+	elapsed := time.Since(start)
 
-	var results []recoveryResult
-	sumEval := 0
-	for _, o := range outcomes {
-		if o.ok {
-			results = append(results, o.res)
-			sumEval += o.evaluated
-		}
-	}
-	if len(results) == 0 {
-		return fmt.Errorf("no font produced a result")
-	}
-
-	// Lowest whole-image distance wins; ties break on the marginal score.
-	slices.SortStableFunc(results, func(a, b recoveryResult) int {
-		if c := cmp.Compare(a.bestTotal, b.bestTotal); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.bestScore, b.bestScore)
-	})
-	winner := results[0]
+	winner := resultToRecovery(ranked[0].Result, paths[ranked[0].Index])
 
 	if p.format == "json" {
-		ranked := make([]fontRankJSON, len(results))
-		for i, r := range results {
-			ranked[i] = fontRankJSON{Font: r.font, BestGuess: r.bestGuess, TotalScore: r.bestTotal, BestScore: r.bestScore}
+		rankedJSON := make([]fontRankJSON, len(ranked))
+		for i, fr := range ranked {
+			rankedJSON[i] = fontRankJSON{
+				Font:       paths[fr.Index],
+				BestGuess:  fr.Result.BestGuess,
+				TotalScore: fr.Result.BestTotal,
+				BestScore:  fr.Result.BestScore,
+			}
 		}
-		return printJSON(winner, ranked, sumEval, totalElapsed)
+		return printJSON(winner, rankedJSON, 0, elapsed)
 	}
 
 	if !p.quiet {
 		fmt.Fprintln(os.Stderr, "\nFont ranking (best fit first):")
-		for i, r := range results {
+		for i, fr := range ranked {
 			fmt.Fprintf(os.Stderr, "  %d. %-32s %-20q total=%.4f\n",
-				i+1, filepath.Base(r.font), r.bestGuess, r.bestTotal)
+				i+1, filepath.Base(paths[fr.Index]), fr.Result.BestGuess, fr.Result.BestTotal)
 		}
-		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", filepath.Base(winner.font))
+		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", filepath.Base(paths[ranked[0].Index]))
 	}
 	fmt.Println(winner.bestGuess)
 	return nil
+}
+
+// resultToRecovery adapts a library unpixel.Result (plus its font name) to the
+// CLI's recoveryResult for the shared text/JSON printers.
+func resultToRecovery(r unpixel.Result, font string) recoveryResult {
+	return recoveryResult{
+		bestGuess:  r.BestGuess,
+		font:       font,
+		top:        r.TopN,
+		offset:     r.Offset,
+		bestScore:  r.BestScore,
+		bestTotal:  r.BestTotal,
+		confidence: r.Confidence,
+		ambiguity:  r.Ambiguity,
+	}
 }
 
 // warnIfNoMosaic writes a one-line warning to w when the block size is being

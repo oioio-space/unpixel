@@ -365,3 +365,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `e4a1a5c` 2026-06-19 — feat(cli): sweep multiple fonts and keep the best fit _(5 fichiers)_
 - `7444a59` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_
 - `3711b13` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_
+- `3071b26` 2026-06-19 — feat(api): RecoverMultiFont — library multi-font sweep _(4 fichiers)_
