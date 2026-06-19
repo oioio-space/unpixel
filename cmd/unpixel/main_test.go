@@ -206,6 +206,48 @@ func whitePNG(t *testing.T, w, h int) string {
 	return path
 }
 
+// TestWarnIfNoMosaic verifies the guard fires on non-pixelated input, stays
+// silent on a genuine mosaic grid, and is suppressed by a forced --block-size.
+func TestWarnIfNoMosaic(t *testing.T) {
+	// Uniform white image: no grid → InferBlockSize returns 0 → warn.
+	white := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range white.Pix {
+		white.Pix[i] = 0xFF
+	}
+	var b strings.Builder
+	if !warnIfNoMosaic(&b, white, 0, "test.png") {
+		t.Error("expected a warning for a non-pixelated image")
+	}
+	if !strings.Contains(b.String(), "no mosaic") {
+		t.Errorf("warning text missing the key phrase: %q", b.String())
+	}
+
+	// A forced --block-size asserts the grid explicitly → no check, no output.
+	b.Reset()
+	if warnIfNoMosaic(&b, white, 8, "test.png") {
+		t.Error("forced --block-size should suppress the warning")
+	}
+	if b.Len() != 0 {
+		t.Errorf("suppressed path wrote output: %q", b.String())
+	}
+
+	// Genuine mosaic: vertical 8 px blocks of alternating grey → grid inferred.
+	mosaic := image.NewRGBA(image.Rect(0, 0, 32, 16))
+	for y := range 16 {
+		for x := range 32 {
+			v := uint8(200)
+			if (x/8)%2 == 1 {
+				v = 50
+			}
+			mosaic.SetRGBA(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	b.Reset()
+	if warnIfNoMosaic(&b, mosaic, 0, "m.png") {
+		t.Errorf("a real mosaic image should not warn; got %q", b.String())
+	}
+}
+
 // TestCharsetForPreset verifies preset name → charset mapping and rejection.
 func TestCharsetForPreset(t *testing.T) {
 	cases := map[string]string{

@@ -234,6 +234,26 @@ func isTTY(f *os.File) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
 
+// warnIfNoMosaic writes a one-line warning to w when the block size is being
+// auto-detected (blockSize <= 0) but no mosaic pixelation grid can be inferred
+// from img. A grid that reduces to nothing is a strong sign the image is not
+// block-pixelated at all — recovery then silently returns no result, which is
+// confusing without this hint. It reports whether a warning was emitted.
+//
+// A forced --block-size (blockSize > 0) suppresses the check: the user is
+// asserting the grid explicitly, so UnPixel takes them at their word.
+func warnIfNoMosaic(w io.Writer, img image.Image, blockSize int, source string) bool {
+	if blockSize > 0 || unpixel.InferBlockSize(img) != 0 {
+		return false
+	}
+	_, _ = fmt.Fprintf(w,
+		"unpixel: warning: no mosaic pixelation grid detected in %s — the image may not "+
+			"be block-pixelated, so recovery is unlikely to succeed. UnPixel only reverses "+
+			"mosaic (block-average) redaction; if you know the block size, pass --block-size.\n",
+		source)
+	return true
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -384,6 +404,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	source := imgPath
+	if source == "-" {
+		source = "the input image"
+	}
+	warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
+
 	cfg := buildConfig(p)
 
 	showProgress := !p.quiet && isTTY(os.Stderr)
@@ -406,7 +432,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 				evaluated = ev.Evaluated
 			}
 			if showProgress {
-				fmt.Fprintf(os.Stderr, "\r\033[K[%s] best: %-20s score: %.4f  evaluated: %d  offsets: %d/%d",
+				fmt.Fprintf(
+					os.Stderr, "\r\033[K[%s] best: %-20s score: %.4f  evaluated: %d  offsets: %d/%d",
 					ev.Elapsed.Round(time.Millisecond),
 					ev.BestGuess,
 					ev.BestScore,

@@ -357,3 +357,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `427a141` 2026-06-19 — perf(search): marginColumn replaces diffRed+Margins — guided DFS -16% _(7 fichiers)_
 - `d5136b5` 2026-06-19 — perf(search): fuse step-9 band+trim into one Crop — -8% allocs (exact) _(4 fichiers)_
 - `09b716b` 2026-06-19 — docs(perf): record measured P4.4 (AA-off) tradeoff + session perf summary _(2 fichiers)_
+- `177cc2f` 2026-06-19 — perf(imutil): FillWhite exponential-copy fill — ~97% faster (exact) _(2 fichiers)_
