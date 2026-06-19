@@ -47,25 +47,32 @@ and what the blur / zero-config work added.
   so any UI — web/SSE, TUI, desktop — can subscribe via the channel or the `OnProgress` callback.
 - **Pluggable everything.** Swap the `Renderer`, `Pixelator`, `Metric`, or search `Strategy`
   through `Config`; the faithful defaults are wired by importing the `defaults` package. Built-in
-  choices: guided-DFS, beam, or monospace fast-path; mosaic or Gaussian-blur operator; pixelmatch
-  or SSIM distance; optional priors to break equal-image ties: char-bigram language model, dictionary
-  words, and structured-secret formats (UUID, API tokens, Luhn checksums, common French/English
-  passwords).
+  choices: guided-DFS, beam, or monospace fast-path; mosaic or Gaussian-blur operator; optional
+  Richardson-Lucy deconvolution for exploratory preprocessing; pixelmatch or SSIM distance;
+  optional priors to break equal-image ties: char-bigram language model, dictionary words, and
+  structured-secret formats (UUID, API tokens, Luhn checksums, common French/English passwords).
 - **Concurrent by default.** Grid-offset discovery and per-offset search fan out across
   `Config.Workers` goroutines (default: all CPUs) with a **deterministic merge** — same output
-  regardless of scheduling. ~4× faster offset discovery on a typical laptop.
+  regardless of scheduling. Intra-node parallelism of the DFS tree further accelerates wide-charset
+  recovery. ~4–7× faster offset discovery on a typical laptop.
 - **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
   grid from the image (`InferBlockSize`), so callers don't have to measure it.
 - **Blur, not just mosaic.** Blur is also a deterministic function of its input, so the same
   attack applies: `pixelate.NewGaussianBlur(σ)` / `WithPixelator` reproduce a Gaussian blur, and
   the CLI `--redaction auto|mosaic|blur` auto-detects it and estimates σ (`InferBlurSigma`) — so a
-  blurred secret recovers zero-config, no σ or font supplied.
+  blurred secret recovers zero-config, no σ or font supplied. Optional exploratory Richardson-Lucy
+  deconvolution (`--deblur`) for known-PSF cases.
 - **Zero-config font matching.** Recovery needs the redaction's typeface — so with **no `--font`,
   UnPixel sweeps a built-in set of redistributable fonts** (Liberation Sans/Serif/Mono ≈
-  Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Source Code Pro & JetBrains Mono for
-  code) **in parallel** and keeps the **best fit by whole-image score**. Or match it yourself with
-  `--font`/`--font-size`/`--letter-spacing` (and sweep your own via repeated `--font`/`--font-dir`).
-  Library: the `fonts` bundle + `RecoverMultiFont`; `render.NewXImageFromFonts` for a custom face.
+  Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Adwaita Mono, Noto Sans Mono, Source
+  Code Pro & JetBrains Mono for code) **in parallel** and keeps the **best fit by whole-image score**.
+  Or match it yourself with `--font`/`--font-size`/`--letter-spacing` (and sweep your own via repeated
+  `--font`/`--font-dir`). Library: the `fonts` bundle + `RecoverMultiFont`; `render.NewXImageFromFonts`
+  for a custom face.
+- **Automatic Top-K pruning for code.** When a language model is set and the charset is wide (≥40
+  runes), the search automatically narrows candidates to the most-likely next characters per
+  language, keeping the search tractable (~10.8× speedup for wide charsets) while maintaining full
+  recall on the default small-charset path.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
   offset (sorted by score, ties broken deterministically) plus `Confidence`/`Ambiguity` and a
   whole-image `BestTotal` distance — comparable across runs, so it can rank fonts or styles —
@@ -131,6 +138,7 @@ Key flags (`unpixel --help` for the full list):
 | `--redaction` | `auto` | `auto`, `mosaic`, or `blur` (blur auto-detected when there's no mosaic grid) |
 | `--blur-sigma` | `0` (auto) | Gaussian blur radius for `--redaction blur`; `0` estimates it from the image |
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
+| `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
 | `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |

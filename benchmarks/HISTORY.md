@@ -25,11 +25,13 @@ per candidate over the 64-offset discovery sweep).
 | `177cc2f` | perf | ~19 ms | ~37 µs | **~186 ns** (−97%) | FillWhite exponential-copy fill (memmove vs byte loop) |
 | (challenge) | feat | ~19 ms | ~37 µs | ~186 ns | custom fonts + letter-spacing + whole-image TotalScore final ranking: GuidedSearch **neutral** (−2%, p=0.001, allocs identical) |
 | `d15e68a` | P4.8 | **~17.4 ms** (−8.1%) | ~37 µs | ~186 ns | buffer pool (sync.Pool): SSIM −18% allocs, FastBlur −8.7% (−67% B/op), GaussianBlur −5.6% (−87% B/op) |
+| `23dbb7e` | P3.11 + P4.11 | ~17.4 ms (≈) | ~37 µs | ~186 ns | **wide-charset/code path only** — auto Top-K pruning (P3.11): wide-charset GuidedDFS **~10.8× faster**, −17× B/op; intra-node parallel eval (P4.11): wide single-offset **~1.5× faster**. Default small-charset path **neutral** (GuidedSearch/DiscoverOffsets unchanged, allocs identical) |
 
-Cumulative discovery: **~98.6 ms → ~19.3 ms ≈ 5.1× faster**, all changes exact (recovery
-output identical). The realistic multi-char path (`BenchmarkGuidedSearch`) gained a further
-**~22%** this round (marginColumn −16%, fused-crop −4%). PGO (P4.9) evaluated: no measurable
-gain here (hot path is in external pixelmatch/x-image), so not adopted.
+Cumulative discovery: **~98.6 ms → ~17.4 ms ≈ 5.7× faster** on the default path, all
+changes exact (recovery output identical). P3.11 + P4.11 do not touch the default small-charset
+discovery metric — they target **wide-charset/code recovery** with a language prior (where a full
+ASCII charset is ~10.8× faster), leaving the common path byte-identical. PGO (P4.9) evaluated: no
+measurable gain here (hot path is in external pixelmatch/x-image), so not adopted.
 
 P4.4 (disable pixelmatch AA detection) **measured** but NOT adopted: −44% Compare / −12%
 GuidedSearch, matrix 155/155 identical, **but** it diverges from faithful Jimp.diff semantics →

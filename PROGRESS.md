@@ -14,7 +14,9 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 ## 📍 État actuel
 
 Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
-**v0.4.0 publiée** sur pkg.go.dev (récupération **mosaïque + flou gaussien**, zéro-config).
+**v0.4.0 publiée** sur pkg.go.dev (récupération **mosaïque + flou gaussien**, zéro-config) ;
+**v0.5.0 en préparation** : déconvolution Richardson-Lucy optionnelle, automation perf
+(auto Top-K + intra-node parallelism), bundle de polices élargi (Adwaita Mono, Noto Sans Mono).
 
 - **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
   Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
@@ -248,11 +250,14 @@ Priorité moyenne :
 Priorité basse / exploratoire :
 - [ ] **P3.9 — entrée multi-images / vidéo** : exploiter le jitter sous-pixel entre plusieurs
       pixelisations du même texte (information réelle, pas d'hallucination — Positive Security).
-- [ ] **P3.10 — pré-traitement déconvolution** (Richardson-Lucy/Wiener, pur-Go) pour gérer le
-      **flou** en plus du mosaïque (technique gagnante du challenge BishopFox).
-- [ ] **P3.11 — perf pour soutenir l'automatisation** (prouvé benchstat) : cache du rendu
-      `prevGuess` (gros gain déjà identifié), SIMD pur-Go (asm AVX2 + fallback), pruning agressif
-      via P3.2/P3.3 pour compenser le coût des polices/charsets élargis.
+- [x] **P3.10 — déconvolution Richardson-Lucy** (`1706ae3`). Spatial-domain RL (noyau Gaussian
+      PSF, réutilise la séparable, aucune FFT). API : `pixelate.RichardsonLucy(src, sigma, iterations)` ;
+      public `defaults.Deblur(img, sigma, iterations) *image.RGBA` ; CLI `--deblur N` (optionnel,
+      off par défaut). Documenté EXPLORATORY : le chemin par défaut (render→blur→compare) plus fort
+      pour récupérer redactions pixélisées/floues ; RL optimal pour cas low-noise PSF known.
+- [x] **P3.11 — auto Top-K pruning** (`23dbb7e`). Quand LanguageModel défini ET charset ≥40
+      runes ET CharsetTopK non pint : auto Top-K=24. Petits charsets inchangés (défaut exact).
+      Large-charset GuidedDFS ~10.8× plus vite, −17% B/op. Perf sans perte recall.
 - [ ] **P3.12 — (spike) classifieur de police par deep-learning, pur-Go** : DL *utile pour la
       reconnaissance de police* (DeepFont/VFR, >80% top-5) car exécuté **une seule fois par image**
       (latence amortie, hors boucle chaude — contrairement au modèle de cohérence P3.2 où le n-gram
@@ -270,24 +275,20 @@ Constat clé : `Config.Charset` accepte déjà n'importe quelle chaîne (utilisa
 police **monospace** → la grille de pixelisation s'aligne sur une grille de cellules régulière ;
 (2) il est très structuré/répétitif (« naturalness of software »).
 
-- [ ] **P3.13 — presets de charset** : `unpixel.CharsetLower` (actuel), `CharsetAlnum`,
-      `CharsetASCIIPrintable`, `CharsetCode` (ASCII imprimable complet ~95 car.) ; flag
-      `--charset-preset lower|alnum|ascii|code`. Rendre l'escalade (P3.6) consciente du code
-      (lettres → +chiffres → +symboles).
-- [ ] **P3.14 — fast-path monospace (déverrouillage majeur pour le code)** : détecter l'avance
-      fixe / la grille de cellules régulière, puis **classifier chaque cellule indépendamment** et
-      en parallèle contre son/ses bloc(s) — supprime la cascade d'erreur de position des polices à
-      chasse variable. Énorme gain perf **et** précision : 95 candidats/cellule indépendants au lieu
-      d'un DFS séquentiel. Implémenté derrière l'interface `Strategy` (`MonospaceStrategy`), à côté
-      de guided/beam. Réf. OCR monospace (box-connectivity, character grid).
+- [x] **P3.13 — presets de charset** (déjà livré). `unpixel.CharsetLower`, `CharsetAlnum`,
+      `CharsetASCII` ; flag `--charset-preset lower|alnum|ascii|code` (via `search.CharsetLower`
+      et constants, escalade consciente du code).
+- [x] **P3.14 — fast-path monospace** (déjà livré). `search.MonospaceStrategy` derrière
+      l'interface `Strategy` ; `--strategy mono` au CLI. Détecte l'avance fixe, classe les cellules
+      indépendamment en parallèle — supprime cascade d'erreur polices variable, énorme perf+précision.
 - [ ] **P3.15 — cohérence/validité spécifique au code** : étend P3.2 avec (a) un n-gram
       caractère/token entraîné sur du code, (b) une **validation lexicale/syntaxique** — tokeniser
       (chrF, n-grams de tokens) et idéalement parser : Go via `go/scanner`+`go/parser` (dogfooding),
       autres langages via grammaires tree-sitter (GLR + error-recovery). Un candidat qui tokenise/
       parse vaut une confiance bien plus élevée.
-- [ ] **P3.3+ — polices monospace de code** : étendre le bundle P3.3 avec les monospaces de code
-      OFL/redistribuables les plus courantes (JetBrains Mono, Fira Code, Source Code Pro, IBM Plex
-      Mono, Liberation Mono≈Courier New, DejaVu Sans Mono, Hack/MIT, Cascadia Code).
+- [x] **P3.3+ — polices monospace de code** (`833afbb`). Bundle gain Adwaita Mono (OFL-1.1) +
+      Noto Sans Mono (Apache-2.0) ; auto-incluses en `fonts.All()/Renderers()` et balayage (~2 MB).
+      Satisfait le sous-axe code avec polices étendues pour capturer plus de cas réels.
 
 ### ⚡ Phase 4 — performance de la recherche (mesurée d'abord, prouvée au benchstat)
 
@@ -348,8 +349,9 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - [ ] **P4.10 — SIMD** (Go 1.26 `simd/archsimd` sous `GOEXPERIMENT=simd`, ou asm AVX2) sur la
       boucle de comparaison — **seulement après** P4.3 (qui réduit la boucle 64×, rendant peut-être
       la SIMD superflue) ; attention surcoût `VZEROUPPER` et tension avec le build pur-Go.
-- [ ] **P4.11 — concurrence accrue** : paralléliser `evalChildren` (charset d'un nœud), pool
-      work-stealing au lieu de goroutine-par-offset ; benchstat + `-race`.
+- [x] **P4.11 — intra-node parallel evalChildren** (`23dbb7e`). Paralléliser enfants d'un nœud
+      DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
+      Large-charset single-offset ~1.5× plus vite ; défaut small-charset neutre ; `-race` propre.
 
 ## 🧭 Décisions clés
 
@@ -468,3 +470,7 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `f19c704` 2026-06-19 — feat(bench): recovery quality+speed panel + version tracking + docs-sync hook _(11 fichiers)_
 - `d15e68a` 2026-06-19 — perf(hotpath): pool transient scratch buffers (P4.8) _(3 fichiers)_
 - `e9615ca` 2026-06-19 — feat(search): candidate plausibility priors — secrets (P3.7) + dictionary (P3.2) _(16 fichiers)_
+- `59b6005` 2026-06-19 — docs: record priors (P3.2/P3.7) + pooling (P4.8) + panel version row _(5 fichiers)_
+- `1706ae3` 2026-06-19 — feat(pixelate): Richardson-Lucy deconvolution + Deblur API/CLI (P3.10) _(6 fichiers)_
+- `23dbb7e` 2026-06-19 — perf(search): auto Top-K pruning (P3.11) + intra-node parallel eval (P4.11) _(5 fichiers)_
+- `833afbb` 2026-06-19 — feat(fonts): add Adwaita Mono + Noto Sans Mono to the bundle (P3.3+) _(4 fichiers)_
