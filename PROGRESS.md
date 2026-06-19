@@ -373,12 +373,24 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       **GuidedSearch −2,3 %** (p=0,04). Dépendance externe `orisano/pixelmatch` retirée du runtime
       (gardée test-only pour le différentiel). C'est aussi le **prérequis** pour vectoriser
       `colorDelta` (étape 2). Pur Go, zéro CGO.
-- [ ] **P4.10 (étape 2) — SIMD `colorDelta`** : maintenant que la boucle est interne, vectoriser le
-      delta YIQ par-pixel (24 % du CPU). Options : Go 1.26 `simd/archsimd` (⚠️ `GOEXPERIMENT=simd`,
-      AMD64-only, hors promesse de compat → **inadapté à une lib publique par défaut**) **vs** asm
-      Go AVX2 + fallback pur-Go + détection CPU runtime (production-grade, sans CGO). `isAntiAliased`
-      (28 %, voisinage 3×3 branchy) reste scalaire. Bit-exactness : pas de FMA (rounding scalaire).
-      À mettre en balance avec une éventuelle accélération GPU (voir `docs/ACCELERATION.md`).
+- [~] **P4.10 (étape 2) — SIMD `colorDelta`** : **implémenté, mesuré → NON adopté (régression
+      prouvée)**, dans la lignée de P4.4/P4.3b. Toute vectorisation impose une disposition SoA :
+      pré-calculer Y/I/Q par pixel dans une fenêtre glissante, puis traiter la ligne en lanes. J'ai
+      implémenté ce pré-calcul (bit-pour-bit, différentiel ~570 cas + matrice 315/315 inchangés) et
+      l'ai benchmarké (`-count 12`, machine de référence) :
+      **Pixelmatch/10pct_different +38 %**, **Pixelmatch/gradient +20 %**, **GuidedSearch +10 %**,
+      **DiscoverOffsets +3,5 %** — une **régression nette sur tout le spectre**. Cause : le
+      fast-path scalaire de `colorDelta` (`if pa==pb return 0`) **saute tout le calcul flottant pour
+      les pixels identiques**, qui dominent les crops réels (marges/fond). Le SIMD (comme tout
+      pré-calcul SoA) doit traiter **toutes** les lanes, donc refait ce travail évité ; il ne peut
+      structurellement pas battre le saut scalaire data-dépendant sur cette charge. Le +3,5 % sur la
+      métrique phare est la preuve directe. Conclusion : **pas d'asm AVX2 sur spéculation** — le coût
+      (plan9 asm + fallback + détection CPU) violerait la règle « simplicité/moindre mécanisme » pour
+      un gain mesuré négatif. Le benchmark représentatif `Pixelmatch_Distance/gradient` (chaque pixel
+      diffère, régime bande-de-rédaction) est conservé. Reste ouvert (doc, non implémenté) : un noyau
+      AVX2 par blocs de 4 pixels qui **saute les blocs identiques** pourrait préserver le fast-path —
+      à n'envisager que sur preuve benchstat (voir `docs/ACCELERATION.md`). Go 1.26 `simd/archsimd`
+      reste de toute façon inadapté (⚠️ `GOEXPERIMENT=simd`, AMD64-only, hors promesse de compat).
 - [x] **P4.11 — intra-node parallel evalChildren** (`23dbb7e`). Paralléliser enfants d'un nœud
       DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
       Large-charset single-offset ~1.5× plus vite ; défaut small-charset neutre ; `-race` propre.
@@ -508,3 +520,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `b991063` 2026-06-19 — feat(grid): block-grid phase detection + skew deskew (P4.3a) _(5 fichiers)_
 - `60959e2` 2026-06-19 — perf(metric): in-repo pixelmatch on *image.RGBA.Pix (P4.10 step 1) _(5 fichiers)_
 - `12edfde` 2026-06-19 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(1 fichiers)_
+- `6ed5806` 2026-06-20 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(2 fichiers)_

@@ -96,6 +96,23 @@ zero-dependency.
 > requires `GOEXPERIMENT=simd` at build, is AMD64-only, and is outside the Go 1
 > compatibility promise. Hand-written AVX2 asm + fallback is the production path.
 
+> **Measured (P4.10 step 2) — Proposal A did NOT pay off; not adopted.** Any
+> vectorization needs an SoA layout, so we first implemented the prerequisite:
+> per-pixel Y/I/Q pre-computed once into a sliding window (bit-exact — differential
+> ~570 cases + recovery matrix 315/315 unchanged). benchstat (`-count 12`) showed a
+> **net regression everywhere**: Pixelmatch `/10pct_different` **+38%**, `/gradient`
+> **+20%**, GuidedSearch **+10%**, DiscoverOffsets **+3.5%**. Root cause: scalar
+> `colorDelta`'s `if pa==pb return 0` fast-path **skips all float work for identical
+> pixels**, which dominate real crops (margins/background). SIMD — like any SoA
+> pre-compute — must process **all** lanes, redoing that skipped work; it cannot beat
+> the data-dependent scalar skip on this workload. Per the project's prove-it rule we
+> reverted it and did **not** write AVX2 asm on speculation (the plan9-asm +
+> fallback + CPU-detection cost is unjustified for a measured-negative gain). One
+> avenue remains *open but unproven*: a 4-pixel-block AVX2 kernel that **skips
+> all-identical blocks** could preserve the fast-path — pursue only on benchstat
+> evidence. The representative `Pixelmatch_Distance/gradient` benchmark (every pixel
+> differs) was kept.
+
 ### Proposal B — GPU batch backend for the parallel regimes (opt-in, build-tagged)
 
 Add an **optional** GPU backend (via gogpu/wgpu compute or wgpu-native+purego)
@@ -117,8 +134,11 @@ most with the pure-Go/zero-config ethos. Document as a future direction.
 
 ## 5. Recommendation
 
-1. **Do Proposal A now** (SIMD `colorDelta`, P4.10 step 2): aligned with the
-   project (no CGO, no runtime deps, zero-config, default-path, benchstat-proven).
+1. ~~**Do Proposal A now** (SIMD `colorDelta`, P4.10 step 2).~~ **Done and reverted:**
+   measured a net regression (see the P4.10-step-2 note in §4) because the scalar
+   fast-path already skips the dominant identical-pixel work that SIMD must process.
+   The naïve vectorization is a dead end; only a block-skipping AVX2 kernel might
+   help, and only with benchstat proof.
 2. **Prototype Proposal B** only if a real large/batch use case appears, as an
    opt-in build-tagged backend with a CPU fallback — never the default. Measure
    the per-dispatch overhead against the CPU SIMD path on representative sizes

@@ -49,6 +49,18 @@ func BenchmarkPixelmatch_Distance(b *testing.B) {
 
 	m := metric.NewPixelmatch(0.1)
 
+	// gradient vs slightly-shifted gradient: every pixel differs, so the
+	// per-pixel colorDelta + anti-alias path runs on the whole image. This is
+	// the representative redaction-band regime (unlike the mostly-identical
+	// solid cases above, where the equal-pixel fast path dominates).
+	g := makeGradient(w, h)
+	gShift := makeGradient(w, h)
+	for i := range gShift.Pix {
+		if gShift.Pix[i] > 10 {
+			gShift.Pix[i] -= 10
+		}
+	}
+
 	b.Run("identical", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -60,6 +72,13 @@ func BenchmarkPixelmatch_Distance(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			sinkFloat = m.Compare(a, bDiff)
+		}
+	})
+
+	b.Run("gradient", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(g, gShift)
 		}
 	})
 }
