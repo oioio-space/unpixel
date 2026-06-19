@@ -1,6 +1,6 @@
 # UnPixel
 
-A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bishopfox/unredacter) — reconstructs text hidden behind **pixelation/mosaic** redaction. Background: [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
+A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bishopfox/unredacter) — reconstructs text hidden behind **mosaic pixelation _or_ Gaussian blur** redaction. Background: [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
@@ -46,6 +46,10 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   regardless of scheduling. ~4× faster offset discovery on a typical laptop.
 - **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
   grid from the image (`InferBlockSize`), so callers don't have to measure it.
+- **Blur, not just mosaic.** Blur is also a deterministic function of its input, so the same
+  attack applies: `pixelate.NewGaussianBlur(σ)` / `WithPixelator` reproduce a Gaussian blur, and
+  the CLI `--redaction auto|mosaic|blur` auto-detects it and estimates σ (`InferBlurSigma`) — so a
+  blurred secret recovers zero-config, no σ or font supplied.
 - **Zero-config font matching.** Recovery needs the redaction's typeface — so with **no `--font`,
   UnPixel sweeps a built-in set of redistributable fonts** (Liberation Sans/Serif/Mono ≈
   Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Source Code Pro & JetBrains Mono for

@@ -160,6 +160,27 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
       image probablement non pixélisée) ; ne jamais sélectionner un résultat tout-espaces
       (`Substantive`) qui scorait 0 et donnait une confiance trompeuse de 1.
 
+### 🌫️ Flou (Gaussian blur) — au-delà de la mosaïque
+
+Le challenge **Bishop Fox** (`bf_challenge.png`) caviarde par **flou gaussien**, pas mosaïque.
+Le flou est aussi déterministe (`B = K*L`) → même attaque generate-and-test (rendre → flouter →
+comparer). Le `Pixelator` pluggable = l'opérateur de redaction, donc le flou s'y branche sans
+toucher la recherche.
+
+- [x] **Opérateur de flou** : `pixelate.NewGaussianBlur(sigma)` (séparable, bords clampés) +
+      `defaults.GaussianBlur` / `defaults.BlockAverage` + option `WithPixelator`. Prouvé par un
+      round-trip auto-cohérent (flouter « go »/« cat », le récupérer via le moteur inchangé, `BlockSize=1`).
+- [x] **σ auto + détection** : `unpixel.InferBlurSigma` (σ ≈ contraste/(g_pic·√2π)) ; CLI
+      `--redaction auto|mosaic|blur` + `--blur-sigma`. Zéro-config démontré : `--redaction blur`
+      estime σ et balaie le bundle → récupère un secret flouté court sans police ni σ fournis.
+- [~] **P3.10 — flou réel (`bf_challenge`)** : capacité en place + secrets floutés courts résolus
+      zéro-config ; le **vrai défi** (ligne longue, charset/contenu arbitraires, σ≈5,6) reste
+      niveau-recherche. Bloquants mesurés : (1) σ doit s'estimer sur la **région caviardée** (image
+      entière biaisée par le texte net : 0,59 vs 5,59) → **localisation de région (P3.5)** ; (2) coût
+      du flou ~50× la mosaïque/candidat (micro-opt FLOP-bound, sans gain) → **box-blur O(1) /
+      compare en résolution réduite** ; (3) explosion combinatoire → **priors (LM P3.2, charset
+      depuis le texte visible, fast-path monospace P3.14)**.
+
 ### 🎯 Phase 3 — zéro-config « image → texte » (auto-détection + qualité, perf préservée)
 
 **Étoile polaire** : l'utilisateur fournit une image de texte pixélisé → le texte en sort, avec
@@ -403,3 +424,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `e6b7f06` 2026-06-19 — docs(progress): record the v0.3.0 release (custom fonts & font sweep) _(1 fichiers)_
 - `c279a8e` 2026-06-19 — feat(fonts): bundle redistributable fonts for a zero-config sweep _(16 fichiers)_
 - `74b5f1c` 2026-06-19 — feat(pixelate): Gaussian-blur redaction operator (attack blurred text) _(7 fichiers)_
+- `78ecfa7` 2026-06-19 — feat(cli): zero-config blur recovery (auto-detect + estimate sigma) _(5 fichiers)_
