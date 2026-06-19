@@ -16,7 +16,7 @@ cd "$repo_root"
 # Globs are expanded here (nullglob drops non-matches); literal names stay as-is.
 remove_untracked() {
   shopt -s nullglob
-  local items=(dist coverage.* junit.xml sbom.cdx.json unpixel *.test *.out *.exe bench-*.txt *.prof)
+  local items=(dist coverage.* junit.xml sbom.cdx.json unpixel *.test *.out *.exe bench-*.txt *.prof benchmarks/quality-latest.json)
   shopt -u nullglob
   local removed=() p
   for p in "${items[@]}"; do

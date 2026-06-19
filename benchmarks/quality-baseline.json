@@ -1,0 +1,152 @@
+{
+  "fixtures": [
+    {
+      "name": "block04_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 130,
+      "elapsed_ms": 109.779
+    },
+    {
+      "name": "block08_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 30,
+      "elapsed_ms": 70.32
+    },
+    {
+      "name": "block16_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 13,
+      "elapsed_ms": 90.946
+    },
+    {
+      "name": "size24_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 16,
+      "elapsed_ms": 36.075
+    },
+    {
+      "name": "size40_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 39,
+      "elapsed_ms": 102.997
+    },
+    {
+      "name": "bold_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 13,
+      "elapsed_ms": 55.053
+    },
+    {
+      "name": "alnum_Go2",
+      "text": "Go2",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 28,
+      "elapsed_ms": 32.01
+    },
+    {
+      "name": "symbols_x_eq_1",
+      "text": "x=1",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 138,
+      "elapsed_ms": 87.247
+    },
+    {
+      "name": "pad_04_04_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 28,
+      "elapsed_ms": 58.416
+    },
+    {
+      "name": "pad_12_12_go",
+      "text": "go",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 174,
+      "elapsed_ms": 151.005
+    },
+    {
+      "name": "text_single_x",
+      "text": "x",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 3,
+      "elapsed_ms": 43.382
+    },
+    {
+      "name": "text_cat",
+      "text": "cat",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 79,
+      "elapsed_ms": 114.418
+    },
+    {
+      "name": "text_with_space",
+      "text": "a b",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 40,
+      "elapsed_ms": 22.086
+    },
+    {
+      "name": "text_hello",
+      "text": "hello",
+      "exact": true,
+      "char_accuracy": 1,
+      "fidelity": 1,
+      "confidence": 1,
+      "candidates": 264,
+      "elapsed_ms": 164.671
+    }
+  ],
+  "summary": {
+    "n": 14,
+    "exact": 14,
+    "exact_rate": 1,
+    "mean_char_accuracy": 1,
+    "mean_fidelity": 1,
+    "total_elapsed_ms": 1138.4049999999997
+  }
+}

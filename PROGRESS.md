@@ -456,3 +456,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `629759f` 2026-06-19 — feat(search): language-guided charset Top-K pruning (P4.5) _(6 fichiers)_
 - `e83ba16` 2026-06-19 — docs(progress): mark P3.5/P3.6/P3.8/P4.5 done _(1 fichiers)_
 - `e109df5` 2026-06-19 — test(cli): cover runEscalation tier walk (P3.6) _(1 fichiers)_
+- `9b160a0` 2026-06-19 — docs: add DELTA.md (v0.4.0 vs v0.3.0 and vs Bishop Fox) _(2 fichiers)_

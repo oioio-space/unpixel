@@ -115,6 +115,18 @@ run = "go test -run '^$' -bench 'DiscoverOffsets/workers_1|GuidedSearch|XImage_R
 description = "Run benchmarks and benchstat vs baseline (after optimizing)"
 run = "./scripts/bench.sh compare"
 
+[tasks."bench:panel"]
+description = "Recovery quality+speed panel over the fixture set, diffed vs the recorded baseline"
+run = "./scripts/bench-panel.sh run"
+
+[tasks."bench:panel:strict"]
+description = "Recovery panel, failing on a decode-quality regression vs the baseline (CI-grade)"
+run = "./scripts/bench-panel.sh strict"
+
+[tasks."bench:panel:record"]
+description = "Run the recovery panel and promote it to benchmarks/quality-baseline.json (commit it)"
+run = "./scripts/bench-panel.sh record"
+
 [tasks.cover]
 description = "Test coverage report (coverage.out + total %)"
 run = "./scripts/cover.sh"

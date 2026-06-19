@@ -14,6 +14,8 @@ mise run lint            # golangci-lint v2  | mise run fmt
 mise run cover:check     # coverage gate (COVER_MIN=85)
 mise run ci              # full gate = what CI runs (lint+test+cgo:check+scans)
 mise run bench:baseline  # then change code, then: mise run bench:compare (benchstat)
+mise run bench:panel     # recovery quality+speed panel over fixtures, diffed vs baseline
+mise run bench:panel:record  # promote panel → baseline + append a version row to history
 mise run scan:code       # gosec + govulncheck | scan:secrets | scan:sbom (grype)
 mise run clean           # remove regenerable artifacts
 ```
@@ -113,6 +115,13 @@ cost more than it saves):
 | `commit-secret-review` | `security-auditor` (Opus, only if ambiguous) |
 | `commit-vuln-review` | `security-auditor` (Opus) |
 | `commit-ergonomics-review` | `go-reviewer` (Sonnet/medium) review → `go-dev` implement |
+| `commit-docs-review` | `scribe` (Haiku) README/PROGRESS → `quality-runner` (Haiku) runs `bench:panel:record` |
+
+`commit-docs-review` fires when substantive library/CLI Go is staged but the human-facing
+record isn't: it nudges syncing README.md + PROGRESS.md to the step's evolution and running
+`mise run bench:panel:record` so decode quality+speed are tracked version-over-version in
+`benchmarks/quality-history.md` (each row diffed against the previous). The recovery panel
+itself lives in `panel_test.go` behind the `panel` build tag (out of the default test path).
 
 Deterministic gates (`.githooks/*`, `cgo:check`) and pure context-injection hooks
 (`modern-go-context`, `benchmark-context`, `research-grounding`) do no AI work → no routing.

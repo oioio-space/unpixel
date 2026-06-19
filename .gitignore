@@ -17,6 +17,8 @@ sbom.cdx.json
 # Benchmark / profiling artifacts
 bench-*.txt
 *.prof
+# Recovery panel: the latest run is regenerable; quality-baseline.json is committed.
+benchmarks/quality-latest.json
 
 # mise local overrides (per-machine, not shared)
 mise.local.toml
