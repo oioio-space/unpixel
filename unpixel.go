@@ -392,6 +392,7 @@ func OnProgress(ch <-chan Progress, fn func(Progress)) {
 type Engine struct {
 	redacted *image.RGBA
 	cfg      Config
+	skewInfo SkewInfo
 }
 
 // Config returns the engine's resolved configuration, with scalar defaults
@@ -416,13 +417,22 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	if darkBackground(rgba) {
 		rgba = invertColors(rgba)
 	}
+	// Skew detection and deskew rectification: if the mosaic grid appears rotated
+	// (low InferBlockGrid confidence), search for the correcting angle and apply
+	// it only when the confidence gain clearly exceeds deskewMinGain and the
+	// post-rotation confidence exceeds deskewMinConfidence. Axis-aligned images
+	// are left byte-identical — the gate inside detectAndDeskew returns early
+	// when the baseline confidence is already high.
+	rgba, skewInfo, grid := detectAndDeskew(rgba)
 	// Auto-detect the block size from the image when the caller left it unset,
-	// before applyDefaults falls back to DefaultBlockSize.
-	if cfg.BlockSize <= 0 {
-		cfg.BlockSize = InferBlockSize(rgba)
+	// reusing the grid detectAndDeskew already computed (Size matches
+	// InferBlockSize); applyDefaults falls back to DefaultBlockSize when the grid
+	// is undetectable (Size < 2).
+	if cfg.BlockSize <= 0 && grid.Size >= 2 {
+		cfg.BlockSize = grid.Size
 	}
 	cfg = applyDefaults(cfg)
-	return &Engine{redacted: rgba, cfg: cfg}, nil
+	return &Engine{redacted: rgba, cfg: cfg, skewInfo: skewInfo}, nil
 }
 
 // InferDarkBackground reports whether img looks like dark text/content on a dark
@@ -491,26 +501,12 @@ func InferBlockSize(img image.Image) int {
 		return 0
 	}
 
-	g := 0
-	prev := -1
-	for x := 1; x < w; x++ {
-		if columnDiffers(rgba, b, x, h) {
-			if prev >= 0 {
-				g = gcd(g, x-prev)
-			}
-			prev = x
-		}
-	}
-	prev = -1
-	for y := 1; y < h; y++ {
-		if rowDiffers(rgba, b, y, w) {
-			if prev >= 0 {
-				g = gcd(g, y-prev)
-			}
-			prev = y
-		}
-	}
-
+	// The block size is the GCD of the gaps between colour-change boundaries; the
+	// shared helpers in grid.go compute it the same way InferBlockGrid does.
+	g := gcdOfGaps(
+		detectBoundaryPositions(rgba, b, w, h, true),
+		detectBoundaryPositions(rgba, b, w, h, false),
+	)
 	// A gap GCD of 1 means no regular grid (treat as undetectable).
 	if g < 2 {
 		return 0

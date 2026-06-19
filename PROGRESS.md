@@ -306,11 +306,22 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       empreinte mémoire réduite ; neutre en CPU (pas de régression), `-race` propre.
 
 À faire (par ordre d'impact mesuré ; chacune prouvée au benchstat, récupération inchangée) :
-- [ ] **P4.3 — comparaison à la résolution des blocs** : les deux images comparées sont
+- [x] **P4.3a — détection de grille (phase) + désinclinaison (deskew)** : `InferBlockGrid`
+      détecte la taille ET l'origine (PhaseX/PhaseY) de la mosaïque + un score de confiance ;
+      `New` redresse automatiquement une mosaïque pivotée (recherche d'angle ±12° maximisant
+      l'homogénéité des blocs) **uniquement** sous garde stricte → les images alignées sur les
+      axes restent **octet-pour-octet identiques** (matrice 310/310, panel 17/17 exact, deskew
+      dormant sur tous les fixtures). C'est le levier honnête « détecte l'alignement & redresse
+      l'image » : capacité ajoutée sur grilles hors-origine/pivotées, zéro perte sur le corpus.
+      Introspection via `Engine.SkewInfo()`/`DeskewedImage()`.
+- [ ] **P4.3b — comparaison à la résolution des blocs** : les deux images comparées sont
       constantes par bloc → échantillonner 1 px/bloc donne le **même** ratio de différence avec
-      ~`blockSize²`× moins d'opérations (≈64× à bloc 8). **Attention alignement** : ne s'applique
-      qu'aux crops restés alignés sur la grille (sinon faux) → valider le rappel sur images réelles
-      avant d'activer (risque qualité).
+      ~`blockSize²`× moins d'opérations (≈64× à bloc 8). ⚠️ **Le métrique pixelmatch par défaut
+      n'est PAS par-pixel** (`isAntiAliased` lit un voisinage 3×3) → l'échantillonnage 1 px/bloc
+      est *faux* pour lui (cause du rejet de la variante décorateur #4). Exact seulement pour une
+      métrique par-pixel (RGB) ou pixelmatch « exact-rim » ; et seulement sur crops alignés
+      (phase connue via P4.3a) sinon repli pleine résolution. Gain réel concentré sur les grandes
+      régions (TotalScore), marginal sur la bande DFS — à prouver au benchstat avant d'activer.
 - [~] **P4.4 — métrique sans détection d'anti-aliasing** (`pixelmatch.IncludeAntiAlias`) :
       **MESURÉ** (expérience jetable, revertée). Désactiver `isAntiAliased` donne **Compare −44 %**
       (85→48 µs sur images différentes), **GuidedSearch −12 %** (1,18→1,04 ms), 0 alloc en plus, et
@@ -474,3 +485,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `1706ae3` 2026-06-19 — feat(pixelate): Richardson-Lucy deconvolution + Deblur API/CLI (P3.10) _(6 fichiers)_
 - `23dbb7e` 2026-06-19 — perf(search): auto Top-K pruning (P3.11) + intra-node parallel eval (P4.11) _(5 fichiers)_
 - `833afbb` 2026-06-19 — feat(fonts): add Adwaita Mono + Noto Sans Mono to the bundle (P3.3+) _(4 fichiers)_
+- `29e1327` 2026-06-19 — test(real): add real-world blurred sample + locate/infer fixture _(2 fichiers)_
