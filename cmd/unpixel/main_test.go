@@ -447,14 +447,15 @@ func TestRun_badCharsetPreset(t *testing.T) {
 
 // TestValidateParams checks the enum-style flag validation.
 func TestValidateParams(t *testing.T) {
-	base := flagParams{format: "text", strategy: "guided", metric: "pixelmatch"}
+	base := flagParams{format: "text", strategy: "guided", metric: "pixelmatch", redaction: "auto"}
 	if err := validateParams(base); err != nil {
 		t.Errorf("valid params rejected: %v", err)
 	}
 	cases := map[string]func(*flagParams){
-		"bad format":   func(p *flagParams) { p.format = "xml" },
-		"bad strategy": func(p *flagParams) { p.strategy = "astar" },
-		"bad metric":   func(p *flagParams) { p.metric = "psnr" },
+		"bad format":    func(p *flagParams) { p.format = "xml" },
+		"bad strategy":  func(p *flagParams) { p.strategy = "astar" },
+		"bad metric":    func(p *flagParams) { p.metric = "psnr" },
+		"bad redaction": func(p *flagParams) { p.redaction = "scribble" },
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -462,6 +463,46 @@ func TestValidateParams(t *testing.T) {
 			mut(&p)
 			if err := validateParams(p); err == nil {
 				t.Error("expected error, got nil")
+			}
+		})
+	}
+}
+
+// TestResolveBlur covers the redaction-mode decision.
+func TestResolveBlur(t *testing.T) {
+	// A blurred step image → auto should pick blur with a positive sigma.
+	const w, h = 81, 30
+	step := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			v := uint8(0)
+			if x >= w/2 {
+				v = 255
+			}
+			step.SetRGBA(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	white := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range white.Pix {
+		white.Pix[i] = 0xFF
+	}
+
+	cases := []struct {
+		name    string
+		img     image.Image
+		p       flagParams
+		wantPos bool
+	}{
+		{"mosaic forced", step, flagParams{redaction: "mosaic"}, false},
+		{"blur forced explicit sigma", white, flagParams{redaction: "blur", blurSigma: 6}, true},
+		{"blur forced auto sigma", step, flagParams{redaction: "blur"}, true},
+		{"auto sharp → mosaic", step, flagParams{redaction: "auto"}, false},
+		{"explicit sigma in auto → blur", white, flagParams{redaction: "auto", blurSigma: 4}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolveBlur(c.img, c.p) > 0; got != c.wantPos {
+				t.Errorf("resolveBlur > 0 = %v, want %v (σ=%.2f)", got, c.wantPos, resolveBlur(c.img, c.p))
 			}
 		})
 	}

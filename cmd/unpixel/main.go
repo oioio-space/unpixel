@@ -64,12 +64,14 @@ type flagParams struct {
 	fontPaths      []string
 	fontBoldPath   string
 	fontDir        string
+	redaction      string
 	maxLength      int
 	blockSize      int
 	threshold      float64
 	spaceThreshold float64
 	fontSize       float64
 	letterSpacing  float64
+	blurSigma      float64
 	topN           int
 	workers        int
 	beamWidth      int
@@ -136,6 +138,11 @@ func validateParams(p flagParams) error {
 	}
 	if p.metric != "pixelmatch" && p.metric != "ssim" {
 		return fmt.Errorf("--metric must be %q or %q, got %q", "pixelmatch", "ssim", p.metric)
+	}
+	switch p.redaction {
+	case "auto", "mosaic", "blur":
+	default:
+		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	return nil
 }
@@ -440,6 +447,43 @@ func warnIfNoMosaic(w io.Writer, img image.Image, blockSize int, source string) 
 	return true
 }
 
+// resolveBlur decides whether to recover blurred (rather than mosaic) text and
+// at what sigma, returning 0 for mosaic mode. --redaction blur forces blur
+// (sigma from --blur-sigma, else estimated); --redaction mosaic forces mosaic;
+// auto picks blur only when there is no mosaic grid and the image looks blurred.
+//
+// Caveat: auto estimates sigma over the whole image, so a screenshot whose sharp
+// reference text dominates can under-estimate; crop to the redacted region, or
+// pass --redaction blur (optionally with --blur-sigma).
+func resolveBlur(img image.Image, p flagParams) float64 {
+	atLeastOne := func(s float64) float64 {
+		if s < 1 {
+			return 1
+		}
+		return s
+	}
+	switch p.redaction {
+	case "mosaic":
+		return 0
+	case "blur":
+		if p.blurSigma > 0 {
+			return p.blurSigma
+		}
+		return atLeastOne(unpixel.InferBlurSigma(img))
+	default: // auto
+		if p.blurSigma > 0 {
+			return p.blurSigma
+		}
+		if unpixel.InferBlockSize(img) >= 2 {
+			return 0 // a mosaic grid is present → mosaic mode
+		}
+		if s := unpixel.InferBlurSigma(img); s >= 2 {
+			return s // no grid and clearly blurred → blur mode
+		}
+		return 0
+	}
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -543,6 +587,16 @@ Examples:
 				Usage: "extra pixels after each glyph, like CSS letter-spacing (may be negative)",
 				Value: 0,
 			},
+			&cli.StringFlag{
+				Name:  "redaction",
+				Usage: `redaction type: "auto", "mosaic", or "blur"`,
+				Value: "auto",
+			},
+			&cli.FloatFlag{
+				Name:  "blur-sigma",
+				Usage: "Gaussian blur radius (sigma, px) for --redaction blur; 0 = auto-estimate",
+				Value: 0,
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -601,8 +655,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		fontPaths:      cmd.StringSlice("font"),
 		fontBoldPath:   cmd.String("font-bold"),
 		fontDir:        cmd.String("font-dir"),
+		redaction:      cmd.String("redaction"),
 		fontSize:       cmd.Float("font-size"),
 		letterSpacing:  cmd.Float("letter-spacing"),
+		blurSigma:      cmd.Float("blur-sigma"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}
@@ -626,9 +682,19 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if source == "-" {
 		source = "the input image"
 	}
-	warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
 
 	cfg := buildConfig(p)
+	// Resolve the redaction operator (mosaic vs Gaussian blur). In blur mode the
+	// search reproduces a blur instead of mosaic; BlockSize=1 disables the grid.
+	if blurSigma := resolveBlur(img, p); blurSigma > 0 {
+		cfg.Pixelator = defaults.GaussianBlur(blurSigma)
+		cfg.BlockSize = 1
+		if !p.quiet {
+			fmt.Fprintf(os.Stderr, "Redaction: Gaussian blur (σ≈%.1f)\n", blurSigma)
+		}
+	} else {
+		warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
+	}
 
 	fontPaths, ferr := collectFonts(p)
 	if ferr != nil {

@@ -38,6 +38,7 @@ import (
 	"image/color"
 	_ "image/png" // register PNG decoding for RecoverReader/RecoverFile
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"slices"
@@ -517,6 +518,59 @@ func gcd(a, b int) int {
 		a, b = b, a%b
 	}
 	return a
+}
+
+// InferBlurSigma estimates the Gaussian-blur standard deviation (in pixels) of a
+// blurred image, for zero-config blur recovery. A blurred high-contrast edge is
+// a Gaussian-smoothed step, whose peak first derivative is A/(σ·√(2π)) for a
+// step of amplitude A; solving for σ from the image's contrast A and its peak
+// luminance gradient gives σ ≈ A / (gPeak·√(2π)).
+//
+// It returns 0 when the image is too small or essentially flat. A returned value
+// near 1 means the image is sharp (probably not blurred); a larger value is the
+// estimated blur radius. The peak gradient uses a high percentile, not the max,
+// to resist single-pixel noise.
+func InferBlurSigma(img image.Image) float64 {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 3 || h < 3 {
+		return 0
+	}
+
+	lum := func(x, y int) float64 {
+		c := rgba.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		return 0.299*float64(c.R) + 0.587*float64(c.G) + 0.114*float64(c.B)
+	}
+
+	var minL, maxL float64 = 255, 0
+	grads := make([]float64, 0, w*h)
+	for y := range h {
+		for x := range w {
+			l := lum(x, y)
+			minL = min(minL, l)
+			maxL = max(maxL, l)
+			if x > 0 {
+				grads = append(grads, math.Abs(l-lum(x-1, y)))
+			}
+			if y > 0 {
+				grads = append(grads, math.Abs(l-lum(x, y-1)))
+			}
+		}
+	}
+	contrast := maxL - minL
+	if contrast < 8 || len(grads) == 0 {
+		return 0 // essentially flat — nothing to estimate
+	}
+
+	// Peak gradient = 99th percentile (robust to a few noisy pixels).
+	slices.Sort(grads)
+	gPeak := grads[int(float64(len(grads))*0.99)]
+	if gPeak <= 0 {
+		return 0
+	}
+	sigma := contrast / (gPeak * math.Sqrt(2*math.Pi))
+	return math.Max(0, sigma)
 }
 
 // ErrNilImage is returned by New when a nil image is passed.

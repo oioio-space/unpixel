@@ -402,3 +402,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `620a294` 2026-06-19 — docs(readme): document custom fonts and the font sweep _(2 fichiers)_
 - `e6b7f06` 2026-06-19 — docs(progress): record the v0.3.0 release (custom fonts & font sweep) _(1 fichiers)_
 - `c279a8e` 2026-06-19 — feat(fonts): bundle redistributable fonts for a zero-config sweep _(16 fichiers)_
+- `74b5f1c` 2026-06-19 — feat(pixelate): Gaussian-blur redaction operator (attack blurred text) _(7 fichiers)_
