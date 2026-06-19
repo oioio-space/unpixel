@@ -314,14 +314,19 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       dormant sur tous les fixtures). C'est le levier honnête « détecte l'alignement & redresse
       l'image » : capacité ajoutée sur grilles hors-origine/pivotées, zéro perte sur le corpus.
       Introspection via `Engine.SkewInfo()`/`DeskewedImage()`.
-- [ ] **P4.3b — comparaison à la résolution des blocs** : les deux images comparées sont
-      constantes par bloc → échantillonner 1 px/bloc donne le **même** ratio de différence avec
-      ~`blockSize²`× moins d'opérations (≈64× à bloc 8). ⚠️ **Le métrique pixelmatch par défaut
-      n'est PAS par-pixel** (`isAntiAliased` lit un voisinage 3×3) → l'échantillonnage 1 px/bloc
-      est *faux* pour lui (cause du rejet de la variante décorateur #4). Exact seulement pour une
-      métrique par-pixel (RGB) ou pixelmatch « exact-rim » ; et seulement sur crops alignés
-      (phase connue via P4.3a) sinon repli pleine résolution. Gain réel concentré sur les grandes
-      régions (TotalScore), marginal sur la bande DFS — à prouver au benchstat avant d'activer.
+- [~] **P4.3b — comparaison à la résolution des blocs** : **analysé en profondeur → non adopté**
+      (mêmes raisons que le rejet déjà mesuré de la variante décorateur #4). L'idée : images
+      constantes par bloc → 1 px/bloc donne le même ratio avec ~`blockSize²`× moins d'opérations.
+      ⚠️ **Le métrique pixelmatch par défaut n'est PAS par-pixel** : `isAntiAliased` lit un
+      voisinage 3×3, donc l'échantillonnage 1 px/bloc change le compte (faux). Exact seulement
+      pour une métrique par-pixel (RGB, non-défaut) ou une réécriture pixelmatch « exact-rim »
+      (~7× d'évals/cellule, pas 64×). Et seulement sur crops alignés (phase connue via P4.3a),
+      sinon repli pleine résolution — **et la bande de comparaison du DFS fait ≈1 bloc de large**
+      (gain marginal), tandis que `TotalScore` (grande région) est rare depuis P4.1. Donc gain
+      bout-en-bout marginal sur le chemin par défaut pour un risque hot-path réel → conformément
+      à la règle absolue (« prouver au benchstat, ne garder que sur gain significatif »), **le vrai
+      levier perf du chemin par défaut est P4.10 (SIMD sur la boucle de comparaison)**, pas
+      l'échantillonnage par bloc.
 - [~] **P4.4 — métrique sans détection d'anti-aliasing** (`pixelmatch.IncludeAntiAlias`) :
       **MESURÉ** (expérience jetable, revertée). Désactiver `isAntiAliased` donne **Compare −44 %**
       (85→48 µs sur images différentes), **GuidedSearch −12 %** (1,18→1,04 ms), 0 alloc en plus, et
@@ -357,9 +362,23 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       **GaussianBlur −5.6%** (−87% B/op), end-to-end **GuidedSearch −2.6%**, **DiscoverOffsets −8.1%**.
 - [ ] **P4.9 — PGO** (Go ≥1.21) : `default.pgo` issu d'une récupération représentative ; ~4,5 %+
       CPU-bound, risque quasi nul. Réf. Uber/Google.
-- [ ] **P4.10 — SIMD** (Go 1.26 `simd/archsimd` sous `GOEXPERIMENT=simd`, ou asm AVX2) sur la
-      boucle de comparaison — **seulement après** P4.3 (qui réduit la boucle 64×, rendant peut-être
-      la SIMD superflue) ; attention surcoût `VZEROUPPER` et tension avec le build pur-Go.
+- [x] **P4.10 (étape 1) — métrique pixelmatch ré-internalisée sur `*image.RGBA.Pix`** : le profil
+      CPU montre que la comparaison `MatchPixel` (externe `orisano/pixelmatch`) = **57,7 %** du CPU,
+      dont ~17,6 % de pur surcoût d'abstraction (la lib opère sur `image.Image` via un
+      `imageLineReader`). On la réimplémente en interne (`internal/metric/pixelmatch.go`,
+      `CountPixels`), **bit-pour-bit identique** (test différentiel ~570 cas + matrice 315/315
+      inchangée), opérant directement sur `.Pix` avec une fenêtre glissante 5-lignes poolée.
+      benchstat (vs HEAD, `-count 10`) : **Compare −16 à −27 %**, **0 alloc** (−100 %) ;
+      end-to-end **DiscoverOffsets −4,4 %** (p=0,003, −47 % allocs, −11 % mémoire),
+      **GuidedSearch −2,3 %** (p=0,04). Dépendance externe `orisano/pixelmatch` retirée du runtime
+      (gardée test-only pour le différentiel). C'est aussi le **prérequis** pour vectoriser
+      `colorDelta` (étape 2). Pur Go, zéro CGO.
+- [ ] **P4.10 (étape 2) — SIMD `colorDelta`** : maintenant que la boucle est interne, vectoriser le
+      delta YIQ par-pixel (24 % du CPU). Options : Go 1.26 `simd/archsimd` (⚠️ `GOEXPERIMENT=simd`,
+      AMD64-only, hors promesse de compat → **inadapté à une lib publique par défaut**) **vs** asm
+      Go AVX2 + fallback pur-Go + détection CPU runtime (production-grade, sans CGO). `isAntiAliased`
+      (28 %, voisinage 3×3 branchy) reste scalaire. Bit-exactness : pas de FMA (rounding scalaire).
+      À mettre en balance avec une éventuelle accélération GPU (voir `docs/ACCELERATION.md`).
 - [x] **P4.11 — intra-node parallel evalChildren** (`23dbb7e`). Paralléliser enfants d'un nœud
       DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
       Large-charset single-offset ~1.5× plus vite ; défaut small-charset neutre ; `-race` propre.
@@ -486,3 +505,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `23dbb7e` 2026-06-19 — perf(search): auto Top-K pruning (P3.11) + intra-node parallel eval (P4.11) _(5 fichiers)_
 - `833afbb` 2026-06-19 — feat(fonts): add Adwaita Mono + Noto Sans Mono to the bundle (P3.3+) _(4 fichiers)_
 - `29e1327` 2026-06-19 — test(real): add real-world blurred sample + locate/infer fixture _(2 fichiers)_
+- `b991063` 2026-06-19 — feat(grid): block-grid phase detection + skew deskew (P4.3a) _(5 fichiers)_

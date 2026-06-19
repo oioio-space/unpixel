@@ -26,8 +26,9 @@ per candidate over the 64-offset discovery sweep).
 | (challenge) | feat | ~19 ms | ~37 µs | ~186 ns | custom fonts + letter-spacing + whole-image TotalScore final ranking: GuidedSearch **neutral** (−2%, p=0.001, allocs identical) |
 | `d15e68a` | P4.8 | **~17.4 ms** (−8.1%) | ~37 µs | ~186 ns | buffer pool (sync.Pool): SSIM −18% allocs, FastBlur −8.7% (−67% B/op), GaussianBlur −5.6% (−87% B/op) |
 | `23dbb7e` | P3.11 + P4.11 | ~17.4 ms (≈) | ~37 µs | ~186 ns | **wide-charset/code path only** — auto Top-K pruning (P3.11): wide-charset GuidedDFS **~10.8× faster**, −17× B/op; intra-node parallel eval (P4.11): wide single-offset **~1.5× faster**. Default small-charset path **neutral** (GuidedSearch/DiscoverOffsets unchanged, allocs identical) |
+| `P4.10-1` | P4.10 step 1 | **~16.3 ms** (−4.4%) | ~37 µs | ~186 ns | in-repo pixelmatch on `*image.RGBA.Pix` (bit-identical, matrix 315/315): **Compare −16/−27 %, 0 alloc**; end-to-end **−47 % allocs, −11 % mem**, GuidedSearch −2.3 % (p=0.04). External `orisano/pixelmatch` removed from runtime (test-only). Profile: MatchPixel was 57.7 % CPU, ~17.6 % of it pure reader-abstraction overhead now gone |
 
-Cumulative discovery: **~98.6 ms → ~17.4 ms ≈ 5.7× faster** on the default path, all
+Cumulative discovery: **~98.6 ms → ~16.3 ms ≈ 6.0× faster** on the default path, all
 changes exact (recovery output identical). P3.11 + P4.11 do not touch the default small-charset
 discovery metric — they target **wide-charset/code recovery** with a language prior (where a full
 ASCII charset is ~10.8× faster), leaving the common path byte-identical. PGO (P4.9) evaluated: no

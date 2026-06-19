@@ -5,8 +5,6 @@ package metric
 import (
 	"image"
 	"sync"
-
-	"github.com/orisano/pixelmatch"
 )
 
 // grayscalePool pools []float64 scratch buffers used by grayscale.
@@ -47,10 +45,11 @@ func (RGB) Compare(a, b *image.RGBA) float64 {
 	return float64(diffCount) / float64(total)
 }
 
-// Pixelmatch wraps github.com/orisano/pixelmatch (a faithful Go port of
-// mapbox/pixelmatch) to implement the unpixel.Metric interface. It uses a YIQ
-// perceptual colour-difference threshold, matching Jimp.diff behaviour in the
-// original TypeScript source.
+// Pixelmatch implements unpixel.Metric using an in-repo YIQ perceptual
+// colour-difference counting path that is bit-identical to
+// github.com/orisano/pixelmatch for the counting-only use case (no diff image
+// output). It operates directly on *image.RGBA.Pix, eliminating the
+// image.Image abstraction overhead of the external library.
 type Pixelmatch struct {
 	// threshold is the per-pixel colour-difference tolerance passed to pixelmatch.
 	threshold float64
@@ -70,13 +69,7 @@ func (m Pixelmatch) Compare(a, b *image.RGBA) float64 {
 	if total == 0 {
 		return 0
 	}
-	count, err := pixelmatch.MatchPixel(a, b, pixelmatch.Threshold(m.threshold))
-	if err != nil {
-		// Dimensions mismatch or other error — return 1 (maximally different)
-		// so the caller prunes this candidate rather than silently accepting it.
-		return 1
-	}
-	return float64(count) / float64(total)
+	return float64(CountPixels(a, b, m.threshold)) / float64(total)
 }
 
 // DefaultSSIMWindow is the side length, in pixels, of each SSIM comparison
