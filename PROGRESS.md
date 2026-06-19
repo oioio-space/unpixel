@@ -227,14 +227,15 @@ Priorité haute :
             (le balayage actuel teste toutes les polices ; OK pour ~7, à optimiser pour un gros bundle).
 
 Priorité moyenne :
-- [ ] **P3.8 — confiance calibrée + abandon honnête** : fusionner distance image + score LM +
-      ambiguïté en une confiance calibrée ; signaler « incertain / probablement irrécupérable »
-      plutôt qu'un best-guess trompeur (répond à la critique de fabrication, A. Madry).
-- [ ] **P3.5 — localisation auto de la zone caviardée** dans une capture entière (carte de
-      variance/blockiness) → passer le screenshot complet, pas une zone pré-découpée.
-- [ ] **P3.6 — escalade auto du charset** : minuscules+espace → chiffres → majuscules →
-      ponctuation, déclenchée par l'absence de résultat cohérent (P3.2) ; charset déduit de la
-      zone en clair si présente. Évite l'explosion combinatoire.
+- [x] **P3.8 — confiance calibrée + abandon honnête** : `8a49453` — `reportConfidence`
+      (verdict + `--min-confidence` honest-abort) fusionne distance image + LM + ambiguïté ;
+      signale « incertain / probablement irrécupérable » plutôt qu'un best-guess trompeur.
+- [x] **P3.5 — localisation auto de la zone caviardée** : `unpixel.LocateRedaction` (gradient de
+      bord borné sur zone floutée/mosaïque) + câblage CLI → screenshot complet, pas une zone
+      pré-découpée. Corrige le biais σ pleine-image (0,59 vs 5,59 sur la ligne floutée).
+- [x] **P3.6 — escalade auto du charset** : `7629a76` — `runEscalation` (tier 1 bundle complet,
+      verrouille la meilleure police, puis minuscules → alnum → ascii), déclenchée par la
+      confiance ; `--escalate`. Évite l'explosion combinatoire.
 - [ ] **P3.7 — priors structurés / secrets** : wordlist (mots de passe communs), formats
       (UUID, clés API), checksums (Luhn) → récupération + validation haute-confiance des cibles réelles.
 
@@ -312,7 +313,11 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       redactions réelles arbitraires. → **décision fidélité/qualité réservée à l'utilisateur** :
       (a) activer par défaut (gain net, matrice OK), (b) exposer en option opt-in (défaut = fidèle),
       ou (c) écarter pour rester fidèle. Recommandation : (b) opt-in `NewPixelmatchFast`.
-- [ ] **P4.5 — prédiction de la lettre suivante / ordre Markov par position (OMEN/PCFG)** : trier
+- [x] **P4.5 — prédiction de la lettre suivante / Top-K charset guidé par le LM** : `629759f` —
+      `Config.CharsetTopK` (opt-in, avec `LanguageModel`) n'évalue que les k caractères suivants
+      les plus probables au lieu de tout le charset ; `topKChars` dans `evalChildren`/`...Par` ;
+      CLI `--charset-topk`. Défaut 0 = neutre (benchstat GuidedSearch inchangé, recall préservé) ;
+      compromis recall/vitesse mesuré (cas mono dur : 188 → 55 évals). Réf. originale ci-dessous : trier
       le charset par probabilité, essayer les plus probables d'abord, élaguer tôt ; combiner au
       prior LM (P3.2). Réduit le **nombre** de candidats (chacun = 1 rendu + 1 compare). Réf.
       Prob-Hashcat (RAID'24), hashcat per-position Markov.
@@ -448,3 +453,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `d7544f2` 2026-06-19 — docs(progress): align stale figures with v0.4.0 _(1 fichiers)_
 - `8a49453` 2026-06-19 — feat(confidence): calibrated confidence + honest abort (P3.8) _(5 fichiers)_
 - `7629a76` 2026-06-19 — feat(cli): automatic charset escalation (P3.6) _(1 fichiers)_
+- `629759f` 2026-06-19 — feat(search): language-guided charset Top-K pruning (P4.5) _(6 fichiers)_
