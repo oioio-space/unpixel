@@ -248,11 +248,19 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       le charset par probabilité, essayer les plus probables d'abord, élaguer tôt ; combiner au
       prior LM (P3.2). Réduit le **nombre** de candidats (chacun = 1 rendu + 1 compare). Réf.
       Prob-Hashcat (RAID'24), hashcat per-position Markov.
-- [ ] **P4.6 — câbler `CachingScorer` dans toutes les stratégies + cacher le rendu `prevGuess`**
-      (re-rendu redondant par candidat aujourd'hui).
-- [ ] **P4.7 — rendu moins cher** : éviter le `FillWhite` complet (buffer blanc réutilisé / pooled),
-      cache de glyphes rastérisés par (rune,taille,poids), rendu incrémental (seul le nouveau
-      caractère).
+- [x] **P4.6 — cache de rendu (`PipelineScorer.render`, clé = texte)** : `bdca2f0`. La découverte
+      re-rendait le même texte 64× (offsets) et le `prevGuess` était re-rendu par candidat ; LRU
+      256 entrées sous mutex → **discovery −15 %**, −16 % B/op. Exact (rendu indépendant de l'offset).
+- [x] **P4.7 — `FillWhite` exponential-copy (memmove)** : `18749c3` — **−97 %** (6334→170 ns),
+      render −30 %. Glyph-cache / rendu incrémental restent ouverts (gain marginal vs le cache P4.6
+      qui élimine déjà le re-rendu) ; à mesurer avant d'investir.
+- [x] **P4.x — `marginColumn` remplace `diffRed`+`Margins`** : `427a141`. `evalFromStage`
+      construisait une image-diff pleine par candidat `prevGuess` alors que `Margins` n'en lit que
+      la ligne médiane → calcul direct de la 1re colonne différente. **GuidedSearch DFS −16 %**.
+      Exact (`marginColumn == Margins(diffRed)`).
+- [x] **P4.x — pixelate via indexation directe `dst.Pix` + row-copy** : `9557cab`. Suppression de
+      `blockMean`, somme par index `pix[off]`, 1re ligne remplie puis `copy` vers le bas →
+      **Pixelate −58 %**, discovery −8 %. Exact.
 - [ ] **P4.8 — pooling des buffers image** (`sync.Pool`) pour réduire le GC (~9 % du profil).
 - [ ] **P4.9 — PGO** (Go ≥1.21) : `default.pgo` issu d'une récupération représentative ; ~4,5 %+
       CPU-bound, risque quasi nul. Réf. Uber/Google.
@@ -339,3 +347,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `1984b52` 2026-06-19 — chore(bench): persist per-commit perf stats (benchmarks/ + mise bench:record) _(4 fichiers)_
 - `bdca2f0` 2026-06-19 — perf(search): per-scorer render cache — discovery -15%, exact (P4.6) _(4 fichiers)_
 - `9557cab` 2026-06-19 — perf(pixelate): direct Pix indexing + row-copy fill — Pixelate -58%, discovery -8% _(4 fichiers)_
+- `427a141` 2026-06-19 — perf(search): marginColumn replaces diffRed+Margins — guided DFS -16% _(7 fichiers)_

@@ -241,18 +241,14 @@ func (s *PipelineScorer) evalFromStage(
 	}
 
 	// Step 9: Crop to changed band and trim rightmost block.
-	// faithful: main.ts — adjustedBlueMargin = (blueMargin-left_boundary)-leftEdge-offset_x
+	// faithful: main.ts — adjustedBlueMargin = (blueMargin-left_boundary)-leftEdge-offset_x.
+	// The band crop (x=leftBoundary) and the adjustedBM width-trim compose into a
+	// single horizontal sub-rectangle, so do one Crop each instead of two: a copy
+	// of [leftBoundary, leftBoundary+w) equals cropping the band then trimming.
 	adjustedBM := (bm - leftBoundary) - le - ox
 
-	imgCropped := imutil.Crop(img, leftBoundary, 0, img.Bounds().Dx()-leftBoundary, img.Bounds().Dy())
-	redactedCropped := imutil.Crop(s.redacted, leftBoundary, 0, s.redacted.Bounds().Dx()-leftBoundary, redactedH)
-
-	if imgCropped.Bounds().Dx() > adjustedBM {
-		imgCropped = imutil.Crop(imgCropped, 0, 0, adjustedBM, imgCropped.Bounds().Dy())
-	}
-	if redactedCropped.Bounds().Dx() > adjustedBM {
-		redactedCropped = imutil.Crop(redactedCropped, 0, 0, adjustedBM, redactedCropped.Bounds().Dy())
-	}
+	imgCropped := imutil.Crop(img, leftBoundary, 0, min(img.Bounds().Dx()-leftBoundary, adjustedBM), img.Bounds().Dy())
+	redactedCropped := imutil.Crop(s.redacted, leftBoundary, 0, min(s.redacted.Bounds().Dx()-leftBoundary, adjustedBM), redactedH)
 
 	imgCropped, redactedCropped = equalise(imgCropped, redactedCropped)
 
