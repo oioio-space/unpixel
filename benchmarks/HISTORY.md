@@ -21,11 +21,16 @@ per candidate over the 64-offset discovery sweep).
 | `bdca2f0` | P4.6 | **~21.0 ms** (−15%) | ~37 µs | ~170 ns | render cache (text-keyed): drop 63/64 redundant renders in discovery + prevGuess re-renders; −16% B/op |
 | `9557cab` | P4.x | **~19.3 ms** (−8%) | ~37 µs | ~170 ns | pixelate blockMean+fill via direct dst.Pix indexing + row-copy (micro −58%) |
 | `427a141` | P4.x | ~19 ms | ~37 µs | ~170 ns | marginColumn replaces diffRed+Margins (no full diff image): **GuidedSearch DFS −16%** (1.50→1.25 ms) |
-| _P4.x_ | P4.x | ~19 ms | ~37 µs | ~170 ns | step-9 single composed Crop (band+trim in one): GuidedSearch −4% sec, **−8% allocs**, −6.5% B/op |
+| `d5136b5` | P4.x | ~19 ms | ~37 µs | ~170 ns | step-9 single composed Crop (band+trim in one): GuidedSearch −4% sec, **−8% allocs**, −6.5% B/op |
 
 Cumulative discovery: **~98.6 ms → ~19.3 ms ≈ 5.1× faster**, all changes exact (recovery
-output identical). PGO (P4.9) evaluated: no measurable gain here (hot path is in external
-pixelmatch/x-image), so not adopted.
+output identical). The realistic multi-char path (`BenchmarkGuidedSearch`) gained a further
+**~22%** this round (marginColumn −16%, fused-crop −4%). PGO (P4.9) evaluated: no measurable
+gain here (hot path is in external pixelmatch/x-image), so not adopted.
+
+P4.4 (disable pixelmatch AA detection) **measured** but NOT adopted: −44% Compare / −12%
+GuidedSearch, matrix 155/155 identical, **but** it diverges from faithful Jimp.diff semantics →
+fidelity decision reserved for the user (see PROGRESS P4.4).
 
 Raw latest run: see `benchmarks/latest.txt`.
 

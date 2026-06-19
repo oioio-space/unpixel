@@ -242,8 +242,15 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       ~`blockSize²`× moins d'opérations (≈64× à bloc 8). **Attention alignement** : ne s'applique
       qu'aux crops restés alignés sur la grille (sinon faux) → valider le rappel sur images réelles
       avant d'activer (risque qualité).
-- [ ] **P4.4 — métrique sans détection d'anti-aliasing** : `isAntiAliased` (36 %) est inutile sur
-      des blocs plats. Métrique bloc-aware / pixelmatch AA off. Valider que le rappel ne baisse pas.
+- [~] **P4.4 — métrique sans détection d'anti-aliasing** (`pixelmatch.IncludeAntiAlias`) :
+      **MESURÉ** (expérience jetable, revertée). Désactiver `isAntiAliased` donne **Compare −44 %**
+      (85→48 µs sur images différentes), **GuidedSearch −12 %** (1,18→1,04 ms), 0 alloc en plus, et
+      **la matrice récupère 155/155 à l'identique**. ⚠️ **MAIS** ce n'est PAS exact : les pixels AA
+      comptent alors comme des diffs → s'écarte de la sémantique fidèle `Jimp.diff` (pixelmatch
+      `includeAA=false`), et 155 fixtures ne prouvent pas l'absence de perte de rappel sur des
+      redactions réelles arbitraires. → **décision fidélité/qualité réservée à l'utilisateur** :
+      (a) activer par défaut (gain net, matrice OK), (b) exposer en option opt-in (défaut = fidèle),
+      ou (c) écarter pour rester fidèle. Recommandation : (b) opt-in `NewPixelmatchFast`.
 - [ ] **P4.5 — prédiction de la lettre suivante / ordre Markov par position (OMEN/PCFG)** : trier
       le charset par probabilité, essayer les plus probables d'abord, élaguer tôt ; combiner au
       prior LM (P3.2). Réduit le **nombre** de candidats (chacun = 1 rendu + 1 compare). Réf.
@@ -348,3 +355,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `bdca2f0` 2026-06-19 — perf(search): per-scorer render cache — discovery -15%, exact (P4.6) _(4 fichiers)_
 - `9557cab` 2026-06-19 — perf(pixelate): direct Pix indexing + row-copy fill — Pixelate -58%, discovery -8% _(4 fichiers)_
 - `427a141` 2026-06-19 — perf(search): marginColumn replaces diffRed+Margins — guided DFS -16% _(7 fichiers)_
+- `d5136b5` 2026-06-19 — perf(search): fuse step-9 band+trim into one Crop — -8% allocs (exact) _(4 fichiers)_
