@@ -13,6 +13,45 @@ import (
 	"github.com/oioio-space/unpixel"
 )
 
+// parChildThreshold is the minimum effective charset size (in runes) that makes
+// intra-node parallel child evaluation worth the goroutine overhead. Charsets
+// smaller than this are scored sequentially regardless of worker count: the
+// per-goroutine setup cost of forEachIndex exceeds the scorer work for tiny
+// alphabets (e.g. DefaultCharset=27 with TopK pruning active, or small test
+// charsets), while wide charsets (e.g. CharsetASCII=95, or a custom 30+ char
+// set) amortise the overhead across enough children.
+//
+// 16 is chosen because:
+//   - DefaultCharset (27 chars) × half-pass → ~13 surviving children: below the
+//     threshold, so the common case stays sequential and allocation-free.
+//   - CharsetASCII (95 chars) with no TopK → always above threshold.
+//   - A 16-char boundary keeps the gate check O(1) and the constant small enough
+//     that genuinely wide charsets always benefit.
+const parChildThreshold = 16
+
+// intraNodeWorkers computes how many goroutines the intra-node (per-DFS-level)
+// parallel child evaluation may use without oversubscribing the system when the
+// offset-level fan-out (searchOffsets / DiscoverOffsets) is also active.
+//
+// The heuristic: divide GOMAXPROCS evenly across the concurrent offset
+// goroutines. If cfg.Workers == 1 (sequential offset fan-out) or the quotient
+// rounds to zero, return 1 so the caller falls back to sequential evalChildren.
+// The result is floored at 1 and capped at the number of available processors,
+// so it is always safe to pass directly to forEachIndex.
+//
+// Example (20-core machine, cfg.Workers==0 → resolveWorkers returns 20):
+//
+//	intraNodeWorkers = max(1, 20/20) = 1  → sequential (offsets already use all cores)
+//
+// Example (20-core machine, cfg.Workers==4):
+//
+//	intraNodeWorkers = max(1, 20/4)  = 5  → up to 5 child goroutines per offset
+func intraNodeWorkers(cfg unpixel.Config) int {
+	procs := runtime.GOMAXPROCS(0)
+	outer := resolveWorkers(cfg)
+	return max(1, procs/outer)
+}
+
 // resolveWorkers returns the concurrency level for offset fan-out: the configured
 // value when positive, otherwise runtime.GOMAXPROCS. Engine.Run already fills
 // Workers via applyDefaults, but DiscoverOffsets and the strategies are also
@@ -106,6 +145,12 @@ func ensureThresholdFor(cfg unpixel.Config) unpixel.Config {
 // faithful: preload.ts guessRecursive — render parent; if tooBig prune;
 // append each charset char; keep score < threshold (< spaceThreshold for ' ');
 // sort ascending; recurse.
+//
+// When the effective charset width is at least parChildThreshold runes and the
+// intra-node worker budget (intraNodeWorkers) is > 1, children at every DFS
+// level are evaluated concurrently via evalChildrenParCapped. The worker budget
+// is divided evenly across the outer offset-level fan-out so the total goroutine
+// count stays bounded at ≈ GOMAXPROCS.
 func GuidedDFS(
 	ctx context.Context,
 	scorer Scorer,
@@ -114,8 +159,9 @@ func GuidedDFS(
 	emit func(unpixel.Eval),
 ) {
 	cfg = ensureThresholdFor(cfg)
+	iw := intraNodeWorkers(cfg)
 	// Seed: evaluate every single character.
-	seeds := evalChildren(ctx, scorer, cfg, offset, "")
+	seeds := chooseEvalChildren(ctx, scorer, cfg, offset, "", iw)
 	for _, s := range seeds {
 		emit(unpixel.Eval{
 			Guess:  s.guess,
@@ -127,12 +173,14 @@ func GuidedDFS(
 		if ctx.Err() != nil {
 			return
 		}
-		guessRecursive(ctx, scorer, cfg, offset, s, emit)
+		guessRecursive(ctx, scorer, cfg, offset, s, emit, iw)
 	}
 }
 
 // guessRecursive extends the given node depth-first.
 // The node's result already contains tooBig, so no extra parent eval is needed.
+// iw is the intra-node worker count computed once by GuidedDFS and threaded
+// through to avoid repeated calls to intraNodeWorkers / runtime.GOMAXPROCS.
 func guessRecursive(
 	ctx context.Context,
 	scorer Scorer,
@@ -140,6 +188,7 @@ func guessRecursive(
 	offset unpixel.Offset,
 	parent node,
 	emit func(unpixel.Eval),
+	iw int,
 ) {
 	if ctx.Err() != nil {
 		return
@@ -152,7 +201,7 @@ func guessRecursive(
 		return
 	}
 
-	children := evalChildren(ctx, scorer, cfg, offset, parent.guess)
+	children := chooseEvalChildren(ctx, scorer, cfg, offset, parent.guess, iw)
 	for _, child := range children {
 		emit(unpixel.Eval{
 			Guess:  child.guess,
@@ -161,8 +210,109 @@ func guessRecursive(
 		})
 	}
 	for _, child := range children {
-		guessRecursive(ctx, scorer, cfg, offset, child, emit)
+		guessRecursive(ctx, scorer, cfg, offset, child, emit, iw)
 	}
+}
+
+// chooseEvalChildren dispatches to evalChildrenParCapped when the effective
+// charset is wide enough (>= parChildThreshold) and iw > 1, otherwise falls
+// back to the sequential evalChildren. The threshold prevents goroutine-setup
+// overhead from dominating on small charsets (e.g. DefaultCharset with TopK
+// active yields ~13 survivors — below the threshold, so the fast path is kept).
+//
+// When iw == 1 (the common case: GOMAXPROCS offset goroutines saturate cores)
+// the function is a zero-overhead call to evalChildren with no extra work.
+// When iw > 1, the charset size check is fused with the topKChars call so that
+// chars are computed only once and passed directly to evalChildrenParCapped,
+// avoiding the double topKChars allocation that a naïve pre-check would cause.
+func chooseEvalChildren(
+	ctx context.Context,
+	scorer Scorer,
+	cfg unpixel.Config,
+	offset unpixel.Offset,
+	parentGuess string,
+	iw int,
+) []node {
+	if iw <= 1 {
+		return evalChildren(ctx, scorer, cfg, offset, parentGuess)
+	}
+	// Compute the effective character set once. topKChars returns nil when no
+	// pruning is needed, in which case we fall back to the full charset slice.
+	chars := topKChars(cfg, parentGuess)
+	if chars == nil {
+		chars = []rune(cfg.Charset)
+	}
+	if len(chars) < parChildThreshold {
+		// Too few children to justify goroutine overhead — stay sequential.
+		// Re-use chars directly rather than calling evalChildren (which would
+		// call topKChars a second time).
+		return evalChildrenFromChars(ctx, scorer, cfg, offset, parentGuess, chars)
+	}
+	return evalChildrenParCappedFromChars(ctx, scorer, cfg, offset, parentGuess, chars, iw)
+}
+
+// evalChildrenFromChars is the sequential evalChildren inner loop operating on
+// a pre-computed chars slice. It avoids a redundant topKChars call when the
+// caller (chooseEvalChildren) has already resolved the character set.
+func evalChildrenFromChars(
+	ctx context.Context,
+	scorer Scorer,
+	cfg unpixel.Config,
+	offset unpixel.Offset,
+	parentGuess string,
+	chars []rune,
+) []node {
+	var children []node
+	for _, ch := range chars {
+		if ctx.Err() != nil {
+			return children
+		}
+		next := parentGuess + string(ch)
+		res := scorer.Eval(ctx, next, parentGuess, offset)
+		if res.Score < cfg.ThresholdFor(ch) {
+			children = append(children, node{guess: next, result: res})
+		}
+	}
+	slices.SortFunc(children, func(a, b node) int {
+		return cmp.Compare(a.result.Score, b.result.Score)
+	})
+	return children
+}
+
+// evalChildrenParCappedFromChars is the parallel evalChildrenParCapped inner
+// loop operating on a pre-computed chars slice. It avoids a redundant topKChars
+// call when the caller has already resolved the character set.
+func evalChildrenParCappedFromChars(
+	ctx context.Context,
+	scorer Scorer,
+	cfg unpixel.Config,
+	offset unpixel.Offset,
+	parentGuess string,
+	chars []rune,
+	workers int,
+) []node {
+	results := make([]*node, len(chars))
+	forEachIndex(ctx, len(chars), workers, func(i int) {
+		if ctx.Err() != nil {
+			return
+		}
+		ch := chars[i]
+		next := parentGuess + string(ch)
+		res := scorer.Eval(ctx, next, parentGuess, offset)
+		if res.Score < cfg.ThresholdFor(ch) {
+			results[i] = &node{guess: next, result: res}
+		}
+	})
+	var children []node
+	for _, r := range results {
+		if r != nil {
+			children = append(children, *r)
+		}
+	}
+	slices.SortStableFunc(children, func(a, b node) int {
+		return cmp.Compare(a.result.Score, b.result.Score)
+	})
+	return children
 }
 
 // evalChildren scores each character in cfg.Charset appended to parentGuess,
@@ -204,16 +354,61 @@ func evalChildren(
 	return children
 }
 
-// topKChars returns the cfg.CharsetTopK most-likely next characters after
+// autoTopKThreshold is the minimum charset size (in runes) that triggers
+// automatic Top-K pruning when a LanguageModel is set but CharsetTopK is 0.
+// Charsets up to this size (e.g. DefaultCharset = 27, CharsetAlnum = 63)
+// remain on the allocation-free whole-charset path; wider charsets (e.g.
+// CharsetASCII = 95) benefit from pruning without requiring the caller to
+// set CharsetTopK explicitly.
+//
+// 40 is chosen because it sits above the faithful default (27 chars) and
+// the typical "target + distractors" charsets used in tests (≤ ~30), so
+// auto-pruning never fires for normal small charsets and their behavior is
+// byte-identical to today.
+const autoTopKThreshold = 40
+
+// autoTopKValue is the effective K used by auto-pruning. Language-model
+// distributions are sharply peaked: for English text, the top 24 characters
+// capture >97 % of the probability mass at any position, so K=24 loses
+// almost no recall while cutting ~75 % of renders on CharsetASCII (95 → 24).
+// It is capped by the actual charset length, so it is always safe.
+const autoTopKValue = 24
+
+// effectiveTopK derives the Top-K to use from cfg without mutating it.
+//
+// Priority (highest first):
+//  1. cfg.CharsetTopK > 0 — caller wins, always; returned as-is.
+//  2. cfg.LanguageModel != nil AND len(charset) >= autoTopKThreshold —
+//     auto-K of min(len(charset), autoTopKValue) reduces wide-charset cost.
+//  3. 0 — no pruning; evalChildren stays on the allocation-free path.
+//
+// The small-charset / no-model case always returns 0, so existing behavior
+// for DefaultCharset (27 chars) is byte-identical to before this change.
+func effectiveTopK(cfg unpixel.Config) int {
+	if cfg.CharsetTopK > 0 {
+		return cfg.CharsetTopK
+	}
+	if cfg.LanguageModel == nil {
+		return 0
+	}
+	n := len([]rune(cfg.Charset))
+	if n < autoTopKThreshold {
+		return 0
+	}
+	return min(n, autoTopKValue)
+}
+
+// topKChars returns the effectiveTopK(cfg) most-likely next characters after
 // parentGuess, ranked by the language model, or nil to disable pruning (when
-// CharsetTopK<=0, there is no model, or K covers the whole charset). nil keeps
-// callers on the allocation-free whole-charset path.
+// the effective K is 0, there is no model, or K covers the whole charset).
+// nil keeps callers on the allocation-free whole-charset path.
 func topKChars(cfg unpixel.Config, parentGuess string) []rune {
-	if cfg.CharsetTopK <= 0 || cfg.LanguageModel == nil {
+	k := effectiveTopK(cfg)
+	if k <= 0 || cfg.LanguageModel == nil {
 		return nil
 	}
 	runes := []rune(cfg.Charset)
-	if cfg.CharsetTopK >= len(runes) {
+	if k >= len(runes) {
 		return nil
 	}
 	scored := make([]runeScore, len(runes))
@@ -223,7 +418,7 @@ func topKChars(cfg unpixel.Config, parentGuess string) []rune {
 	slices.SortStableFunc(scored, func(a, b runeScore) int {
 		return cmp.Compare(b.s, a.s) // most plausible first
 	})
-	out := make([]rune, cfg.CharsetTopK)
+	out := make([]rune, k)
 	for i := range out {
 		out[i] = scored[i].r
 	}

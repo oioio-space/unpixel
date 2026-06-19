@@ -83,6 +83,8 @@ func MonospaceDFS(
 // evalChildrenPar is the concurrent counterpart of evalChildren: it scores every
 // charset character appended to parentGuess in parallel, keeps those below the
 // threshold, and returns them sorted ascending by score (deterministically).
+// It uses resolveWorkers(cfg) goroutines, so callers already in a parallel
+// fan-out should prefer evalChildrenParCapped to avoid oversubscription.
 func evalChildrenPar(
 	ctx context.Context,
 	scorer Scorer,
@@ -90,12 +92,33 @@ func evalChildrenPar(
 	offset unpixel.Offset,
 	parentGuess string,
 ) []node {
+	return evalChildrenParCapped(ctx, scorer, cfg, offset, parentGuess, resolveWorkers(cfg))
+}
+
+// evalChildrenParCapped scores every effective charset character appended to
+// parentGuess in parallel, keeps those below the threshold, and returns them
+// sorted ascending by score (deterministically). workers caps the goroutine
+// concurrency independently of cfg.Workers, which lets callers that are already
+// inside an outer parallel fan-out (e.g. GuidedDFS inside searchOffsets) pass a
+// reduced budget and avoid oversubscription.
+//
+// Per-index result slots ([]*node) are written by exactly one goroutine each,
+// so no additional synchronisation is needed beyond the WaitGroup inside
+// forEachIndex — the same pattern as MonospaceDFS.
+func evalChildrenParCapped(
+	ctx context.Context,
+	scorer Scorer,
+	cfg unpixel.Config,
+	offset unpixel.Offset,
+	parentGuess string,
+	workers int,
+) []node {
 	chars := topKChars(cfg, parentGuess)
 	if chars == nil {
 		chars = []rune(cfg.Charset)
 	}
 	results := make([]*node, len(chars))
-	forEachIndex(ctx, len(chars), resolveWorkers(cfg), func(i int) {
+	forEachIndex(ctx, len(chars), workers, func(i int) {
 		if ctx.Err() != nil {
 			return
 		}

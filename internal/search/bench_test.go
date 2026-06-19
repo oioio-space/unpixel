@@ -171,3 +171,129 @@ func BenchmarkGuidedDFS(b *testing.B) {
 		})
 	}
 }
+
+// uniformLM is a language model that assigns equal weight to every candidate
+// string. Used by BenchmarkGuidedDFS_wideCharset to activate the TopK pruning
+// path without biasing which characters are selected.
+func uniformLM(string) float64 { return 1 }
+
+// BenchmarkGuidedSearch_wideCharset measures GuidedDFS on a real rendering
+// pipeline with a wide charset (CharsetASCII, 95 runes) so the intra-node
+// parallel path (parChildThreshold=16) fires. Sub-benchmarks vary Workers:
+//
+//   - workers_1:   sequential offset fan-out → intraNodeWorkers = GOMAXPROCS,
+//     so child eval is fully parallel inside the single offset goroutine.
+//   - workers_max: GOMAXPROCS offset goroutines → intraNodeWorkers = 1,
+//     so child eval falls back to sequential (offset-level parallelism saturates).
+//
+// benchstat against bench-baseline.txt proves whether intra-node parallelism
+// helps on a real pipeline with a wide charset.
+func BenchmarkGuidedSearch_wideCharset(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	spec := fixture.Spec{Text: "ab", Charset: unpixel.CharsetASCII, FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8}
+	redacted, err := fixture.Redact(spec)
+	if err != nil {
+		b.Fatalf("redact: %v", err)
+	}
+
+	baseCfg := unpixel.Config{
+		Charset:        unpixel.CharsetASCII,
+		MaxLength:      2, // bounded: 95² = 9025 nodes without pruning
+		BlockSize:      spec.BlockSize,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          spec.Style(),
+		Renderer:       r,
+		Pixelator:      pixelate.NewBlockAverage(spec.BlockSize),
+		Metric:         metric.NewPixelmatch(0.02),
+	}
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	for _, w := range []struct {
+		name    string
+		workers int
+	}{
+		{"workers_1", 1},
+		{"workers_max", 0},
+	} {
+		b.Run(w.name, func(b *testing.B) {
+			cfg := baseCfg
+			cfg.Workers = w.workers
+			scorer := search.NewPipelineScorer(redacted, cfg)
+			b.ReportAllocs()
+			for b.Loop() {
+				var evals []unpixel.Eval
+				search.GuidedDFS(context.Background(), scorer, cfg, offset, func(e unpixel.Eval) {
+					evals = append(evals, e)
+				})
+				sinkEvals = evals
+			}
+		})
+	}
+}
+
+// BenchmarkGuidedDFS_wideCharset measures the auto-K heuristic (P3.11): with
+// CharsetASCII (~95 chars) and a LanguageModel set, effectiveTopK fires and
+// reduces each evalChildren call from 95 to autoTopKValue evaluations. The
+// sub-benchmarks compare:
+//
+//   - no_lm: wide charset, no language model → whole-charset path (baseline).
+//   - with_lm: wide charset + language model → auto-K path (should be faster).
+//
+// benchstat against bench-baseline.txt proves the speedup on the with_lm case
+// and neutrality on the no_lm case.
+func BenchmarkGuidedDFS_wideCharset(b *testing.B) {
+	// A scripted scorer where every charset character passes (score=0.05 < 0.25
+	// threshold). This maximises work per depth level and keeps results
+	// deterministic independent of which characters the LM selects.
+	scores := make(map[rune]float64, len(unpixel.CharsetASCII))
+	for _, ch := range unpixel.CharsetASCII {
+		scores[ch] = 0.05
+	}
+	scorer := &scriptedScorer{charScore: scores}
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	cases := []struct {
+		name string
+		cfg  unpixel.Config
+	}{
+		{
+			name: "no_lm",
+			cfg: unpixel.Config{
+				Charset:        unpixel.CharsetASCII,
+				MaxLength:      2, // bounded: 95² = 9025 nodes without pruning
+				Threshold:      0.25,
+				SpaceThreshold: 0.5,
+				// No LanguageModel → whole-charset path, unchanged from before.
+			},
+		},
+		{
+			name: "with_lm",
+			cfg: unpixel.Config{
+				Charset:        unpixel.CharsetASCII,
+				MaxLength:      2,
+				Threshold:      0.25,
+				SpaceThreshold: 0.5,
+				// uniformLM activates auto-K: charset(95) ≥ autoTopKThreshold(40)
+				// → effectiveTopK = autoTopKValue(24); 24² = 576 nodes (~94% fewer).
+				LanguageModel: uniformLM,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				var evals []unpixel.Eval
+				search.GuidedDFS(context.Background(), scorer, tc.cfg, offset, func(e unpixel.Eval) {
+					evals = append(evals, e)
+				})
+				sinkEvals = evals
+			}
+		})
+	}
+}
