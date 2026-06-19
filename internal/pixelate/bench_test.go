@@ -48,3 +48,14 @@ func BenchmarkGaussianBlur_Pixelate(b *testing.B) {
 		sink = p.Pixelate(src, 0, 0)
 	}
 }
+
+// BenchmarkFastBlur_Pixelate benchmarks the 3-box-pass Gaussian approximation at
+// sigma=6 — O(1) per pixel, so much cheaper than the exact GaussianBlur.
+func BenchmarkFastBlur_Pixelate(b *testing.B) {
+	src := makePixelateSrc()
+	p := pixelate.NewFastBlur(6)
+	b.ReportAllocs()
+	for b.Loop() {
+		sink = p.Pixelate(src, 0, 0)
+	}
+}

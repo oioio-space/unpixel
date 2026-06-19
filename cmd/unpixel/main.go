@@ -77,6 +77,23 @@ type flagParams struct {
 	beamWidth      int
 	timeout        time.Duration
 	quiet          bool
+	blurExact      bool
+}
+
+// fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
+// approximation (FastBlur) by default: it is ~3× cheaper and, at this radius and
+// up, preserves the candidate ranking (validated by the blur matrix). Below it
+// the exact GaussianBlur is already cheap, so it stays exact. --blur-exact forces
+// the exact operator at any sigma.
+const fastBlurMinSigma = 6.0
+
+// blurOperator returns the redaction operator for blur mode: the exact Gaussian
+// when forced or at small sigma, else the fast box approximation.
+func blurOperator(sigma float64, exact bool) unpixel.Pixelator {
+	if exact || sigma < fastBlurMinSigma {
+		return defaults.GaussianBlur(sigma)
+	}
+	return defaults.FastBlur(sigma)
 }
 
 // buildConfig maps flagParams to an unpixel.Config. Scalar zero values are left
@@ -597,6 +614,10 @@ Examples:
 				Usage: "Gaussian blur radius (sigma, px) for --redaction blur; 0 = auto-estimate",
 				Value: 0,
 			},
+			&cli.BoolFlag{
+				Name:  "blur-exact",
+				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -659,6 +680,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		fontSize:       cmd.Float("font-size"),
 		letterSpacing:  cmd.Float("letter-spacing"),
 		blurSigma:      cmd.Float("blur-sigma"),
+		blurExact:      cmd.Bool("blur-exact"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}
@@ -687,10 +709,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	// Resolve the redaction operator (mosaic vs Gaussian blur). In blur mode the
 	// search reproduces a blur instead of mosaic; BlockSize=1 disables the grid.
 	if blurSigma := resolveBlur(img, p); blurSigma > 0 {
-		cfg.Pixelator = defaults.GaussianBlur(blurSigma)
+		cfg.Pixelator = blurOperator(blurSigma, p.blurExact)
 		cfg.BlockSize = 1
 		if !p.quiet {
-			fmt.Fprintf(os.Stderr, "Redaction: Gaussian blur (σ≈%.1f)\n", blurSigma)
+			mode := "Gaussian"
+			if !p.blurExact && blurSigma >= fastBlurMinSigma {
+				mode = "fast (box-approx) Gaussian"
+			}
+			fmt.Fprintf(os.Stderr, "Redaction: %s blur (σ≈%.1f)\n", mode, blurSigma)
 		}
 	} else {
 		warnIfNoMosaic(os.Stderr, img, p.blockSize, source)

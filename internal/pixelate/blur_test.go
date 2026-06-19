@@ -58,3 +58,26 @@ func TestGaussianBlur_sigmaAccessor(t *testing.T) {
 		t.Errorf("Sigma() for 0 input = %v, want clamped positive", got)
 	}
 }
+
+// TestFastBlur_blursAndPreservesBounds checks the box approximation keeps the
+// image size, spreads a bright pixel, and reports its sigma.
+func TestFastBlur_blursAndPreservesBounds(t *testing.T) {
+	const n = 25
+	src := image.NewRGBA(image.Rect(0, 0, n, n))
+	mid := n / 2
+	src.SetRGBA(mid, mid, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+
+	out := pixelate.NewFastBlur(3).Pixelate(src, 0, 0)
+	if out.Bounds() != image.Rect(0, 0, n, n) {
+		t.Fatalf("bounds = %v, want %dx%d", out.Bounds(), n, n)
+	}
+	if c := out.RGBAAt(mid, mid); c.R == 255 {
+		t.Error("centre not dimmed — FastBlur did not spread")
+	}
+	if c := out.RGBAAt(mid+1, mid); c.R == 0 {
+		t.Error("neighbour got no energy — FastBlur did not spread")
+	}
+	if got := pixelate.NewFastBlur(7).Sigma(); got != 7 {
+		t.Errorf("Sigma() = %v, want 7", got)
+	}
+}

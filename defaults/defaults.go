@@ -101,6 +101,16 @@ func GaussianBlur(sigma float64) unpixel.Pixelator {
 	return pixelate.NewGaussianBlur(sigma)
 }
 
+// FastBlur returns a fast box-approximated Gaussian blur (sigma in pixels) as an
+// unpixel.Pixelator. It is O(1) per pixel regardless of sigma — much cheaper than
+// GaussianBlur for large radii — at a small fidelity cost; for generate-and-test
+// the ranking is preserved, so it is a good default for the blur sweep:
+//
+//	cfg := unpixel.Config{Pixelator: defaults.FastBlur(6), BlockSize: 1}
+func FastBlur(sigma float64) unpixel.Pixelator {
+	return pixelate.NewFastBlur(sigma)
+}
+
 // GuidedStrategy returns the guided depth-first search strategy as an
 // unpixel.Strategy, ready to assign to Config.Strategy. It is the same strategy
 // Wire installs when Config.Strategy is nil; call it explicitly only for
