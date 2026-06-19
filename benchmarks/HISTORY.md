@@ -18,7 +18,12 @@ per candidate over the 64-offset discovery sweep).
 | `598304d` | P4.2 | ~28.6 ms (≈) | ~55 µs | ~6334 ns | struct alignment (memory hygiene; CPU neutral) |
 | `18749c3` | P4.7 | ~25 ms | **~37 µs** (−30%) | **~170 ns** (−97%) | FillWhite exponential-copy (memmove) |
 | `1984b52` | bench | ~24.7 ms | ~37 µs | ~170 ns | perf-stats baseline (this file) |
-| _P4.6_ | P4.6 | **~21.0 ms** (−15%) | ~37 µs | ~170 ns | render cache (text-keyed): drop 63/64 redundant renders in discovery + prevGuess re-renders; −16% B/op |
+| `bdca2f0` | P4.6 | **~21.0 ms** (−15%) | ~37 µs | ~170 ns | render cache (text-keyed): drop 63/64 redundant renders in discovery + prevGuess re-renders; −16% B/op |
+| _P4.x_ | P4.x | **~19.3 ms** (−8%) | ~37 µs | ~170 ns | pixelate blockMean+fill via direct dst.Pix indexing + row-copy (micro −58%) |
+
+Cumulative discovery: **~98.6 ms → ~19.3 ms ≈ 5.1× faster**, all changes exact (recovery
+output identical). PGO (P4.9) evaluated: no measurable gain here (hot path is in external
+pixelmatch/x-image), so not adopted.
 
 Raw latest run: see `benchmarks/latest.txt`.
 

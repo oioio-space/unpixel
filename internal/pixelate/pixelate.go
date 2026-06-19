@@ -5,7 +5,6 @@ package pixelate
 
 import (
 	"image"
-	"image/color"
 
 	"github.com/oioio-space/unpixel/internal/imutil"
 )
@@ -49,12 +48,7 @@ func (b *BlockAverage) Pixelate(src *image.RGBA, originX, originY int) *image.RG
 		copy(dst.Pix[dstOff:dstOff+rowBytes], src.Pix[srcOff:srcOff+rowBytes])
 	}
 
-	// Compute block grid boundaries relative to origin.
-	// Each pixel (x,y) belongs to the block whose top-left is at:
-	//   bx = originX + floor((x-originX)/blockSize)*blockSize
-	//   by = originY + floor((y-originY)/blockSize)*blockSize
-	// We iterate over all distinct block origins covering [0,paddedW)×[0,h).
-
+	// Block grid origins covering the image, aligned to (originX, originY).
 	startX := originX - ((originX / b.blockSize) * b.blockSize) // ≡ originX % blockSize, but handles negative
 	if startX > 0 {
 		startX -= b.blockSize
@@ -64,51 +58,45 @@ func (b *BlockAverage) Pixelate(src *image.RGBA, originX, originY int) *image.RG
 		startY -= b.blockSize
 	}
 
-	for by := startY; by < h; by += b.blockSize {
-		for bx := startX; bx < paddedW; bx += b.blockSize {
-			mean := b.blockMean(dst, bx, by, paddedW, h)
-			// Fill every pixel in this block with the mean.
-			for dy := range b.blockSize {
-				for dx := range b.blockSize {
-					px, py := bx+dx, by+dy
-					if px < 0 || px >= paddedW || py < 0 || py >= h {
-						continue
-					}
-					dst.SetRGBA(px, py, mean)
+	// Each block: sum its clamped region by indexing dst.Pix directly (no
+	// per-pixel RGBAAt/bounds checks), then fill it by writing the first row and
+	// memmoving it down. Same means and fill values as a per-pixel loop.
+	bs := b.blockSize
+	stride := dst.Stride
+	pix := dst.Pix
+	for by := startY; by < h; by += bs {
+		y0, y1 := max(by, 0), min(by+bs, h)
+		for bx := startX; bx < paddedW; bx += bs {
+			x0, x1 := max(bx, 0), min(bx+bs, paddedW)
+			if x0 >= x1 || y0 >= y1 {
+				continue
+			}
+			var rSum, gSum, bSum, aSum int
+			for y := y0; y < y1; y++ {
+				off := y*stride + x0*4
+				for x := x0; x < x1; x++ {
+					rSum += int(pix[off])
+					gSum += int(pix[off+1])
+					bSum += int(pix[off+2])
+					aSum += int(pix[off+3])
+					off += 4
 				}
+			}
+			n := (x1 - x0) * (y1 - y0)
+			mr, mg, mb, ma := avg8(rSum, n), avg8(gSum, n), avg8(bSum, n), avg8(aSum, n)
+
+			rowStart := y0*stride + x0*4
+			rowLen := (x1 - x0) * 4
+			for off := rowStart; off < rowStart+rowLen; off += 4 {
+				pix[off], pix[off+1], pix[off+2], pix[off+3] = mr, mg, mb, ma
+			}
+			for y := y0 + 1; y < y1; y++ {
+				dstRow := y*stride + x0*4
+				copy(pix[dstRow:dstRow+rowLen], pix[rowStart:rowStart+rowLen])
 			}
 		}
 	}
 	return dst
-}
-
-// blockMean computes the mean RGBA over the blockSize×blockSize region
-// starting at (bx,by) in img, skipping pixels outside [0,w)×[0,h).
-func (b *BlockAverage) blockMean(img *image.RGBA, bx, by, w, h int) color.RGBA {
-	var rSum, gSum, bSum, aSum, n int
-	for dy := range b.blockSize {
-		for dx := range b.blockSize {
-			x, y := bx+dx, by+dy
-			if x < 0 || x >= w || y < 0 || y >= h {
-				continue
-			}
-			c := img.RGBAAt(x, y)
-			rSum += int(c.R)
-			gSum += int(c.G)
-			bSum += int(c.B)
-			aSum += int(c.A)
-			n++
-		}
-	}
-	if n == 0 {
-		return color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	}
-	return color.RGBA{
-		R: avg8(rSum, n),
-		G: avg8(gSum, n),
-		B: avg8(bSum, n),
-		A: avg8(aSum, n),
-	}
 }
 
 // avg8 returns sum/n as a byte. Each summed channel is a uint8 and n>0, so the

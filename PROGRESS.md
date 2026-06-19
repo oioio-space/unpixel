@@ -337,3 +337,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `3ba80c3` 2026-06-19 — docs(progress): add Phase 4 — search performance roadmap _(1 fichiers)_
 - `18749c3` 2026-06-19 — perf(imutil): FillWhite via exponential copy — 37x faster, render -30% _(1 fichiers)_
 - `1984b52` 2026-06-19 — chore(bench): persist per-commit perf stats (benchmarks/ + mise bench:record) _(4 fichiers)_
+- `bdca2f0` 2026-06-19 — perf(search): per-scorer render cache — discovery -15%, exact (P4.6) _(4 fichiers)_
