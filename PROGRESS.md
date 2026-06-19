@@ -14,10 +14,18 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 ## 📍 État actuel
 
 Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
-**v0.3.0 publiée** sur pkg.go.dev (polices custom + balayage de polices).
+**v0.4.0 publiée** sur pkg.go.dev (récupération **mosaïque + flou gaussien**, zéro-config).
 
 - **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
   Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
+- **Release v0.4.0** : **au-delà de la mosaïque → flou gaussien** (type du défi Bishop Fox).
+  Opérateur `pixelate.GaussianBlur` + **FastBlur** (box O(1)/px, ~3× ; auto au grand σ, `--blur-exact`) ;
+  zéro-config flou : `InferBlurSigma` (σ auto), `LocateRedaction` (bande floutée dans une capture),
+  `InferFontSize` (taille) ; **prior de langue** char-bigram (`internal/lang`, `--language`) ;
+  **fast-path monospace** (`--strategy mono`, ~8–16×) ; matrice de récupération flou. `#4` (compare
+  en résolution réduite) **implémenté puis rejeté au benchmark** (perte de temps mesurée). Delta
+  complet vs v0.3.0 et vs Bishop Fox (perf + fonctionnalités) : `docs/DELTA.md`.
+  `go get …@v0.4.0` / `go install …/cmd/unpixel@v0.4.0`. API pré-1.0, additive depuis v0.3.x.
 - **Release v0.3.0** : **polices personnalisées + balayage de polices** — récupérer une redaction
   sans connaître sa typographie. `render.NewXImageFromFonts` / `defaults.RendererFromFonts` /
   `unpixel.WithRenderer` ; `Style.LetterSpacing` ; flags CLI `--font` (répétable) / `--font-dir` /
@@ -332,8 +340,9 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
-  (polices custom + balayage) publiées sur pkg.go.dev. API stable pré-1.0, additive (peut évoluer
-  avant 1.0.0). Release auto par goreleaser sur tag `v*` (gated sur CI verte).
+  (polices custom + balayage), **v0.4.0** (flou gaussien + zéro-config) publiées sur pkg.go.dev.
+  API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
+  `v*` (gated sur CI verte).
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
@@ -433,3 +442,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `94219bf` 2026-06-19 — feat(lang): char-bigram language prior to break recovery ties (#5) _(10 fichiers)_
 - `e9d5763` 2026-06-19 — feat(search): monospace fast-path strategy (#6) _(5 fichiers)_
 - `e207275` 2026-06-19 — docs: delta vs current version and vs Bishop Fox unredacter _(1 fichiers)_
+- `c25bb16` 2026-06-19 — docs(delta): add performance comparison vs Bishop Fox unredacter _(1 fichiers)_

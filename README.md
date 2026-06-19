@@ -4,8 +4,10 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** the **library and CLI are usable** (~90% test coverage, all gates green).
-> See [`PROGRESS.md`](PROGRESS.md) for the roadmap.
+> **Status:** **v0.4.0** published — mosaic **and Gaussian-blur** recovery, zero-config
+> (auto block size / blur σ / region / font), ~89% test coverage, all gates green.
+> See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
+> delta vs the original Bishop Fox unredacter.
 
 ## Table of contents
 
@@ -30,7 +32,9 @@ extend the plaintext character by character, pruning branches as soon as the re-
 stops matching. Because pixelation averages each block, only the true text reproduces the
 target's blocks exactly.
 
-See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices behind it.
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices behind it, and
+[`docs/DELTA.md`](docs/DELTA.md) for how UnPixel compares to the original Bishop Fox unredacter
+and what the blur / zero-config work added.
 
 ## Features
 
@@ -40,7 +44,8 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   so any UI — web/SSE, TUI, desktop — can subscribe via the channel or the `OnProgress` callback.
 - **Pluggable everything.** Swap the `Renderer`, `Pixelator`, `Metric`, or search `Strategy`
   through `Config`; the faithful defaults are wired by importing the `defaults` package. Built-in
-  choices: guided-DFS or beam search; pixelmatch or SSIM (structural) distance.
+  choices: guided-DFS, beam, or monospace fast-path; mosaic or Gaussian-blur operator; pixelmatch
+  or SSIM distance; an optional char-bigram language prior to break equal-image ties.
 - **Concurrent by default.** Grid-offset discovery and per-offset search fan out across
   `Config.Workers` goroutines (default: all CPUs) with a **deterministic merge** — same output
   regardless of scheduling. ~4× faster offset discovery on a typical laptop.
@@ -63,7 +68,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
-- **~90% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
+- **~89% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
 
 ## Install
 
@@ -118,9 +123,13 @@ Key flags (`unpixel --help` for the full list):
 | `--font-dir` | — | Directory of TTF/OTF fonts to sweep (each tried; best whole-image fit wins) |
 | `--font-size` | `0` (32) | Font size in points to match the redaction |
 | `--letter-spacing` | `0` | Extra px after each glyph, like CSS `letter-spacing` (may be negative) |
-| `--strategy` | `guided` | `guided` (full DFS) or `beam` (bounded, faster) |
+| `--redaction` | `auto` | `auto`, `mosaic`, or `blur` (blur auto-detected when there's no mosaic grid) |
+| `--blur-sigma` | `0` (auto) | Gaussian blur radius for `--redaction blur`; `0` estimates it from the image |
+| `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
+| `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
+| `--language` | off | Break ties between equal-image candidates toward plausible text (char-bigram prior) |
 | `--workers` | `0` (all CPUs) | Grid offsets searched concurrently; also the sweep's core budget |
 | `--top`, `-n` | `5` | Ranked candidates to report |
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
