@@ -446,3 +446,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `c25bb16` 2026-06-19 — docs(delta): add performance comparison vs Bishop Fox unredacter _(1 fichiers)_
 - `a74f6b3` 2026-06-19 — docs: update README and PROGRESS for v0.4.0 _(2 fichiers)_
 - `d7544f2` 2026-06-19 — docs(progress): align stale figures with v0.4.0 _(1 fichiers)_
+- `8a49453` 2026-06-19 — feat(confidence): calibrated confidence + honest abort (P3.8) _(5 fichiers)_
