@@ -431,3 +431,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `b0a0891` 2026-06-19 — feat(locate): region localization for blurred screenshots (#1) _(4 fichiers)_
 - `4385452` 2026-06-19 — feat(calibrate): infer font size from content height (#2) _(4 fichiers)_
 - `94219bf` 2026-06-19 — feat(lang): char-bigram language prior to break recovery ties (#5) _(10 fichiers)_
+- `e9d5763` 2026-06-19 — feat(search): monospace fast-path strategy (#6) _(5 fichiers)_
