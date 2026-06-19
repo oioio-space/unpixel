@@ -7,3 +7,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | Date | Version | Exact | MeanAcc | Fidelity | Total ms | Note |
 |------|---------|-------|---------|----------|----------|------|
 | 2026-06-19 | `v0.4.0` | 14/14 (100%) | 1 | 1 | 1138 | panel introduced (baseline) |
+| 2026-06-19 | `priors+pool` | 17/17 (100%) | 1 | 1 | 1784 | P3.7 secrets + P3.2 dictionary priors; P4.8 pooling; +3 secret fixtures |

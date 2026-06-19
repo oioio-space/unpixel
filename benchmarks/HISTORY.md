@@ -24,6 +24,7 @@ per candidate over the 64-offset discovery sweep).
 | `d5136b5` | P4.x | ~19 ms | ~37 µs | ~170 ns | step-9 single composed Crop (band+trim in one): GuidedSearch −4% sec, **−8% allocs**, −6.5% B/op |
 | `177cc2f` | perf | ~19 ms | ~37 µs | **~186 ns** (−97%) | FillWhite exponential-copy fill (memmove vs byte loop) |
 | (challenge) | feat | ~19 ms | ~37 µs | ~186 ns | custom fonts + letter-spacing + whole-image TotalScore final ranking: GuidedSearch **neutral** (−2%, p=0.001, allocs identical) |
+| `d15e68a` | P4.8 | **~17.4 ms** (−8.1%) | ~37 µs | ~186 ns | buffer pool (sync.Pool): SSIM −18% allocs, FastBlur −8.7% (−67% B/op), GaussianBlur −5.6% (−87% B/op) |
 
 Cumulative discovery: **~98.6 ms → ~19.3 ms ≈ 5.1× faster**, all changes exact (recovery
 output identical). The realistic multi-char path (`BenchmarkGuidedSearch`) gained a further

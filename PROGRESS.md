@@ -40,15 +40,18 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
   racine (`unpixel`) expose `Engine`, `Config`, `Result`, `Eval`, `Offset`, les interfaces
   pluggables `Renderer`/`Pixelator`/`Metric`/`Strategy`, et une **API de progression library-agnostique**
   (`Progress` struct + `EventKind` + callback `OnProgress`) pour intégrer tout type d'UI
-  (web/SSE, TUI, desktop). Flux : render → re-pixelate → image-distance → guided DFS.
+  (web/SSE, TUI, desktop). **Option `WithPriors`** (P3.7/P3.2) : composable système de priors
+  (formats secrets structurés + dict mots = bonus additif pour départager candidats). Flux : render → 
+  re-pixelate → image-distance → guided DFS.
 - **Layout du package** : structure sous module `github.com/oioio-space/unpixel`. Internes
   dans `internal/` : `imutil` (utilitaires image), `pixelate` (pixelisation par blocs),
   `metric` (distance d'image ; défaut `pixelmatch`, fidèle à Jimp), `render` (pure-Go
   `golang.org/x/image/font/opentype` + Liberation Sans embarquée, compatible métriquement Arial),
   `search` (découverte offset + DFS guidée/beam/**mono**, fan-out goroutines), `lang` (prior
-  bigramme). Opérateurs : `pixelate` (mosaïque **+ flou gaussien/FastBlur**). Package `defaults`
-  assure les dépendances et expose stratégie/métrique/opérateur. **CLI `cmd/unpixel` opérationnelle**
-  (urfave/cli/v3).
+  bigramme + **wordlist cohérence**), **`secrets` (détecteur plausibilité : Luhn, formats structurés,
+  mots de passe courants fr/en)**. Opérateurs : `pixelate` (mosaïque **+ flou gaussien/FastBlur**).
+  Package `defaults` assure les dépendances et expose stratégie/métrique/opérateur. **CLI `cmd/unpixel`
+  opérationnelle** (urfave/cli/v3). **Pooling buffers hot-path** (P4.8 : −8% DiscoverOffsets).
 - **GoDoc/pkg.go.dev** : package et symboles exportés enrichis (overviews avec snippet d'usage,
   chaque symbole/champ/const documenté avec son contrat, `Example` exécutable). Qualité
   pkg.go.dev appliquée et documentée dans la gate style (`.claude/skills/go-style-guide`,
@@ -204,10 +207,11 @@ Priorité haute :
 - [ ] **P3.1 — API une-ligne** `Recover(img) (Result, error)` + `RecoverFile`/`RecoverReader` +
       options fonctionnelles (`WithCharset`/`WithWorkers`/`WithFonts`/`WithLanguageModel`…). Faire
       du défaut CLI un vrai zéro-config. `Config` conservé pour les experts. *(catalyseur de l'objectif)*
-- [ ] **P3.2 — détecteur de cohérence/validité** *(piste utilisateur n°2 — plus fort levier qualité)* :
-      modèle de langue char-level (n-gram) pur-Go embarqué + wordlist optionnelle → score de
-      log-vraisemblance/perplexité. Double usage : (a) **prior** pour guider/élaguer la recherche,
-      (b) **validation a posteriori** + confiance. Combiné à la distance image. Sous-tend P3.6/P3.8.
+- [x] **P3.2 — détecteur de cohérence/validité** *(piste utilisateur n°2 — plus fort levier qualité)* :
+      `e9615ca` — modèle de langue char-level (n-gram) pur-Go embarqué + wordlist 1400 mots anglais
+      (DictionaryPrior, bonus additif par token connu). Double usage : (a) **prior** pour guider/
+      élaguer la recherche, (b) **validation a posteriori** + confiance. Combiné à la distance image.
+      Sous-tend P3.6/P3.8.
 - [~] **P3.4 — auto-détection étendue des paramètres** *(piste n°3)* :
       - [x] **auto-contraste fond sombre** : `New` détecte un fond sombre (bordure) et inverse
             l'image (`InferDarkBackground`), pour les captures *dark-mode* (code !). Chemin clair
@@ -236,8 +240,10 @@ Priorité moyenne :
 - [x] **P3.6 — escalade auto du charset** : `7629a76` — `runEscalation` (tier 1 bundle complet,
       verrouille la meilleure police, puis minuscules → alnum → ascii), déclenchée par la
       confiance ; `--escalate`. Évite l'explosion combinatoire.
-- [ ] **P3.7 — priors structurés / secrets** : wordlist (mots de passe communs), formats
-      (UUID, clés API), checksums (Luhn) → récupération + validation haute-confiance des cibles réelles.
+- [x] **P3.7 — priors structurés / secrets** : `e9615ca` — Luhn, formats (UUID, token hex/base64,
+      digits/PIN), 100+ mots de passe français courants (azerty, motdepasse, …), + wordlist 1400 mots
+      anglais. Intégrés dans LM via `WithPriors(...func(string)float64)`. Priors additifs (jamais de
+      pénalité) ; matrice 17/17 exact sur secrets.
 
 Priorité basse / exploratoire :
 - [ ] **P3.9 — entrée multi-images / vidéo** : exploiter le jitter sous-pixel entre plusieurs
@@ -334,7 +340,9 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - [x] **P4.x — pixelate via indexation directe `dst.Pix` + row-copy** : `9557cab`. Suppression de
       `blockMean`, somme par index `pix[off]`, 1re ligne remplie puis `copy` vers le bas →
       **Pixelate −58 %**, discovery −8 %. Exact.
-- [ ] **P4.8 — pooling des buffers image** (`sync.Pool`) pour réduire le GC (~9 % du profil).
+- [x] **P4.8 — pooling des buffers image** : `d15e68a` — `sync.Pool` pour les scratch buffers non-fuyants
+      (grille SSIM, blur temp, FastBlur) → **SSIM −18% sec/op** (allocs 2→0), **FastBlur −8.7%** (−67% B/op),
+      **GaussianBlur −5.6%** (−87% B/op), end-to-end **GuidedSearch −2.6%**, **DiscoverOffsets −8.1%**.
 - [ ] **P4.9 — PGO** (Go ≥1.21) : `default.pgo` issu d'une récupération représentative ; ~4,5 %+
       CPU-bound, risque quasi nul. Réf. Uber/Google.
 - [ ] **P4.10 — SIMD** (Go 1.26 `simd/archsimd` sous `GOEXPERIMENT=simd`, ou asm AVX2) sur la
@@ -457,3 +465,6 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `e83ba16` 2026-06-19 — docs(progress): mark P3.5/P3.6/P3.8/P4.5 done _(1 fichiers)_
 - `e109df5` 2026-06-19 — test(cli): cover runEscalation tier walk (P3.6) _(1 fichiers)_
 - `9b160a0` 2026-06-19 — docs: add DELTA.md (v0.4.0 vs v0.3.0 and vs Bishop Fox) _(2 fichiers)_
+- `f19c704` 2026-06-19 — feat(bench): recovery quality+speed panel + version tracking + docs-sync hook _(11 fichiers)_
+- `d15e68a` 2026-06-19 — perf(hotpath): pool transient scratch buffers (P4.8) _(3 fichiers)_
+- `e9615ca` 2026-06-19 — feat(search): candidate plausibility priors — secrets (P3.7) + dictionary (P3.2) _(16 fichiers)_

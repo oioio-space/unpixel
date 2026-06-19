@@ -30,7 +30,10 @@ with the same block grid as the redacted region, scores the image distance again
 and drives a **guided depth-first search** over candidate strings: discover the grid offset, then
 extend the plaintext character by character, pruning branches as soon as the re-pixelated output
 stops matching. Because pixelation averages each block, only the true text reproduces the
-target's blocks exactly.
+target's blocks exactly. When image distance alone is ambiguous, optional **plausibility priors**
+break ties: a dictionary of real words, common passwords (including French ones), and recognized
+secret formats (UUIDs, API tokens, Luhn checksums) all add a small bonus, making natural
+language and structured secrets rank higher than random noise.
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices behind it, and
 [`docs/DELTA.md`](docs/DELTA.md) for how UnPixel compares to the original Bishop Fox unredacter
@@ -45,7 +48,9 @@ and what the blur / zero-config work added.
 - **Pluggable everything.** Swap the `Renderer`, `Pixelator`, `Metric`, or search `Strategy`
   through `Config`; the faithful defaults are wired by importing the `defaults` package. Built-in
   choices: guided-DFS, beam, or monospace fast-path; mosaic or Gaussian-blur operator; pixelmatch
-  or SSIM distance; an optional char-bigram language prior to break equal-image ties.
+  or SSIM distance; optional priors to break equal-image ties: char-bigram language model, dictionary
+  words, and structured-secret formats (UUID, API tokens, Luhn checksums, common French/English
+  passwords).
 - **Concurrent by default.** Grid-offset discovery and per-offset search fan out across
   `Config.Workers` goroutines (default: all CPUs) with a **deterministic merge** — same output
   regardless of scheduling. ~4× faster offset discovery on a typical laptop.
@@ -130,6 +135,7 @@ Key flags (`unpixel --help` for the full list):
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
 | `--language` | off | Break ties between equal-image candidates toward plausible text (char-bigram prior) |
+| `--secrets` | off | Boost plausibility of structured formats (UUID, API token, Luhn checksums, common passwords) and dictionary words |
 | `--workers` | `0` (all CPUs) | Grid offsets searched concurrently; also the sweep's core budget |
 | `--top`, `-n` | `5` | Ranked candidates to report |
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
@@ -221,7 +227,7 @@ Public API (root package `unpixel`):
 | `Recover(ctx, image.Image, ...Option) (Result, error)` | One call: search and return the best result |
 | `RecoverReader(ctx, io.Reader, ...Option)` / `RecoverFile(ctx, path, ...Option)` | Decode then `Recover` |
 | `RecoverMultiFont(ctx, image.Image, []Renderer, ...Option) ([]FontResult, error)` | Sweep candidate fonts in parallel; results ranked best-fit first by `BestTotal` |
-| `With*` options (`WithCharset`, `WithWorkers`, `WithRenderer`, `WithStrategy`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
+| `With*` options (`WithCharset`, `WithWorkers`, `WithRenderer`, `WithStrategy`, `WithPriors`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
 | `New(redacted image.Image, cfg Config) (*Engine, error)` | Build an engine; zero `Config` = faithful defaults |
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
