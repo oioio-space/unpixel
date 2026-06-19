@@ -9,8 +9,15 @@ import (
 // FillWhite fills every pixel of img with opaque white (all channels = 0xFF).
 // It operates as a memset over img.Pix and is faster than per-pixel SetRGBA.
 func FillWhite(img *image.RGBA) {
-	for i := range img.Pix {
-		img.Pix[i] = 0xFF
+	// Exponential copy (memmove) instead of a per-byte loop: the compiler only
+	// lowers all-zero fills to memclr, so 0xFF needs this to avoid a byte loop.
+	p := img.Pix
+	if len(p) == 0 {
+		return
+	}
+	p[0] = 0xFF
+	for n := 1; n < len(p); n *= 2 {
+		copy(p[n:], p[:n])
 	}
 }
 

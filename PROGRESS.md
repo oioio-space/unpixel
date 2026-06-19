@@ -356,3 +356,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `9557cab` 2026-06-19 — perf(pixelate): direct Pix indexing + row-copy fill — Pixelate -58%, discovery -8% _(4 fichiers)_
 - `427a141` 2026-06-19 — perf(search): marginColumn replaces diffRed+Margins — guided DFS -16% _(7 fichiers)_
 - `d5136b5` 2026-06-19 — perf(search): fuse step-9 band+trim into one Crop — -8% allocs (exact) _(4 fichiers)_
+- `09b716b` 2026-06-19 — docs(perf): record measured P4.4 (AA-off) tradeoff + session perf summary _(2 fichiers)_
