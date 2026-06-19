@@ -100,7 +100,9 @@ func RankTopN(cands []unpixel.Eval, n int) []unpixel.Eval {
 // ~0 marginally, but only the complete string explains the whole redaction. The
 // returned candidates keep their marginal Score; only their order reflects the
 // total score. bestTotal is +1 (worst) when no substantive candidate exists.
-func RankFinal(ctx context.Context, ts TotalScorer, cands []unpixel.Eval, offset unpixel.Offset, n int) (top []unpixel.Eval, bestTotal float64) {
+// lm, when non-nil, scores linguistic plausibility (higher = better) and breaks
+// ties between candidates whose whole-image totals are within lmTieBand.
+func RankFinal(ctx context.Context, ts TotalScorer, cands []unpixel.Eval, offset unpixel.Offset, n int, lm func(string) float64) (top []unpixel.Eval, bestTotal float64) {
 	subs := substantiveOnly(cands)
 	if n <= 0 || len(subs) == 0 {
 		return nil, 1
@@ -122,14 +124,27 @@ func RankFinal(ctx context.Context, ts TotalScorer, cands []unpixel.Eval, offset
 	type scored struct {
 		e     unpixel.Eval
 		total float64
+		lm    float64
 	}
 	ranked := make([]scored, len(pool))
 	for i, e := range pool {
-		ranked[i] = scored{e: e, total: ts.TotalScore(ctx, e.Guess, offset)}
+		s := scored{e: e, total: ts.TotalScore(ctx, e.Guess, offset)}
+		if lm != nil {
+			s.lm = lm(e.Guess)
+		}
+		ranked[i] = s
 	}
+	// Rank by whole-image fidelity; within lmTieBand of equal total, the language
+	// prior (higher = more plausible) breaks the tie, then compareEval.
+	const lmTieBand = 0.01
 	slices.SortStableFunc(ranked, func(a, b scored) int {
-		if c := cmp.Compare(a.total, b.total); c != 0 {
-			return c
+		if d := a.total - b.total; d < -lmTieBand || d > lmTieBand {
+			return cmp.Compare(a.total, b.total)
+		}
+		if lm != nil {
+			if c := cmp.Compare(b.lm, a.lm); c != 0 { // higher plausibility first
+				return c
+			}
 		}
 		return compareEval(a.e, b.e)
 	})

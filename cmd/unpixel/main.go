@@ -79,6 +79,7 @@ type flagParams struct {
 	timeout        time.Duration
 	quiet          bool
 	blurExact      bool
+	language       bool
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -126,6 +127,9 @@ func buildConfig(p flagParams) unpixel.Config {
 		cfg.Metric = defaults.SSIMMetric(0)
 	} else {
 		cfg.Metric = defaults.PixelmatchMetric()
+	}
+	if p.language {
+		cfg.LanguageModel = defaults.LanguageModel()
 	}
 	return cfg
 }
@@ -633,6 +637,10 @@ Examples:
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
+			&cli.BoolFlag{
+				Name:  "language",
+				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -696,6 +704,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		letterSpacing:  cmd.Float("letter-spacing"),
 		blurSigma:      cmd.Float("blur-sigma"),
 		blurExact:      cmd.Bool("blur-exact"),
+		language:       cmd.Bool("language"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}

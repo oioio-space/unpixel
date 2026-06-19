@@ -234,7 +234,7 @@ func searchOffsets(
 		var topN []unpixel.Eval
 		bestTotal := 1.0
 		if ts, ok := scorer.(TotalScorer); ok {
-			topN, bestTotal = RankFinal(ctx, ts, candidates, offset, cfg.TopN)
+			topN, bestTotal = RankFinal(ctx, ts, candidates, offset, cfg.TopN, cfg.LanguageModel)
 		} else {
 			topN = RankTopN(substantiveOnly(candidates), cfg.TopN)
 			if len(topN) > 0 {

@@ -112,6 +112,13 @@ type Config struct {
 	// Defaults to GuidedDFS (wired by the defaults package).
 	Strategy Strategy
 
+	// LanguageModel optionally scores a candidate string's linguistic
+	// plausibility (higher = more plausible). When set, the final ranking breaks
+	// ties between candidates of equal image distance toward plausible text — the
+	// image cannot separate visually near-identical candidates (especially behind
+	// heavy blur), but a language prior can. nil disables it (the default).
+	LanguageModel func(string) float64
+
 	// ThresholdFor returns the acceptance threshold for a given candidate
 	// character. It defaults to a closure that returns SpaceThreshold for ' '
 	// and Threshold for all other runes. Override to apply per-class thresholds
@@ -870,6 +877,12 @@ func WithMetric(m Metric) Option { return func(c *Config) { c.Metric = m } }
 // reproduces). Use it with defaults.GaussianBlur(sigma) and WithBlockSize(1) to
 // recover blurred text instead of mosaic pixelation.
 func WithPixelator(p Pixelator) Option { return func(c *Config) { c.Pixelator = p } }
+
+// WithLanguageModel sets Config.LanguageModel, a plausibility scorer used to
+// break ties between candidates of equal image distance toward plausible text.
+func WithLanguageModel(score func(string) float64) Option {
+	return func(c *Config) { c.LanguageModel = score }
+}
 
 // ErrNoComponents is returned by the Recover helpers when the Config leaves a
 // component (Renderer, Pixelator, Metric, or Strategy) nil and the defaults

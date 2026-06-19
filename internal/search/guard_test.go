@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/lang"
 )
 
 // TestSubstantive checks the whitespace predicate that guards result selection.
@@ -81,7 +82,7 @@ func TestRankFinal_picksCompleteOverPrefix(t *testing.T) {
 	ts := fakeTotal{totals: map[string]float64{
 		"go": 0.12, "go r": 0.09, "dcnrun": 0.09, "go run": 0.0,
 	}}
-	top, bestTotal := RankFinal(t.Context(), ts, cands, unpixel.Offset{}, 5)
+	top, bestTotal := RankFinal(t.Context(), ts, cands, unpixel.Offset{}, 5, nil)
 	if len(top) == 0 || top[0].Guess != "go run" {
 		t.Fatalf("RankFinal top[0] = %+v, want \"go run\"", top)
 	}
@@ -92,6 +93,25 @@ func TestRankFinal_picksCompleteOverPrefix(t *testing.T) {
 		if !Substantive(e.Guess) {
 			t.Errorf("RankFinal returned all-whitespace candidate %q", e.Guess)
 		}
+	}
+}
+
+// TestRankFinal_languageTieBreak: among candidates with equal whole-image total,
+// the language prior picks the more plausible string.
+func TestRankFinal_languageTieBreak(t *testing.T) {
+	cands := []unpixel.Eval{{Guess: "cdoe", Score: 0}, {Guess: "code", Score: 0}}
+	ts := fakeTotal{totals: map[string]float64{"cdoe": 0, "code": 0}} // identical image fit
+	lm := lang.Default().Score
+
+	// Without the prior, the tie falls to lexical order ("cdoe" < "code").
+	top, _ := RankFinal(t.Context(), ts, cands, unpixel.Offset{}, 2, nil)
+	if top[0].Guess != "cdoe" {
+		t.Logf("no-LM winner = %q (lexical tie)", top[0].Guess)
+	}
+	// With the prior, the plausible "code" wins.
+	top, _ = RankFinal(t.Context(), ts, cands, unpixel.Offset{}, 2, lm)
+	if top[0].Guess != "code" {
+		t.Errorf("LM tie-break top[0] = %q, want \"code\"", top[0].Guess)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 	"fmt"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/metric"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
@@ -109,6 +110,15 @@ func GaussianBlur(sigma float64) unpixel.Pixelator {
 //	cfg := unpixel.Config{Pixelator: defaults.FastBlur(6), BlockSize: 1}
 func FastBlur(sigma float64) unpixel.Pixelator {
 	return pixelate.NewFastBlur(sigma)
+}
+
+// LanguageModel returns the bundled character-bigram plausibility scorer (higher
+// = more plausible text), ready to assign to Config.LanguageModel or pass via
+// WithLanguageModel. It breaks ties between candidates of equal image distance:
+//
+//	res, _ := unpixel.Recover(ctx, img, unpixel.WithLanguageModel(defaults.LanguageModel()))
+func LanguageModel() func(string) float64 {
+	return lang.Default().Score
 }
 
 // GuidedStrategy returns the guided depth-first search strategy as an
