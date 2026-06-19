@@ -189,10 +189,12 @@ Priorité haute :
       - [x] **balayage de polices fournies** (v0.3.0) : `RecoverMultiFont` / `--font`(×N) / `--font-dir`
             testent chaque police, scorent par re-pixelisation (`BestTotal`), gardent la meilleure,
             en parallèle. (Pas de DeepFont : CNN exclu en pur-Go.)
-      - [ ] **bundler** des polices métrique-compatibles redistribuables (Liberation=Arial/Times/Courier,
-            Carlito≈Calibri, Arimo/Tinos/Cousine, DejaVu/Noto, monospaces de code) pour un défaut
-            zéro-config sans que l'utilisateur fournisse les fichiers.
-      - [ ] **sonde bon-marché** pour élaguer les polices improbables avant la recherche complète.
+      - [x] **bundler des polices redistribuables** (package `fonts`, ~2,2 Mo embarqués) : Liberation
+            Sans/Serif/Mono (≈Arial/Times/Courier), Carlito (≈Calibri), Caladea (≈Cambria), Source
+            Code Pro + JetBrains Mono (code) ; licences OFL-1.1/Apache-2.0 + `NOTICE.md`. Le CLI les
+            balaie **par défaut** (sans `--font`) → vrai zéro-config ; lib `fonts.Renderers()`/`All()`.
+      - [ ] **sonde bon-marché** pour élaguer les polices improbables avant la recherche complète
+            (le balayage actuel teste toutes les polices ; OK pour ~7, à optimiser pour un gros bundle).
 
 Priorité moyenne :
 - [ ] **P3.8 — confiance calibrée + abandon honnête** : fusionner distance image + score LM +
@@ -398,3 +400,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `3071b26` 2026-06-19 — feat(api): RecoverMultiFont — library multi-font sweep _(4 fichiers)_
 - `b4e6339` 2026-06-19 — refactor(cli): drive the font sweep through unpixel.RecoverMultiFont _(3 fichiers)_
 - `620a294` 2026-06-19 — docs(readme): document custom fonts and the font sweep _(2 fichiers)_
+- `e6b7f06` 2026-06-19 — docs(progress): record the v0.3.0 release (custom fonts & font sweep) _(1 fichiers)_

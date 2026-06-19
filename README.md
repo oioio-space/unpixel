@@ -46,11 +46,12 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   regardless of scheduling. ~4× faster offset discovery on a typical laptop.
 - **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
   grid from the image (`InferBlockSize`), so callers don't have to measure it.
-- **Bring any font — or sweep several.** Recovery needs the redaction's typeface, so match it
-  with a custom font (`--font` / `render.NewXImageFromFonts`, plus `--font-size` and CSS-style
-  `--letter-spacing`). Don't know which font? Pass several `--font` (or a `--font-dir`) and
-  UnPixel recovers with each **in parallel** and keeps the **best fit by whole-image score** —
-  you supply the font files, so no font licensing falls on this project. Library: `RecoverMultiFont`.
+- **Zero-config font matching.** Recovery needs the redaction's typeface — so with **no `--font`,
+  UnPixel sweeps a built-in set of redistributable fonts** (Liberation Sans/Serif/Mono ≈
+  Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Source Code Pro & JetBrains Mono for
+  code) **in parallel** and keeps the **best fit by whole-image score**. Or match it yourself with
+  `--font`/`--font-size`/`--letter-spacing` (and sweep your own via repeated `--font`/`--font-dir`).
+  Library: the `fonts` bundle + `RecoverMultiFont`; `render.NewXImageFromFonts` for a custom face.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
   offset (sorted by score, ties broken deterministically) plus `Confidence`/`Ambiguity` and a
   whole-image `BestTotal` distance — comparable across runs, so it can rank fonts or styles —
@@ -89,15 +90,15 @@ Requires Go 1.26+.
 ## Command-line tool
 
 ```bash
-unpixel redacted.png                       # recover; best guess to stdout
+unpixel redacted.png                       # zero-config: sweeps the built-in fonts; best guess to stdout
 cat redacted.png | unpixel -               # read PNG from stdin
 unpixel --format json --top 10 redacted.png
 unpixel --strategy beam --metric ssim --workers 8 redacted.png
 
-# Match the redaction's typeface (e.g. a Consolas-pixelated code screenshot):
+# Match a known typeface yourself (skips the sweep) — e.g. a Consolas code screenshot:
 unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.png
 
-# Don't know the font? Sweep several (or a whole directory) and keep the best fit:
+# Sweep your own candidate fonts (or a whole directory) instead of the built-ins:
 unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
 unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 ```
@@ -252,6 +253,7 @@ cfg := unpixel.Config{Strategy: defaults.BeamStrategy(0)} // 0 = use BeamWidth (
 github.com/oioio-space/unpixel
 ├── unpixel.go              # Engine, Config, Result, Eval, Offset, Progress; the 4 interfaces
 ├── defaults/               # wires the default components (breaks the root↔internal import cycle)
+├── fonts/                  # bundled redistributable fonts (OFL/Apache) for the zero-config sweep
 ├── internal/
 │   ├── imutil/             # crop / pad / compose; blueMargin & leftEdge detection
 │   ├── pixelate/           # block-average pixelator; grid-origin crop; white padding
@@ -310,8 +312,11 @@ Two **absolute project rules**: the project stays **pure Go (no CGO)**, and the 
 
 - **Original work:** [Bishop Fox's unredacter](https://github.com/bishopfox/unredacter) and the
   write-up [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
-- **Font:** bundled [Liberation Sans](https://github.com/liberationfonts/liberation-fonts)
-  (SIL OFL 1.1) — metrically Arial-compatible, for deterministic rendering.
+- **Fonts:** the default renderer uses bundled
+  [Liberation Sans](https://github.com/liberationfonts/liberation-fonts) (SIL OFL 1.1, ≈ Arial).
+  The zero-config sweep also bundles Liberation Serif/Mono, Carlito (≈ Calibri) and Source Code Pro
+  & JetBrains Mono (all SIL OFL 1.1), and Caladea (≈ Cambria, Apache 2.0) — unmodified, with
+  attribution and license texts in [`fonts/`](fonts) (`NOTICE.md` + `licenses/`).
 - **Libraries:** [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image) (pure-Go font
   rasterizer) and [`github.com/orisano/pixelmatch`](https://github.com/orisano/pixelmatch)
   (faithful port of mapbox/pixelmatch).

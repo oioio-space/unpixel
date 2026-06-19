@@ -36,6 +36,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/defaults" // named: strategy/metric constructors; init() still wires defaults
+	"github.com/oioio-space/unpixel/fonts"    // bundled redistributable fonts for the zero-config sweep
 )
 
 // version and commit are injected by goreleaser via -ldflags -X.
@@ -313,37 +314,63 @@ func collectFonts(p flagParams) ([]string, error) {
 	return deduped, nil
 }
 
+// candidateFont is one renderer entering a sweep, with labels for display
+// (short) and the JSON "font" field (path or bundled name).
+type candidateFont struct {
+	r        unpixel.Renderer
+	display  string
+	jsonName string
+}
+
+// pathCandidates builds a candidate per font file, skipping (with a note) any
+// that fail to parse. boldPath, when set, applies to every font.
+func pathCandidates(paths []string, boldPath string) []candidateFont {
+	cands := make([]candidateFont, 0, len(paths))
+	for _, p := range paths {
+		r, err := loadRenderer(p, boldPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", p, err)
+			continue
+		}
+		cands = append(cands, candidateFont{r: r, display: filepath.Base(p), jsonName: p})
+	}
+	return cands
+}
+
+// bundleCandidates builds a candidate per embedded redistributable font.
+func bundleCandidates() ([]candidateFont, error) {
+	all := fonts.All()
+	cands := make([]candidateFont, len(all))
+	for i, f := range all {
+		r, err := defaults.RendererFromFonts(f.Data, nil)
+		if err != nil {
+			return nil, fmt.Errorf("built-in font %q: %w", f.Name, err)
+		}
+		cands[i] = candidateFont{r: r, display: f.Name, jsonName: f.Name}
+	}
+	return cands, nil
+}
+
 // runSweep recovers img once per candidate font and reports the font that
 // reconstructs the redaction best (lowest BestTotal — the whole-image score is
 // comparable across fonts, unlike the marginal BestScore which ties at ~0). The
 // winning guess goes to stdout; a ranked summary goes to stderr (text mode) or a
 // "fonts" array (JSON mode).
-func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts []string, p flagParams) error {
-	verbose := !p.quiet && p.format != "json"
-
-	// Build a renderer per font, dropping (with a note) any that fail to parse.
-	// paths stays parallel to renderers so a FontResult.Index maps back to a name.
-	var renderers []unpixel.Renderer
-	var paths []string
-	for _, f := range fonts {
-		r, err := loadRenderer(f, "")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
-			continue
-		}
-		renderers = append(renderers, r)
-		paths = append(paths, f)
+func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands []candidateFont, p flagParams) error {
+	if len(cands) == 0 {
+		return fmt.Errorf("no usable font to sweep")
 	}
-	if len(renderers) == 0 {
-		return fmt.Errorf("no usable font among %d candidates", len(fonts))
-	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(renderers))
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(cands))
 	}
 
 	// The library helper owns the parallel sweep + ranking by whole-image
 	// fidelity; WithConfig carries the shared search settings (and Workers as the
 	// core budget). Per-font renderer/worker count are set inside the helper.
+	renderers := make([]unpixel.Renderer, len(cands))
+	for i, c := range cands {
+		renderers[i] = c.r
+	}
 	start := time.Now()
 	ranked, err := unpixel.RecoverMultiFont(ctx, img, renderers, unpixel.WithConfig(base))
 	if err != nil {
@@ -351,13 +378,13 @@ func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts [
 	}
 	elapsed := time.Since(start)
 
-	winner := resultToRecovery(ranked[0].Result, paths[ranked[0].Index])
+	winner := resultToRecovery(ranked[0].Result, cands[ranked[0].Index].jsonName)
 
 	if p.format == "json" {
 		rankedJSON := make([]fontRankJSON, len(ranked))
 		for i, fr := range ranked {
 			rankedJSON[i] = fontRankJSON{
-				Font:       paths[fr.Index],
+				Font:       cands[fr.Index].jsonName,
 				BestGuess:  fr.Result.BestGuess,
 				TotalScore: fr.Result.BestTotal,
 				BestScore:  fr.Result.BestScore,
@@ -370,9 +397,9 @@ func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts [
 		fmt.Fprintln(os.Stderr, "\nFont ranking (best fit first):")
 		for i, fr := range ranked {
 			fmt.Fprintf(os.Stderr, "  %d. %-32s %-20q total=%.4f\n",
-				i+1, filepath.Base(paths[fr.Index]), fr.Result.BestGuess, fr.Result.BestTotal)
+				i+1, cands[fr.Index].display, fr.Result.BestGuess, fr.Result.BestTotal)
 		}
-		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", filepath.Base(paths[ranked[0].Index]))
+		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", cands[ranked[0].Index].display)
 	}
 	fmt.Println(winner.bestGuess)
 	return nil
@@ -431,10 +458,15 @@ https://github.com/bishopfox/unredacter
 
 Pass the path to a PNG file, or - to read from stdin.
 
+With no --font, UnPixel sweeps a set of built-in redistributable fonts and keeps
+the best fit, so you needn't know the redaction's typeface. Pass --font (one or
+more) or --font-dir to sweep your own fonts instead, or a single --font to skip
+the sweep.
+
 Examples:
-  unpixel redacted.png
+  unpixel redacted.png                       # zero-config: sweep the built-in fonts
+  unpixel --font Consolas.ttf -b 5 redacted.png
   unpixel --format json --top 10 redacted.png
-  unpixel --charset abcdefghijklmnopqrstuvwxyz --threshold 0.2 redacted.png
   cat redacted.png | unpixel -`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -491,7 +523,7 @@ Examples:
 			},
 			&cli.StringSliceFlag{
 				Name:  "font",
-				Usage: "TTF/OTF font to render candidates with; repeat to sweep several and keep the best fit (default: embedded Liberation Sans ≈ Arial)",
+				Usage: "TTF/OTF font to render candidates with; repeat to sweep several and keep the best fit (default: sweep the built-in redistributable fonts)",
 			},
 			&cli.StringFlag{
 				Name:  "font-dir",
@@ -598,26 +630,30 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	cfg := buildConfig(p)
 
-	fonts, ferr := collectFonts(p)
+	fontPaths, ferr := collectFonts(p)
 	if ferr != nil {
 		return ferr
 	}
-	// More than one font: the redaction's real typeface is rarely known, so try
-	// each and keep the one that reconstructs the image best (lowest BestTotal).
-	if len(fonts) > 1 {
-		return runSweep(ctx, img, cfg, fonts, p)
-	}
-	// A single --font overrides the embedded renderer so candidates are
-	// rasterised in the redaction's actual typeface (e.g. user-supplied Consolas).
-	font := ""
-	if len(fonts) == 1 {
-		font = fonts[0]
-		renderer, lerr := loadRenderer(font, p.fontBoldPath)
-		if lerr != nil {
-			return lerr
+	switch {
+	case len(fontPaths) == 0:
+		// Zero-config: no --font given → sweep the bundled redistributable fonts
+		// and keep the best fit, so the user needn't know the redaction's typeface.
+		cands, berr := bundleCandidates()
+		if berr != nil {
+			return berr
 		}
-		cfg.Renderer = renderer
+		return runSweep(ctx, img, cfg, cands, p)
+	case len(fontPaths) > 1:
+		// Several fonts given: sweep them and keep the best fit.
+		return runSweep(ctx, img, cfg, pathCandidates(fontPaths, ""), p)
 	}
+	// Exactly one --font: render in that typeface (no sweep; keeps live progress).
+	font := fontPaths[0]
+	renderer, lerr := loadRenderer(font, p.fontBoldPath)
+	if lerr != nil {
+		return lerr
+	}
+	cfg.Renderer = renderer
 
 	showProgress := !p.quiet && isTTY(os.Stderr)
 

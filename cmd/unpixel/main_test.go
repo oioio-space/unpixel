@@ -288,9 +288,15 @@ func TestRunSweep(t *testing.T) {
 		spaceThreshold: 0.5, topN: 5, strategy: "guided", metric: "pixelmatch",
 	})
 
+	// pathCandidates drops the unparseable bogus font (with a note), leaving 2.
+	cands := pathCandidates(fonts, "")
+	if len(cands) != 2 {
+		t.Fatalf("pathCandidates kept %d, want 2 (bogus skipped)", len(cands))
+	}
+
 	// Text mode: prints the winning guess (empty for a white image) + newline.
 	textOut := captureStdout(t, func() {
-		if err := runSweep(t.Context(), img, cfg, fonts, flagParams{format: "text", quiet: true, workers: 2}); err != nil {
+		if err := runSweep(t.Context(), img, cfg, cands, flagParams{format: "text", quiet: true, workers: 2}); err != nil {
 			t.Errorf("runSweep text: %v", err)
 		}
 	})
@@ -300,7 +306,7 @@ func TestRunSweep(t *testing.T) {
 
 	// JSON mode: emits a ranked "fonts" array.
 	jsonOut := captureStdout(t, func() {
-		if err := runSweep(t.Context(), img, cfg, fonts, flagParams{format: "json", quiet: true, workers: 2}); err != nil {
+		if err := runSweep(t.Context(), img, cfg, cands, flagParams{format: "json", quiet: true, workers: 2}); err != nil {
 			t.Errorf("runSweep json: %v", err)
 		}
 	})
@@ -308,12 +314,12 @@ func TestRunSweep(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &r); err != nil {
 		t.Fatalf("runSweep json: invalid JSON: %v\n%s", err, jsonOut)
 	}
-	if len(r.Fonts) != 2 { // the two valid fonts; bogus was skipped
+	if len(r.Fonts) != 2 {
 		t.Errorf("ranked fonts = %d, want 2", len(r.Fonts))
 	}
 
-	// All fonts invalid → an error.
-	if err := runSweep(t.Context(), img, cfg, []string{bogus}, flagParams{format: "text", quiet: true}); err == nil {
+	// No usable candidate → an error.
+	if err := runSweep(t.Context(), img, cfg, pathCandidates([]string{bogus}, ""), flagParams{format: "text", quiet: true}); err == nil {
 		t.Error("runSweep with only an invalid font: expected error, got nil")
 	}
 }
@@ -335,6 +341,23 @@ func TestRun_singleFont(t *testing.T) {
 	})
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("expected newline-terminated output, got %q", out)
+	}
+}
+
+// TestBundleCandidates verifies the zero-config sweep set builds from the
+// embedded bundle (every font parses into a renderer with a display name).
+func TestBundleCandidates(t *testing.T) {
+	cands, err := bundleCandidates()
+	if err != nil {
+		t.Fatalf("bundleCandidates: %v", err)
+	}
+	if len(cands) < 5 {
+		t.Fatalf("bundleCandidates = %d, want the full bundle", len(cands))
+	}
+	for i, c := range cands {
+		if c.r == nil || c.display == "" || c.jsonName == "" {
+			t.Errorf("candidate %d malformed: %+v", i, c)
+		}
 	}
 }
 
