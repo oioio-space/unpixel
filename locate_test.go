@@ -7,6 +7,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/pixelate"
+	"github.com/oioio-space/unpixel/internal/render"
 )
 
 // stripes fills rows [y0,y1) of img with sharp 4px-wide black/white vertical
@@ -55,6 +56,38 @@ func TestLocateRedaction_findsBlurredBand(t *testing.T) {
 	if rect.Dx() < w/2 {
 		t.Errorf("located width %d too narrow (want most of %d)", rect.Dx(), w)
 	}
+}
+
+// TestInferFontSize_ballpark renders a varied line at known sizes and checks the
+// estimate lands within tolerance (it is a seed, not an exact value).
+func TestInferFontSize_ballpark(t *testing.T) {
+	r, err := render.NewXImage()
+	if err != nil {
+		t.Fatalf("NewXImage: %v", err)
+	}
+	for _, size := range []float64{24, 32, 40} {
+		img, sx, err := r.Render("Recovery1", unpixel.Style{FontSize: size, PaddingTop: 8, PaddingLeft: 8})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		crop := cropRGBA(img, sx) // drop the sentinel so only the text counts
+		got := unpixel.InferFontSize(crop)
+		if got < size*0.8 || got > size*1.2 {
+			t.Errorf("InferFontSize(size %v) = %.1f, want within ±20%%", size, got)
+		}
+	}
+}
+
+// cropRGBA returns the [0,w) horizontal slice of img as a fresh image.
+func cropRGBA(img *image.RGBA, w int) *image.RGBA {
+	b := img.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, w, b.Dy()))
+	for y := range b.Dy() {
+		for x := range w {
+			out.SetRGBA(x, y, img.RGBAAt(b.Min.X+x, b.Min.Y+y))
+		}
+	}
+	return out
 }
 
 // TestLocateRedaction_sharpImageNone returns ok=false on an all-sharp image.

@@ -573,6 +573,56 @@ func InferBlurSigma(img image.Image) float64 {
 	return math.Max(0, sigma)
 }
 
+// InferFontSize estimates the point size of the text in img from its content
+// height, for zero-config calibration: rendered text spans about 0.92×fontSize
+// vertically (ascenders to descenders), so fontSize ≈ contentHeight / 0.92.
+// "Content" is any row that differs from the image's background colour.
+//
+// It returns 0 when no content stands out. The estimate is a ballpark — a short
+// word without ascenders/descenders, or blur spreading the glyphs, skews it — so
+// it is best used to seed the search (optionally with a small size sweep) rather
+// than as an exact value. Measure it on the redacted region (see LocateRedaction)
+// or on a screenshot's sharp reference text, whichever is cleaner.
+func InferFontSize(img image.Image) float64 {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 2 || h < 2 {
+		return 0
+	}
+	bg := rgba.RGBAAt(b.Min.X, b.Min.Y) // top-left corner ≈ background
+	isContent := func(x, y int) bool {
+		c := rgba.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		d := abs(int(c.R)-int(bg.R)) + abs(int(c.G)-int(bg.G)) + abs(int(c.B)-int(bg.B))
+		return d > 48
+	}
+	top, bot := -1, -1
+	for y := range h {
+		for x := range w {
+			if isContent(x, y) {
+				if top < 0 {
+					top = y
+				}
+				bot = y
+				break
+			}
+		}
+	}
+	if top < 0 {
+		return 0
+	}
+	const ascDescRatio = 0.92
+	return float64(bot-top+1) / ascDescRatio
+}
+
+// abs returns the absolute value of x.
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 // LocateRedaction returns the bounding box of a blurred region inside img — for
 // zero-config recovery of a redaction embedded in a larger screenshot. A blurred
 // edge has a bounded peak gradient (≈ contrast/(σ·√(2π)), far below sharp text),

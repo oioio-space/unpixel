@@ -428,3 +428,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `42af230` 2026-06-19 — docs: record blur support and the bf_challenge findings _(2 fichiers)_
 - `af45057` 2026-06-19 — test(blur): blur recovery matrix as the quality guard (#7) _(1 fichiers)_
 - `0ac9752` 2026-06-19 — perf(pixelate): FastBlur box-approx Gaussian, ~3x cheaper (#3) _(7 fichiers)_
+- `b0a0891` 2026-06-19 — feat(locate): region localization for blurred screenshots (#1) _(4 fichiers)_

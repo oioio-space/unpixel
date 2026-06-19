@@ -738,6 +738,17 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if blurSigma := resolveBlur(img, p); blurSigma > 0 {
 		cfg.Pixelator = blurOperator(blurSigma, p.blurExact)
 		cfg.BlockSize = 1
+		// Calibrate the font size from the region's content height when the user
+		// did not pin one (blur has no other size cue). A ballpark that seeds the
+		// search; an exact --font-size still wins.
+		if p.fontSize == 0 {
+			if est := unpixel.InferFontSize(img); est >= 8 {
+				cfg.Style.FontSize = est
+				if !p.quiet {
+					fmt.Fprintf(os.Stderr, "Calibrated font size ≈ %.0f pt\n", est)
+				}
+			}
+		}
 		if !p.quiet {
 			mode := "Gaussian"
 			if !p.blurExact && blurSigma >= fastBlurMinSigma {
