@@ -19,6 +19,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,9 @@ import (
 	_ "image/png"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -57,8 +61,9 @@ type flagParams struct {
 	strategy       string
 	metric         string
 	format         string
-	fontPath       string
+	fontPaths      []string
 	fontBoldPath   string
+	fontDir        string
 	maxLength      int
 	blockSize      int
 	threshold      float64
@@ -138,14 +143,25 @@ func validateParams(p flagParams) error {
 // resultJSON is the stable JSON schema emitted by --format json.
 // Field names use snake_case for CLI convention and are stable across versions.
 type resultJSON struct {
-	BestGuess  string     `json:"best_guess"`
-	Top        []topEntry `json:"top"`
-	Offset     offsetJSON `json:"offset"`
-	BestScore  float64    `json:"best_score"`
-	Confidence float64    `json:"confidence"`
-	Ambiguity  float64    `json:"ambiguity"`
-	Evaluated  int        `json:"evaluated"`
-	ElapsedMS  int64      `json:"elapsed_ms"`
+	BestGuess  string         `json:"best_guess"`
+	Font       string         `json:"font,omitempty"`
+	Top        []topEntry     `json:"top"`
+	Fonts      []fontRankJSON `json:"fonts,omitempty"`
+	Offset     offsetJSON     `json:"offset"`
+	BestScore  float64        `json:"best_score"`
+	TotalScore float64        `json:"total_score"`
+	Confidence float64        `json:"confidence"`
+	Ambiguity  float64        `json:"ambiguity"`
+	Evaluated  int            `json:"evaluated"`
+	ElapsedMS  int64          `json:"elapsed_ms"`
+}
+
+// fontRankJSON is one font's result in a multi-font sweep, ranked by total_score.
+type fontRankJSON struct {
+	Font       string  `json:"font"`
+	BestGuess  string  `json:"best_guess"`
+	TotalScore float64 `json:"total_score"`
+	BestScore  float64 `json:"best_score"`
 }
 
 // offsetJSON is the JSON representation of a grid offset.
@@ -163,9 +179,11 @@ type topEntry struct {
 // recoveryResult collects the aggregated output of runRecovery.
 type recoveryResult struct {
 	bestGuess  string
+	font       string // font file used for this recovery ("" = embedded default)
 	top        []unpixel.Eval
 	offset     unpixel.Offset
 	bestScore  float64
+	bestTotal  float64
 	confidence float64
 	ambiguity  float64
 }
@@ -202,6 +220,7 @@ func runRecovery(ctx context.Context, img image.Image, cfg unpixel.Config) (reco
 		if r.BestScore < best.bestScore || best.bestGuess == "" {
 			best.bestGuess = r.BestGuess
 			best.bestScore = r.BestScore
+			best.bestTotal = r.BestTotal
 			best.offset = r.Offset
 			best.confidence = r.Confidence
 			best.ambiguity = r.Ambiguity
@@ -262,6 +281,109 @@ func loadRenderer(regularPath, boldPath string) (unpixel.Renderer, error) {
 		return nil, fmt.Errorf("load font %q: %w", regularPath, err)
 	}
 	return r, nil
+}
+
+// collectFonts gathers the candidate font files from the repeated --font flags
+// and the --font-dir directory (TTF/OTF entries), de-duplicated in order. An
+// empty result means "use the embedded default font".
+func collectFonts(p flagParams) ([]string, error) {
+	fonts := slices.Clone(p.fontPaths)
+	if p.fontDir != "" {
+		entries, err := os.ReadDir(p.fontDir)
+		if err != nil {
+			return nil, fmt.Errorf("read font dir %q: %w", p.fontDir, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			switch strings.ToLower(filepath.Ext(e.Name())) {
+			case ".ttf", ".otf":
+				fonts = append(fonts, filepath.Join(p.fontDir, e.Name()))
+			}
+		}
+	}
+	seen := make(map[string]bool, len(fonts))
+	deduped := fonts[:0]
+	for _, f := range fonts {
+		if !seen[f] {
+			seen[f] = true
+			deduped = append(deduped, f)
+		}
+	}
+	return deduped, nil
+}
+
+// runSweep recovers img once per candidate font and reports the font that
+// reconstructs the redaction best (lowest BestTotal — the whole-image score is
+// comparable across fonts, unlike the marginal BestScore which ties at ~0). The
+// winning guess goes to stdout; a ranked summary goes to stderr (text mode) or a
+// "fonts" array (JSON mode).
+func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts []string, p flagParams) error {
+	verbose := !p.quiet && p.format != "json"
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(fonts))
+	}
+
+	var results []recoveryResult
+	var totalElapsed time.Duration
+	sumEval := 0
+	for _, f := range fonts {
+		if ctx.Err() != nil {
+			break
+		}
+		renderer, err := loadRenderer(f, "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
+			continue
+		}
+		cfg := base
+		cfg.Renderer = renderer
+		res, elapsed, evaluated, err := runRecovery(ctx, img, cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unpixel: font %q: %v\n", f, err)
+			continue
+		}
+		res.font = f
+		totalElapsed += elapsed
+		results = append(results, res)
+		sumEval += evaluated
+		if verbose {
+			fmt.Fprintf(os.Stderr, "  %-32s → %-20q total=%.4f (%s)\n",
+				filepath.Base(f), res.bestGuess, res.bestTotal, elapsed.Round(time.Millisecond))
+		}
+	}
+	if len(results) == 0 {
+		return fmt.Errorf("no font produced a result")
+	}
+
+	// Lowest whole-image distance wins; ties break on the marginal score.
+	slices.SortStableFunc(results, func(a, b recoveryResult) int {
+		if c := cmp.Compare(a.bestTotal, b.bestTotal); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.bestScore, b.bestScore)
+	})
+	winner := results[0]
+
+	if p.format == "json" {
+		ranked := make([]fontRankJSON, len(results))
+		for i, r := range results {
+			ranked[i] = fontRankJSON{Font: r.font, BestGuess: r.bestGuess, TotalScore: r.bestTotal, BestScore: r.bestScore}
+		}
+		return printJSON(winner, ranked, sumEval, totalElapsed)
+	}
+
+	if !p.quiet {
+		fmt.Fprintln(os.Stderr, "\nFont ranking (best fit first):")
+		for i, r := range results {
+			fmt.Fprintf(os.Stderr, "  %d. %-32s %-20q total=%.4f\n",
+				i+1, filepath.Base(r.font), r.bestGuess, r.bestTotal)
+		}
+		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", filepath.Base(winner.font))
+	}
+	fmt.Println(winner.bestGuess)
+	return nil
 }
 
 // warnIfNoMosaic writes a one-line warning to w when the block size is being
@@ -360,13 +482,17 @@ Examples:
 				Usage: `image-distance metric: "pixelmatch" (faithful) or "ssim" (structural)`,
 				Value: "pixelmatch",
 			},
-			&cli.StringFlag{
+			&cli.StringSliceFlag{
 				Name:  "font",
-				Usage: "path to a TTF/OTF font to render candidates with (default: embedded Liberation Sans ≈ Arial)",
+				Usage: "TTF/OTF font to render candidates with; repeat to sweep several and keep the best fit (default: embedded Liberation Sans ≈ Arial)",
+			},
+			&cli.StringFlag{
+				Name:  "font-dir",
+				Usage: "directory of TTF/OTF fonts to sweep (each tried; best fit by whole-image score wins)",
 			},
 			&cli.StringFlag{
 				Name:  "font-bold",
-				Usage: "path to a bold TTF/OTF font (default: reuse --font)",
+				Usage: "path to a bold TTF/OTF font, single-font mode only (default: reuse --font)",
 			},
 			&cli.FloatFlag{
 				Name:  "font-size",
@@ -433,8 +559,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		beamWidth:      cmd.Int("beam-width"),
 		metric:         cmd.String("metric"),
 		format:         cmd.String("format"),
-		fontPath:       cmd.String("font"),
+		fontPaths:      cmd.StringSlice("font"),
 		fontBoldPath:   cmd.String("font-bold"),
+		fontDir:        cmd.String("font-dir"),
 		fontSize:       cmd.Float("font-size"),
 		letterSpacing:  cmd.Float("letter-spacing"),
 		quiet:          cmd.Bool("quiet"),
@@ -464,12 +591,23 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	cfg := buildConfig(p)
 
-	// A --font path overrides the embedded renderer so candidates are rasterised
-	// in the redaction's actual typeface (e.g. user-supplied Consolas).
-	if p.fontPath != "" {
-		renderer, ferr := loadRenderer(p.fontPath, p.fontBoldPath)
-		if ferr != nil {
-			return ferr
+	fonts, ferr := collectFonts(p)
+	if ferr != nil {
+		return ferr
+	}
+	// More than one font: the redaction's real typeface is rarely known, so try
+	// each and keep the one that reconstructs the image best (lowest BestTotal).
+	if len(fonts) > 1 {
+		return runSweep(ctx, img, cfg, fonts, p)
+	}
+	// A single --font overrides the embedded renderer so candidates are
+	// rasterised in the redaction's actual typeface (e.g. user-supplied Consolas).
+	font := ""
+	if len(fonts) == 1 {
+		font = fonts[0]
+		renderer, lerr := loadRenderer(font, p.fontBoldPath)
+		if lerr != nil {
+			return lerr
 		}
 		cfg.Renderer = renderer
 	}
@@ -520,12 +658,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		if r.BestScore < best.bestScore || best.bestGuess == "" {
 			best.bestGuess = r.BestGuess
 			best.bestScore = r.BestScore
+			best.bestTotal = r.BestTotal
 			best.offset = r.Offset
 			best.confidence = r.Confidence
 			best.ambiguity = r.Ambiguity
 			best.top = r.TopN
 		}
 	}
+	best.font = font
 
 	// Wait for the progress goroutine to finish and clear the line.
 	<-progressDone
@@ -533,26 +673,30 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	switch p.format {
 	case "json":
-		return printJSON(best, evaluated, elapsed)
+		return printJSON(best, nil, evaluated, elapsed)
 	default:
 		printText(best, p.quiet || !isTTY(os.Stderr))
 	}
 	return nil
 }
 
-// printJSON writes the recovery result as a JSON object to stdout.
-func printJSON(r recoveryResult, evaluated int, elapsed time.Duration) error {
+// printJSON writes the recovery result as a JSON object to stdout. fonts is the
+// ranked per-font summary of a sweep, or nil for a single-font/default run.
+func printJSON(r recoveryResult, fonts []fontRankJSON, evaluated int, elapsed time.Duration) error {
 	top := make([]topEntry, len(r.top))
 	for i, e := range r.top {
 		top[i] = topEntry{Guess: e.Guess, Score: e.Score}
 	}
 	out := resultJSON{
 		BestGuess:  r.bestGuess,
+		Font:       r.font,
 		BestScore:  r.bestScore,
+		TotalScore: r.bestTotal,
 		Offset:     offsetJSON{X: r.offset.X, Y: r.offset.Y},
 		Confidence: r.confidence,
 		Ambiguity:  r.ambiguity,
 		Top:        top,
+		Fonts:      fonts,
 		Evaluated:  evaluated,
 		ElapsedMS:  elapsed.Milliseconds(),
 	}

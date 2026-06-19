@@ -248,6 +248,46 @@ func TestWarnIfNoMosaic(t *testing.T) {
 	}
 }
 
+// TestCollectFonts verifies that explicit --font paths and a --font-dir scan
+// are merged, filtered to font extensions, and de-duplicated in order.
+func TestCollectFonts(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.ttf", "b.otf", "notes.txt", "c.TTF"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	explicit := filepath.Join(dir, "a.ttf") // also present in the dir → must dedup
+	got, err := collectFonts(flagParams{fontPaths: []string{explicit}, fontDir: dir})
+	if err != nil {
+		t.Fatalf("collectFonts: %v", err)
+	}
+	// Expect: explicit a.ttf, then dir's a.ttf (deduped away), b.otf, c.TTF; notes.txt excluded.
+	want := []string{
+		explicit,
+		filepath.Join(dir, "b.otf"),
+		filepath.Join(dir, "c.TTF"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collectFonts = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("collectFonts[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// A missing directory is an error.
+	if _, err := collectFonts(flagParams{fontDir: filepath.Join(dir, "nope")}); err == nil {
+		t.Error("collectFonts(missing dir): expected error, got nil")
+	}
+
+	// No fonts at all → empty (caller uses the embedded default).
+	if got, err := collectFonts(flagParams{}); err != nil || len(got) != 0 {
+		t.Errorf("collectFonts(empty) = %v, %v; want [], nil", got, err)
+	}
+}
+
 // TestCharsetForPreset verifies preset name → charset mapping and rejection.
 func TestCharsetForPreset(t *testing.T) {
 	cases := map[string]string{
@@ -400,7 +440,7 @@ func TestPrintJSONAndText(t *testing.T) {
 		top:        []unpixel.Eval{{Guess: "hi", Score: 0.1}},
 	}
 	jsonOut := captureStdout(t, func() {
-		if err := printJSON(r, 5, 10*time.Millisecond); err != nil {
+		if err := printJSON(r, nil, 5, 10*time.Millisecond); err != nil {
 			t.Errorf("printJSON: %v", err)
 		}
 	})

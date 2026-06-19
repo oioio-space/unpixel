@@ -173,7 +173,7 @@ func searchOffsets(
 
 	if ctx.Err() != nil || offsetsTotal == 0 {
 		emit(unpixel.Progress{Kind: unpixel.EventDone, Done: true})
-		results <- unpixel.Result{BestScore: 1.0}
+		results <- unpixel.Result{BestScore: 1.0, BestTotal: 1.0}
 		return
 	}
 
@@ -272,6 +272,9 @@ func searchOffsets(
 			finalScore = oc.topN[0].Score
 		}
 	}
+	if bestTotal > 1 {
+		bestTotal = 1 // no winner selected: report the worst-case distance
+	}
 	for _, oc := range outcomes {
 		if !oc.done {
 			continue
@@ -279,6 +282,7 @@ func searchOffsets(
 		results <- unpixel.Result{
 			BestGuess:  finalGuess,
 			BestScore:  finalScore,
+			BestTotal:  bestTotal,
 			Candidates: oc.candidates,
 			TopN:       oc.topN,
 			Confidence: oc.confidence,

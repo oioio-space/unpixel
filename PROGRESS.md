@@ -361,3 +361,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `7c0c2c9` 2026-06-19 — feat(cli): warn when no mosaic grid is detected (likely non-pixelated input) _(3 fichiers)_
 - `4d93016` 2026-06-19 — feat(search): never select an all-whitespace guess as the recovery _(4 fichiers)_
 - `cbc6769` 2026-06-19 — feat(render): custom fonts + letter-spacing to target real redactions _(6 fichiers)_
+- `ff08327` 2026-06-19 — feat(search): whole-image TotalScore to pick the complete answer _(9 fichiers)_

@@ -244,8 +244,16 @@ type Result struct {
 	TopN []Eval
 	// Offset is the grid origin that was searched to produce this result.
 	Offset Offset
-	// BestScore is the total image-distance score of BestGuess (lower is better).
+	// BestScore is the marginal-region diff score of BestGuess (lower is better).
 	BestScore float64
+	// BestTotal is the whole-image distance of BestGuess against the redaction
+	// (0 = pixel-perfect, 1 = worst). Unlike BestScore — which is a per-character
+	// marginal score that a correct prefix or a coincidental match can drive to
+	// ~0 — BestTotal measures how well the full guess explains the entire
+	// redaction, so it is comparable across separate runs. That makes it the
+	// right signal for choosing between candidate fonts or styles: the run with
+	// the lowest BestTotal recovered the redaction most faithfully.
+	BestTotal float64
 	// Confidence is 1 − TopN[0].Score, giving a value in [0, 1] where 1
 	// represents a pixel-perfect match. It is 0 when TopN is empty.
 	Confidence float64
