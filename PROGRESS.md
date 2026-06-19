@@ -45,8 +45,9 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
   dans `internal/` : `imutil` (utilitaires image), `pixelate` (pixelisation par blocs),
   `metric` (distance d'image ; défaut `pixelmatch`, fidèle à Jimp), `render` (pure-Go
   `golang.org/x/image/font/opentype` + Liberation Sans embarquée, compatible métriquement Arial),
-  `search` (découverte offset + DFS guidée/beam, fan-out goroutines). Package `defaults` assure
-  les dépendances et expose les choix de stratégie/métrique. **CLI `cmd/unpixel` opérationnelle**
+  `search` (découverte offset + DFS guidée/beam/**mono**, fan-out goroutines), `lang` (prior
+  bigramme). Opérateurs : `pixelate` (mosaïque **+ flou gaussien/FastBlur**). Package `defaults`
+  assure les dépendances et expose stratégie/métrique/opérateur. **CLI `cmd/unpixel` opérationnelle**
   (urfave/cli/v3).
 - **GoDoc/pkg.go.dev** : package et symboles exportés enrichis (overviews avec snippet d'usage,
   chaque symbole/champ/const documenté avec son contrat, `Example` exécutable). Qualité
@@ -55,7 +56,7 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 - **README** : réécrit via skill `readme-author` (principes awesome-readme) : badges CI/Go
   Reference/Go Report Card/GPL-3.0, démo, features, install/usage vérifiés, config table,
   architecture, crédits/attribution.
-- **Tests** : 150+ tests passants (`-race` propre). Couverture **~90%** ; seuil `COVER_MIN` à 85.
+- **Tests** : 150+ tests passants (`-race` propre). Couverture **~89%** ; seuil `COVER_MIN` à 85.
   **Matrice de récupération** : `internal/fixture` génère des images de référence (PNG + `manifest.json`
   liant chaque image à ses paramètres) via `go generate` ; `matrix_test.go` les recharge et vérifie
   la récupération sur blocs (4/8/16), tailles, gras, charsets (minuscules/alnum/symboles), padding
@@ -443,3 +444,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `e9d5763` 2026-06-19 — feat(search): monospace fast-path strategy (#6) _(5 fichiers)_
 - `e207275` 2026-06-19 — docs: delta vs current version and vs Bishop Fox unredacter _(1 fichiers)_
 - `c25bb16` 2026-06-19 — docs(delta): add performance comparison vs Bishop Fox unredacter _(1 fichiers)_
+- `a74f6b3` 2026-06-19 — docs: update README and PROGRESS for v0.4.0 _(2 fichiers)_
