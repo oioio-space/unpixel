@@ -425,3 +425,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `c279a8e` 2026-06-19 — feat(fonts): bundle redistributable fonts for a zero-config sweep _(16 fichiers)_
 - `74b5f1c` 2026-06-19 — feat(pixelate): Gaussian-blur redaction operator (attack blurred text) _(7 fichiers)_
 - `78ecfa7` 2026-06-19 — feat(cli): zero-config blur recovery (auto-detect + estimate sigma) _(5 fichiers)_
+- `42af230` 2026-06-19 — docs: record blur support and the bf_challenge findings _(2 fichiers)_
