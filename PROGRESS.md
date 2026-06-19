@@ -454,3 +454,5 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `8a49453` 2026-06-19 — feat(confidence): calibrated confidence + honest abort (P3.8) _(5 fichiers)_
 - `7629a76` 2026-06-19 — feat(cli): automatic charset escalation (P3.6) _(1 fichiers)_
 - `629759f` 2026-06-19 — feat(search): language-guided charset Top-K pruning (P4.5) _(6 fichiers)_
+- `e83ba16` 2026-06-19 — docs(progress): mark P3.5/P3.6/P3.8/P4.5 done _(1 fichiers)_
+- `e109df5` 2026-06-19 — test(cli): cover runEscalation tier walk (P3.6) _(1 fichiers)_
