@@ -96,6 +96,25 @@ func TestRankFinal_picksCompleteOverPrefix(t *testing.T) {
 	}
 }
 
+// TestTopKChars: with a language model, keep the k most-likely next characters.
+func TestTopKChars(t *testing.T) {
+	cfg := unpixel.Config{Charset: "qe", CharsetTopK: 1, LanguageModel: lang.Default().Score}
+	got := topKChars(cfg, "th") // "the" ≫ "thq"
+	if len(got) != 1 || got[0] != 'e' {
+		t.Errorf("topKChars(th, k=1) = %q, want [e]", string(got))
+	}
+	// Disabled cases return nil (caller stays on the whole-charset path).
+	if topKChars(unpixel.Config{Charset: "abc", CharsetTopK: 0, LanguageModel: lang.Default().Score}, "") != nil {
+		t.Error("k=0 should return nil")
+	}
+	if topKChars(unpixel.Config{Charset: "abc", CharsetTopK: 2}, "") != nil {
+		t.Error("no language model should return nil")
+	}
+	if topKChars(unpixel.Config{Charset: "abc", CharsetTopK: 5, LanguageModel: lang.Default().Score}, "") != nil {
+		t.Error("k >= charset should return nil (no pruning needed)")
+	}
+}
+
 // TestRankFinal_languageTieBreak: among candidates with equal whole-image total,
 // the language prior picks the more plausible string.
 func TestRankFinal_languageTieBreak(t *testing.T) {

@@ -176,20 +176,64 @@ func evalChildren(
 	parentGuess string,
 ) []node {
 	var children []node
-	for _, ch := range cfg.Charset {
-		if ctx.Err() != nil {
-			return children
-		}
+	eval := func(ch rune) {
 		next := parentGuess + string(ch)
 		res := scorer.Eval(ctx, next, parentGuess, offset)
 		if res.Score < cfg.ThresholdFor(ch) {
 			children = append(children, node{guess: next, result: res})
 		}
 	}
+	if pruned := topKChars(cfg, parentGuess); pruned != nil {
+		for _, ch := range pruned {
+			if ctx.Err() != nil {
+				return children
+			}
+			eval(ch)
+		}
+	} else {
+		for _, ch := range cfg.Charset { // default: whole charset, no allocation
+			if ctx.Err() != nil {
+				return children
+			}
+			eval(ch)
+		}
+	}
 	slices.SortFunc(children, func(a, b node) int {
 		return cmp.Compare(a.result.Score, b.result.Score)
 	})
 	return children
+}
+
+// topKChars returns the cfg.CharsetTopK most-likely next characters after
+// parentGuess, ranked by the language model, or nil to disable pruning (when
+// CharsetTopK<=0, there is no model, or K covers the whole charset). nil keeps
+// callers on the allocation-free whole-charset path.
+func topKChars(cfg unpixel.Config, parentGuess string) []rune {
+	if cfg.CharsetTopK <= 0 || cfg.LanguageModel == nil {
+		return nil
+	}
+	runes := []rune(cfg.Charset)
+	if cfg.CharsetTopK >= len(runes) {
+		return nil
+	}
+	scored := make([]runeScore, len(runes))
+	for i, r := range runes {
+		scored[i] = runeScore{r: r, s: cfg.LanguageModel(parentGuess + string(r))}
+	}
+	slices.SortStableFunc(scored, func(a, b runeScore) int {
+		return cmp.Compare(b.s, a.s) // most plausible first
+	})
+	out := make([]rune, cfg.CharsetTopK)
+	for i := range out {
+		out[i] = scored[i].r
+	}
+	return out
+}
+
+// runeScore pairs a candidate character with its language-model plausibility.
+type runeScore struct {
+	r rune
+	s float64
 }
 
 // DiscoverOffsets probes all blockSize² grid origins and returns those whose

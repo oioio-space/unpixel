@@ -90,7 +90,10 @@ func evalChildrenPar(
 	offset unpixel.Offset,
 	parentGuess string,
 ) []node {
-	chars := []rune(cfg.Charset)
+	chars := topKChars(cfg, parentGuess)
+	if chars == nil {
+		chars = []rune(cfg.Charset)
+	}
 	results := make([]*node, len(chars))
 	forEachIndex(ctx, len(chars), resolveWorkers(cfg), func(i int) {
 		if ctx.Err() != nil {

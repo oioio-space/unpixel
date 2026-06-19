@@ -58,29 +58,32 @@ func main() {
 // unpixel.Config. Keeping them in a plain struct lets later batches extend
 // buildConfig without touching the flag wiring.
 type flagParams struct {
-	charset        string
-	strategy       string
-	metric         string
-	format         string
-	fontPaths      []string
-	fontBoldPath   string
-	fontDir        string
-	redaction      string
-	maxLength      int
-	blockSize      int
-	threshold      float64
-	spaceThreshold float64
-	fontSize       float64
-	letterSpacing  float64
-	blurSigma      float64
-	minConfidence  float64
-	topN           int
-	workers        int
-	beamWidth      int
-	timeout        time.Duration
-	quiet          bool
-	blurExact      bool
-	language       bool
+	charset         string
+	strategy        string
+	metric          string
+	format          string
+	fontPaths       []string
+	fontBoldPath    string
+	fontDir         string
+	redaction       string
+	maxLength       int
+	blockSize       int
+	threshold       float64
+	spaceThreshold  float64
+	fontSize        float64
+	letterSpacing   float64
+	blurSigma       float64
+	minConfidence   float64
+	topN            int
+	charsetTopK     int
+	workers         int
+	beamWidth       int
+	timeout         time.Duration
+	quiet           bool
+	blurExact       bool
+	language        bool
+	escalate        bool
+	charsetExplicit bool
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -111,6 +114,7 @@ func buildConfig(p flagParams) unpixel.Config {
 		Threshold:      p.threshold,
 		SpaceThreshold: p.spaceThreshold,
 		TopN:           p.topN,
+		CharsetTopK:    p.charsetTopK,
 		Workers:        p.workers,
 		BeamWidth:      p.beamWidth,
 		Style: unpixel.Style{
@@ -386,22 +390,25 @@ func bundleCandidates() ([]candidateFont, error) {
 	return cands, nil
 }
 
-// runSweep recovers img once per candidate font and reports the font that
-// reconstructs the redaction best (lowest BestTotal — the whole-image score is
-// comparable across fonts, unlike the marginal BestScore which ties at ~0). The
-// winning guess goes to stdout; a ranked summary goes to stderr (text mode) or a
-// "fonts" array (JSON mode).
-func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands []candidateFont, p flagParams) error {
+// sweepOutcome is the result of one font sweep: the winning recovery plus the
+// per-font ranking (and the candidates that produced it) for reporting.
+type sweepOutcome struct {
+	winner  recoveryResult
+	ranked  []unpixel.FontResult
+	cands   []candidateFont
+	elapsed time.Duration
+}
+
+// sweepRecover recovers img once per candidate font (in parallel, via the library
+// helper) and returns the best-fit winner and the ranking — without printing, so
+// it can be re-run across charset tiers (escalation) before any output.
+func sweepRecover(ctx context.Context, img image.Image, base unpixel.Config, cands []candidateFont, p flagParams) (sweepOutcome, error) {
 	if len(cands) == 0 {
-		return fmt.Errorf("no usable font to sweep")
+		return sweepOutcome{}, fmt.Errorf("no usable font to sweep")
 	}
 	if !p.quiet && p.format != "json" {
 		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(cands))
 	}
-
-	// The library helper owns the parallel sweep + ranking by whole-image
-	// fidelity; WithConfig carries the shared search settings (and Workers as the
-	// core budget). Per-font renderer/worker count are set inside the helper.
 	renderers := make([]unpixel.Renderer, len(cands))
 	for i, c := range cands {
 		renderers[i] = c.r
@@ -409,38 +416,89 @@ func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands [
 	start := time.Now()
 	ranked, err := unpixel.RecoverMultiFont(ctx, img, renderers, unpixel.WithConfig(base))
 	if err != nil {
-		return err
+		return sweepOutcome{}, err
 	}
-	elapsed := time.Since(start)
-
 	winner := resultToRecovery(ranked[0].Result, cands[ranked[0].Index].jsonName)
+	return sweepOutcome{winner: winner, ranked: ranked, cands: cands, elapsed: time.Since(start)}, nil
+}
 
-	if err := reportConfidence(fidelityOf(winner), p); err != nil {
+// printSweep emits a sweep outcome: the confidence verdict, then the winning
+// guess to stdout and the per-font ranking to stderr (text) or a "fonts" array
+// (JSON). It applies the --min-confidence honest-abort gate.
+func printSweep(o sweepOutcome, p flagParams) error {
+	if err := reportConfidence(fidelityOf(o.winner), p); err != nil {
 		return err
 	}
 	if p.format == "json" {
-		rankedJSON := make([]fontRankJSON, len(ranked))
-		for i, fr := range ranked {
+		rankedJSON := make([]fontRankJSON, len(o.ranked))
+		for i, fr := range o.ranked {
 			rankedJSON[i] = fontRankJSON{
-				Font:       cands[fr.Index].jsonName,
+				Font:       o.cands[fr.Index].jsonName,
 				BestGuess:  fr.Result.BestGuess,
 				TotalScore: fr.Result.BestTotal,
 				BestScore:  fr.Result.BestScore,
 			}
 		}
-		return printJSON(winner, rankedJSON, 0, elapsed)
+		return printJSON(o.winner, rankedJSON, 0, o.elapsed)
 	}
-
 	if !p.quiet {
 		fmt.Fprintln(os.Stderr, "\nFont ranking (best fit first):")
-		for i, fr := range ranked {
+		for i, fr := range o.ranked {
 			fmt.Fprintf(os.Stderr, "  %d. %-32s %-20q total=%.4f\n",
-				i+1, cands[fr.Index].display, fr.Result.BestGuess, fr.Result.BestTotal)
+				i+1, o.cands[fr.Index].display, fr.Result.BestGuess, fr.Result.BestTotal)
 		}
-		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", cands[ranked[0].Index].display)
+		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", o.cands[o.ranked[0].Index].display)
 	}
-	fmt.Println(winner.bestGuess)
+	fmt.Println(o.winner.bestGuess)
 	return nil
+}
+
+// runSweep is sweepRecover followed by printSweep (the non-escalating path).
+func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands []candidateFont, p flagParams) error {
+	o, err := sweepRecover(ctx, img, base, cands, p)
+	if err != nil {
+		return err
+	}
+	return printSweep(o, p)
+}
+
+// runEscalation widens the charset (lowercase → alphanumeric → ASCII) until a
+// recovery clears the confidence bar, then prints the best tier (P3.6). The first
+// tier sweeps the whole font bundle; once the best-fit font is known it is locked
+// for the wider, costlier tiers, so escalation only pays for charset width — and
+// only when the narrower charset wasn't confident (a lowercase secret stops at
+// tier 1).
+func runEscalation(ctx context.Context, img image.Image, base unpixel.Config, cands []candidateFont, p flagParams) error {
+	tiers := []string{unpixel.CharsetLower, unpixel.CharsetAlnum, unpixel.CharsetASCII}
+	var best sweepOutcome
+	haveBest := false
+	active := cands
+	for i, cs := range tiers {
+		if ctx.Err() != nil {
+			break
+		}
+		cfg := base
+		cfg.Charset = cs
+		if !p.quiet && p.format != "json" {
+			fmt.Fprintf(os.Stderr, "Charset tier %d/%d (%d chars)…\n", i+1, len(tiers), len([]rune(cs)))
+		}
+		o, err := sweepRecover(ctx, img, cfg, active, p)
+		if err != nil {
+			return err
+		}
+		if !haveBest || fidelityOf(o.winner) > fidelityOf(best.winner) {
+			best, haveBest = o, true
+		}
+		if fidelityOf(o.winner) >= trustBar {
+			break // confident enough — don't widen further
+		}
+		// Lock to the best-fit font so the wider tiers don't re-sweep the bundle.
+		active = []candidateFont{o.cands[o.ranked[0].Index]}
+	}
+	if !haveBest {
+		return fmt.Errorf("no usable font to sweep")
+	}
+	return printSweep(best, p)
 }
 
 // trustBar is the whole-image confidence below which a recovery is reported as
@@ -690,6 +748,16 @@ Examples:
 				Usage: "refuse a recovery below this whole-image confidence in [0,1] (0 = always report)",
 				Value: 0,
 			},
+			&cli.BoolFlag{
+				Name:  "escalate",
+				Usage: "when no charset is given, widen it (lower → alnum → ascii) until a confident result",
+				Value: true,
+			},
+			&cli.IntFlag{
+				Name:  "charset-topk",
+				Usage: "with --language, evaluate only the k most-likely next chars per position (0 = all; trades recall for speed on wide charsets)",
+				Value: 0,
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -734,29 +802,32 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	p := flagParams{
-		charset:        charset,
-		maxLength:      cmd.Int("max-length"),
-		blockSize:      cmd.Int("block-size"),
-		threshold:      cmd.Float("threshold"),
-		spaceThreshold: cmd.Float("space-threshold"),
-		topN:           cmd.Int("top"),
-		workers:        cmd.Int("workers"),
-		strategy:       cmd.String("strategy"),
-		beamWidth:      cmd.Int("beam-width"),
-		metric:         cmd.String("metric"),
-		format:         cmd.String("format"),
-		fontPaths:      cmd.StringSlice("font"),
-		fontBoldPath:   cmd.String("font-bold"),
-		fontDir:        cmd.String("font-dir"),
-		redaction:      cmd.String("redaction"),
-		fontSize:       cmd.Float("font-size"),
-		letterSpacing:  cmd.Float("letter-spacing"),
-		blurSigma:      cmd.Float("blur-sigma"),
-		blurExact:      cmd.Bool("blur-exact"),
-		language:       cmd.Bool("language"),
-		minConfidence:  cmd.Float("min-confidence"),
-		quiet:          cmd.Bool("quiet"),
-		timeout:        cmd.Duration("timeout"),
+		charset:         charset,
+		maxLength:       cmd.Int("max-length"),
+		blockSize:       cmd.Int("block-size"),
+		threshold:       cmd.Float("threshold"),
+		spaceThreshold:  cmd.Float("space-threshold"),
+		topN:            cmd.Int("top"),
+		workers:         cmd.Int("workers"),
+		strategy:        cmd.String("strategy"),
+		beamWidth:       cmd.Int("beam-width"),
+		metric:          cmd.String("metric"),
+		format:          cmd.String("format"),
+		fontPaths:       cmd.StringSlice("font"),
+		fontBoldPath:    cmd.String("font-bold"),
+		fontDir:         cmd.String("font-dir"),
+		redaction:       cmd.String("redaction"),
+		fontSize:        cmd.Float("font-size"),
+		letterSpacing:   cmd.Float("letter-spacing"),
+		blurSigma:       cmd.Float("blur-sigma"),
+		blurExact:       cmd.Bool("blur-exact"),
+		language:        cmd.Bool("language"),
+		minConfidence:   cmd.Float("min-confidence"),
+		escalate:        cmd.Bool("escalate"),
+		charsetTopK:     cmd.Int("charset-topk"),
+		charsetExplicit: cmd.IsSet("charset") || cmd.IsSet("charset-preset"),
+		quiet:           cmd.Bool("quiet"),
+		timeout:         cmd.Duration("timeout"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -830,6 +901,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		cands, berr := bundleCandidates()
 		if berr != nil {
 			return berr
+		}
+		// No charset given → widen it until a confident result (P3.6).
+		if p.escalate && !p.charsetExplicit {
+			return runEscalation(ctx, img, cfg, cands, p)
 		}
 		return runSweep(ctx, img, cfg, cands, p)
 	case len(fontPaths) > 1:

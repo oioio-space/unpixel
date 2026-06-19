@@ -129,6 +129,13 @@ type Config struct {
 	// depth. Defaults to DefaultCharset (a–z plus space).
 	Charset string
 
+	// CharsetTopK, when > 0 and LanguageModel is set, prunes the per-position
+	// charset to the K most-likely next characters (by the language prior) before
+	// evaluating any — turning a wide charset (e.g. full ASCII) into K renders per
+	// position. It trades a little recall (the true char must be in the top K) for
+	// speed; 0 (the default) evaluates the whole charset and never loses recall.
+	CharsetTopK int
+
 	// Style controls the font size, weight, and padding used when rendering
 	// candidates. Zero fields use the design defaults (32 pt, 8 px padding).
 	Style Style
@@ -895,6 +902,10 @@ func WithPixelator(p Pixelator) Option { return func(c *Config) { c.Pixelator = 
 func WithLanguageModel(score func(string) float64) Option {
 	return func(c *Config) { c.LanguageModel = score }
 }
+
+// WithCharsetTopK sets Config.CharsetTopK: with a LanguageModel set, evaluate
+// only the k most-likely next characters per position (k<=0 disables pruning).
+func WithCharsetTopK(k int) Option { return func(c *Config) { c.CharsetTopK = k } }
 
 // ErrNoComponents is returned by the Recover helpers when the Config leaves a
 // component (Renderer, Pixelator, Metric, or Strategy) nil and the defaults
