@@ -59,3 +59,23 @@ func BenchmarkFastBlur_Pixelate(b *testing.B) {
 		sink = p.Pixelate(src, 0, 0)
 	}
 }
+
+// BenchmarkRichardsonLucy_5iter benchmarks RL deconvolution at sigma=3 with 5
+// iterations on a 264×40 image — the light-iteration regime (fast preview).
+func BenchmarkRichardsonLucy_5iter(b *testing.B) {
+	src := makePixelateSrc()
+	b.ReportAllocs()
+	for b.Loop() {
+		sink = pixelate.RichardsonLucy(src, 3, 5)
+	}
+}
+
+// BenchmarkRichardsonLucy_20iter benchmarks RL deconvolution at sigma=3 with
+// 20 iterations on a 264×40 image — the higher-quality convergence regime.
+func BenchmarkRichardsonLucy_20iter(b *testing.B) {
+	src := makePixelateSrc()
+	b.ReportAllocs()
+	for b.Loop() {
+		sink = pixelate.RichardsonLucy(src, 3, 20)
+	}
+}

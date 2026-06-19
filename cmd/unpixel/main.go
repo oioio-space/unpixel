@@ -76,6 +76,7 @@ type flagParams struct {
 	letterSpacing   float64
 	blurSigma       float64
 	minConfidence   float64
+	deblur          int
 	topN            int
 	charsetTopK     int
 	workers         int
@@ -756,6 +757,11 @@ Examples:
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
+			&cli.IntFlag{
+				Name:  "deblur",
+				Usage: "exploratory: pre-sharpen the input with Richardson-Lucy deconvolution for N iterations (uses --blur-sigma or auto; 0 = off)",
+				Value: 0,
+			},
 			&cli.BoolFlag{
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
@@ -842,6 +848,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		letterSpacing:   cmd.Float("letter-spacing"),
 		blurSigma:       cmd.Float("blur-sigma"),
 		blurExact:       cmd.Bool("blur-exact"),
+		deblur:          cmd.Int("deblur"),
 		language:        cmd.Bool("language"),
 		secrets:         cmd.Bool("secrets"),
 		minConfidence:   cmd.Float("min-confidence"),
@@ -880,6 +887,21 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			img = cropToRegion(img, region)
 			if !p.quiet {
 				fmt.Fprintf(os.Stderr, "Located blurred region: %dx%d\n", region.Dx(), region.Dy())
+			}
+		}
+	}
+
+	// Exploratory: pre-sharpen a blurred input with Richardson-Lucy deconvolution
+	// before the search. Off by default; uses the pinned sigma or an estimate.
+	if p.deblur > 0 {
+		sigma := p.blurSigma
+		if sigma <= 0 {
+			sigma = unpixel.InferBlurSigma(img)
+		}
+		if sigma > 0 {
+			img = defaults.Deblur(img, sigma, p.deblur)
+			if !p.quiet {
+				fmt.Fprintf(os.Stderr, "Deblurred input (Richardson-Lucy, sigma=%.1f, %d iterations)\n", sigma, p.deblur)
 			}
 		}
 	}

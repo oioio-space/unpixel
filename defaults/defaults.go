@@ -23,6 +23,8 @@ package defaults
 
 import (
 	"fmt"
+	"image"
+	"image/draw"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/lang"
@@ -110,6 +112,27 @@ func GaussianBlur(sigma float64) unpixel.Pixelator {
 //	cfg := unpixel.Config{Pixelator: defaults.FastBlur(6), BlockSize: 1}
 func FastBlur(sigma float64) unpixel.Pixelator {
 	return pixelate.NewFastBlur(sigma)
+}
+
+// Deblur sharpens a Gaussian-blurred image with pure-Go Richardson-Lucy
+// deconvolution (a Gaussian point-spread function of the given sigma, run for the
+// given number of iterations) and returns a fresh *image.RGBA. img is copied, so
+// the input is never mutated; iterations <= 0 or sigma <= 0 returns an unmodified
+// copy. Estimate sigma with [github.com/oioio-space/unpixel.InferBlurSigma].
+//
+// This is an exploratory preprocessing/inspection step, not part of the
+// generate-and-test loop (which already reproduces blur on each candidate): for
+// recovering blurred redactions the default render→blur→compare search is usually
+// stronger. Deblur is useful to sharpen an image for visual inspection or as a
+// front-end to other tooling. 5–30 iterations is the usual range.
+func Deblur(img image.Image, sigma float64, iterations int) *image.RGBA {
+	src, ok := img.(*image.RGBA)
+	if !ok {
+		b := img.Bounds()
+		src = image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+		draw.Draw(src, src.Bounds(), img, b.Min, draw.Src)
+	}
+	return pixelate.RichardsonLucy(src, sigma, iterations)
 }
 
 // LanguageModel returns the bundled character-bigram plausibility scorer (higher
