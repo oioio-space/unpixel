@@ -287,6 +287,18 @@ func (r Result) String() string {
 	}
 }
 
+// Fidelity reports how well BestGuess reproduces the whole redaction, in [0, 1]
+// (1 = pixel-perfect), as 1 − BestTotal. It is the honest confidence signal:
+// unlike Confidence (derived from the marginal score, which a prefix or fluke
+// drives to ~1), Fidelity reflects the whole-image match, so a low value means
+// "this recovery is probably wrong / unrecoverable". It is 0 for an empty guess.
+func (r Result) Fidelity() float64 {
+	if r.BestGuess == "" {
+		return 0
+	}
+	return max(0, min(1, 1-r.BestTotal))
+}
+
 // String returns the candidate and its marginal score, e.g. `"hello" (0.0123)`.
 func (e Eval) String() string {
 	return fmt.Sprintf("%q (%.4f)", e.Guess, e.Score)

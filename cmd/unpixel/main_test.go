@@ -361,6 +361,32 @@ func TestBundleCandidates(t *testing.T) {
 	}
 }
 
+// TestReportConfidence covers the verdict + honest-abort gate.
+func TestReportConfidence(t *testing.T) {
+	// Below --min-confidence → error (honest abort).
+	if err := reportConfidence(0.3, flagParams{quiet: true, minConfidence: 0.5}); err == nil {
+		t.Error("low fidelity below --min-confidence: expected error, got nil")
+	}
+	// At/above the bar → no error.
+	if err := reportConfidence(0.9, flagParams{quiet: true, minConfidence: 0.5}); err != nil {
+		t.Errorf("high fidelity: unexpected error %v", err)
+	}
+	// No --min-confidence → never gates, regardless of fidelity.
+	if err := reportConfidence(0.0, flagParams{quiet: true}); err != nil {
+		t.Errorf("min-confidence 0 should never gate; got %v", err)
+	}
+}
+
+// TestFidelityOf mirrors unpixel.Result.Fidelity for the CLI struct.
+func TestFidelityOf(t *testing.T) {
+	if got := fidelityOf(recoveryResult{bestGuess: "go", bestTotal: 0.2}); got < 0.79 || got > 0.81 {
+		t.Errorf("fidelityOf = %v, want ~0.8", got)
+	}
+	if got := fidelityOf(recoveryResult{bestGuess: "", bestTotal: 0}); got != 0 {
+		t.Errorf("fidelityOf(empty) = %v, want 0", got)
+	}
+}
+
 // TestCollectFonts verifies that explicit --font paths and a --font-dir scan
 // are merged, filtered to font extensions, and de-duplicated in order.
 func TestCollectFonts(t *testing.T) {

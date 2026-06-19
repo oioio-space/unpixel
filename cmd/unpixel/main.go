@@ -73,6 +73,7 @@ type flagParams struct {
 	fontSize       float64
 	letterSpacing  float64
 	blurSigma      float64
+	minConfidence  float64
 	topN           int
 	workers        int
 	beamWidth      int
@@ -175,17 +176,19 @@ func validateParams(p flagParams) error {
 // resultJSON is the stable JSON schema emitted by --format json.
 // Field names use snake_case for CLI convention and are stable across versions.
 type resultJSON struct {
-	BestGuess  string         `json:"best_guess"`
-	Font       string         `json:"font,omitempty"`
-	Top        []topEntry     `json:"top"`
-	Fonts      []fontRankJSON `json:"fonts,omitempty"`
-	Offset     offsetJSON     `json:"offset"`
-	BestScore  float64        `json:"best_score"`
-	TotalScore float64        `json:"total_score"`
-	Confidence float64        `json:"confidence"`
-	Ambiguity  float64        `json:"ambiguity"`
-	Evaluated  int            `json:"evaluated"`
-	ElapsedMS  int64          `json:"elapsed_ms"`
+	BestGuess   string         `json:"best_guess"`
+	Font        string         `json:"font,omitempty"`
+	Top         []topEntry     `json:"top"`
+	Fonts       []fontRankJSON `json:"fonts,omitempty"`
+	Offset      offsetJSON     `json:"offset"`
+	BestScore   float64        `json:"best_score"`
+	TotalScore  float64        `json:"total_score"`
+	Fidelity    float64        `json:"fidelity"`
+	Trustworthy bool           `json:"trustworthy"`
+	Confidence  float64        `json:"confidence"`
+	Ambiguity   float64        `json:"ambiguity"`
+	Evaluated   int            `json:"evaluated"`
+	ElapsedMS   int64          `json:"elapsed_ms"`
 }
 
 // fontRankJSON is one font's result in a multi-font sweep, ranked by total_score.
@@ -412,6 +415,9 @@ func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands [
 
 	winner := resultToRecovery(ranked[0].Result, cands[ranked[0].Index].jsonName)
 
+	if err := reportConfidence(fidelityOf(winner), p); err != nil {
+		return err
+	}
 	if p.format == "json" {
 		rankedJSON := make([]fontRankJSON, len(ranked))
 		for i, fr := range ranked {
@@ -434,6 +440,41 @@ func runSweep(ctx context.Context, img image.Image, base unpixel.Config, cands [
 		fmt.Fprintf(os.Stderr, "\nBest font: %s\n", cands[ranked[0].Index].display)
 	}
 	fmt.Println(winner.bestGuess)
+	return nil
+}
+
+// trustBar is the whole-image confidence below which a recovery is reported as
+// untrustworthy ("uncertain — possibly unrecoverable"). It is the default verdict
+// threshold; --min-confidence gates the output itself.
+const trustBar = 0.5
+
+// fidelityOf is the CLI mirror of unpixel.Result.Fidelity for a recoveryResult:
+// 1 − bestTotal (0 for an empty guess), the honest whole-image confidence.
+func fidelityOf(r recoveryResult) float64 {
+	if r.bestGuess == "" {
+		return 0
+	}
+	return max(0, min(1, 1-r.bestTotal))
+}
+
+// reportConfidence prints a confidence verdict (unless quiet/JSON) and returns an
+// error when the recovery is below --min-confidence — an honest abort instead of
+// emitting a likely-wrong guess. fidelity is the whole-image confidence in [0,1].
+func reportConfidence(fidelity float64, p flagParams) error {
+	if !p.quiet && p.format != "json" {
+		label := "high"
+		switch {
+		case fidelity < trustBar:
+			label = "low — possibly unrecoverable"
+		case fidelity < 0.8:
+			label = "medium"
+		}
+		fmt.Fprintf(os.Stderr, "Confidence: %.2f (%s)\n", fidelity, label)
+	}
+	if p.minConfidence > 0 && fidelity < p.minConfidence {
+		return fmt.Errorf("recovery confidence %.2f is below --min-confidence %.2f; not reporting a likely-wrong guess",
+			fidelity, p.minConfidence)
+	}
 	return nil
 }
 
@@ -644,6 +685,11 @@ Examples:
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
 			},
+			&cli.FloatFlag{
+				Name:  "min-confidence",
+				Usage: "refuse a recovery below this whole-image confidence in [0,1] (0 = always report)",
+				Value: 0,
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -708,6 +754,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		blurSigma:      cmd.Float("blur-sigma"),
 		blurExact:      cmd.Bool("blur-exact"),
 		language:       cmd.Bool("language"),
+		minConfidence:  cmd.Float("min-confidence"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}
@@ -856,6 +903,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	<-progressDone
 	elapsed := time.Since(start)
 
+	if err := reportConfidence(fidelityOf(best), p); err != nil {
+		return err
+	}
 	switch p.format {
 	case "json":
 		return printJSON(best, nil, evaluated, elapsed)
@@ -872,18 +922,21 @@ func printJSON(r recoveryResult, fonts []fontRankJSON, evaluated int, elapsed ti
 	for i, e := range r.top {
 		top[i] = topEntry{Guess: e.Guess, Score: e.Score}
 	}
+	fid := fidelityOf(r)
 	out := resultJSON{
-		BestGuess:  r.bestGuess,
-		Font:       r.font,
-		BestScore:  r.bestScore,
-		TotalScore: r.bestTotal,
-		Offset:     offsetJSON{X: r.offset.X, Y: r.offset.Y},
-		Confidence: r.confidence,
-		Ambiguity:  r.ambiguity,
-		Top:        top,
-		Fonts:      fonts,
-		Evaluated:  evaluated,
-		ElapsedMS:  elapsed.Milliseconds(),
+		BestGuess:   r.bestGuess,
+		Font:        r.font,
+		BestScore:   r.bestScore,
+		TotalScore:  r.bestTotal,
+		Fidelity:    fid,
+		Trustworthy: fid >= trustBar,
+		Offset:      offsetJSON{X: r.offset.X, Y: r.offset.Y},
+		Confidence:  r.confidence,
+		Ambiguity:   r.ambiguity,
+		Top:         top,
+		Fonts:       fonts,
+		Evaluated:   evaluated,
+		ElapsedMS:   elapsed.Milliseconds(),
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

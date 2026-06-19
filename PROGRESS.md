@@ -445,3 +445,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `e207275` 2026-06-19 — docs: delta vs current version and vs Bishop Fox unredacter _(1 fichiers)_
 - `c25bb16` 2026-06-19 — docs(delta): add performance comparison vs Bishop Fox unredacter _(1 fichiers)_
 - `a74f6b3` 2026-06-19 — docs: update README and PROGRESS for v0.4.0 _(2 fichiers)_
+- `d7544f2` 2026-06-19 — docs(progress): align stale figures with v0.4.0 _(1 fichiers)_
