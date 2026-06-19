@@ -362,3 +362,5 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `4d93016` 2026-06-19 — feat(search): never select an all-whitespace guess as the recovery _(4 fichiers)_
 - `cbc6769` 2026-06-19 — feat(render): custom fonts + letter-spacing to target real redactions _(6 fichiers)_
 - `ff08327` 2026-06-19 — feat(search): whole-image TotalScore to pick the complete answer _(9 fichiers)_
+- `e4a1a5c` 2026-06-19 — feat(cli): sweep multiple fonts and keep the best fit _(5 fichiers)_
+- `7444a59` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_

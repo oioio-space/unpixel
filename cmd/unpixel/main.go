@@ -28,8 +28,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -321,36 +323,76 @@ func collectFonts(p flagParams) ([]string, error) {
 // "fonts" array (JSON mode).
 func runSweep(ctx context.Context, img image.Image, base unpixel.Config, fonts []string, p flagParams) error {
 	verbose := !p.quiet && p.format != "json"
+
+	// Split a fixed core budget between sweeping fonts in parallel and the
+	// per-font offset fan-out, so the two layers never oversubscribe the CPU:
+	// concurrency fonts run at once, each search using budget/concurrency workers.
+	budget := p.workers
+	if budget <= 0 {
+		budget = runtime.GOMAXPROCS(0)
+	}
+	concurrency := max(1, min(len(fonts), budget))
+	workersPerFont := max(1, budget/concurrency)
 	if verbose {
-		fmt.Fprintf(os.Stderr, "Sweeping %d fonts…\n", len(fonts))
+		fmt.Fprintf(os.Stderr, "Sweeping %d fonts (%d in parallel, %d workers each)…\n",
+			len(fonts), concurrency, workersPerFont)
 	}
 
+	// outcome per font, indexed by font order for a deterministic collection.
+	type outcome struct {
+		res       recoveryResult
+		evaluated int
+		ok        bool
+	}
+	outcomes := make([]outcome, len(fonts))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	var printMu sync.Mutex
+	start := time.Now()
+
+	for i, f := range fonts {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			renderer, err := loadRenderer(f, "")
+			if err != nil {
+				printMu.Lock()
+				fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
+				printMu.Unlock()
+				return
+			}
+			cfg := base
+			cfg.Renderer = renderer
+			cfg.Workers = workersPerFont
+			res, elapsed, evaluated, err := runRecovery(ctx, img, cfg)
+			if err != nil {
+				printMu.Lock()
+				fmt.Fprintf(os.Stderr, "unpixel: font %q: %v\n", f, err)
+				printMu.Unlock()
+				return
+			}
+			res.font = f
+			outcomes[i] = outcome{res: res, evaluated: evaluated, ok: true}
+			if verbose {
+				printMu.Lock()
+				fmt.Fprintf(os.Stderr, "  %-32s → %-20q total=%.4f (%s)\n",
+					filepath.Base(f), res.bestGuess, res.bestTotal, elapsed.Round(time.Millisecond))
+				printMu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	totalElapsed := time.Since(start)
+
 	var results []recoveryResult
-	var totalElapsed time.Duration
 	sumEval := 0
-	for _, f := range fonts {
-		if ctx.Err() != nil {
-			break
-		}
-		renderer, err := loadRenderer(f, "")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "unpixel: skipping %q: %v\n", f, err)
-			continue
-		}
-		cfg := base
-		cfg.Renderer = renderer
-		res, elapsed, evaluated, err := runRecovery(ctx, img, cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "unpixel: font %q: %v\n", f, err)
-			continue
-		}
-		res.font = f
-		totalElapsed += elapsed
-		results = append(results, res)
-		sumEval += evaluated
-		if verbose {
-			fmt.Fprintf(os.Stderr, "  %-32s → %-20q total=%.4f (%s)\n",
-				filepath.Base(f), res.bestGuess, res.bestTotal, elapsed.Round(time.Millisecond))
+	for _, o := range outcomes {
+		if o.ok {
+			results = append(results, o.res)
+			sumEval += o.evaluated
 		}
 	}
 	if len(results) == 0 {
