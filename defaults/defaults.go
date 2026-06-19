@@ -80,6 +80,27 @@ func RendererFromFonts(regularTTF, boldTTF []byte) (unpixel.Renderer, error) {
 	return render.NewXImageFromFonts(regularTTF, boldTTF)
 }
 
+// BlockAverage returns the faithful mosaic pixelator (per-block mean RGBA) for
+// the given block size, ready to assign to Config.Pixelator. It is the same
+// operator Wire installs by default; name it explicitly to pair with a non-zero
+// Config.BlockSize, or alongside GaussianBlur when selecting the redaction mode.
+func BlockAverage(blockSize int) unpixel.Pixelator {
+	return pixelate.NewBlockAverage(blockSize)
+}
+
+// GaussianBlur returns a Gaussian-blur redaction operator (sigma in pixels) as
+// an unpixel.Pixelator, for recovering blurred — rather than mosaic-pixelated —
+// text. Assign it to Config.Pixelator with Config.BlockSize = 1 (blur has no
+// grid), then run the normal search:
+//
+//	cfg := unpixel.Config{Pixelator: defaults.GaussianBlur(6), BlockSize: 1}
+//
+// Like mosaic, blur is a deterministic function of its input, so the same
+// generate-and-test attack applies (render → blur → compare).
+func GaussianBlur(sigma float64) unpixel.Pixelator {
+	return pixelate.NewGaussianBlur(sigma)
+}
+
 // GuidedStrategy returns the guided depth-first search strategy as an
 // unpixel.Strategy, ready to assign to Config.Strategy. It is the same strategy
 // Wire installs when Config.Strategy is nil; call it explicitly only for

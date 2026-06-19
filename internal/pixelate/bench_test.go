@@ -36,3 +36,15 @@ func BenchmarkBlockAverage_Pixelate(b *testing.B) {
 		sink = p.Pixelate(src, 3, 3)
 	}
 }
+
+// BenchmarkGaussianBlur_Pixelate benchmarks the separable Gaussian blur (the
+// blur-redaction operator) on the same 264×40 image at sigma=6 — a realistic
+// redaction blur radius.
+func BenchmarkGaussianBlur_Pixelate(b *testing.B) {
+	src := makePixelateSrc()
+	p := pixelate.NewGaussianBlur(6)
+	b.ReportAllocs()
+	for b.Loop() {
+		sink = p.Pixelate(src, 0, 0)
+	}
+}

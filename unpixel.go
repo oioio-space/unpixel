@@ -681,6 +681,11 @@ func WithRenderer(r Renderer) Option { return func(c *Config) { c.Renderer = r }
 // WithMetric sets Config.Metric (the image-distance metric).
 func WithMetric(m Metric) Option { return func(c *Config) { c.Metric = m } }
 
+// WithPixelator sets Config.Pixelator (the redaction operator the search
+// reproduces). Use it with defaults.GaussianBlur(sigma) and WithBlockSize(1) to
+// recover blurred text instead of mosaic pixelation.
+func WithPixelator(p Pixelator) Option { return func(c *Config) { c.Pixelator = p } }
+
 // ErrNoComponents is returned by the Recover helpers when the Config leaves a
 // component (Renderer, Pixelator, Metric, or Strategy) nil and the defaults
 // package has not been imported to wire them.
