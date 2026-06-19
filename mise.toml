@@ -107,6 +107,10 @@ run = "./scripts/bench.sh run"
 description = "Run benchmarks and save bench-baseline.txt (before optimizing)"
 run = "./scripts/bench.sh baseline"
 
+[tasks."bench:record"]
+description = "Record key benchmarks to benchmarks/latest.txt (commit it to compare across commits)"
+run = "go test -run '^$' -bench 'DiscoverOffsets/workers_1|XImage_Render|FillWhite' -benchmem -count 6 ./internal/... | tee benchmarks/latest.txt"
+
 [tasks."bench:compare"]
 description = "Run benchmarks and benchstat vs baseline (after optimizing)"
 run = "./scripts/bench.sh compare"

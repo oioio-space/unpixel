@@ -1,0 +1,50 @@
+PASS
+ok  	github.com/oioio-space/unpixel/internal/fixture	0.002s
+PASS
+ok  	github.com/oioio-space/unpixel/internal/fixture/gen	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/oioio-space/unpixel/internal/imutil
+cpu: 13th Gen Intel(R) Core(TM) i7-1370P
+BenchmarkFillWhite-20    	 6693558	       173.6 ns/op	184358.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6933289	       172.1 ns/op	185934.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6876157	       173.5 ns/op	184455.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6923496	       170.5 ns/op	187629.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 7057938	       170.4 ns/op	187811.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 7114308	       168.7 ns/op	189651.69 MB/s	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/oioio-space/unpixel/internal/imutil	7.138s
+PASS
+ok  	github.com/oioio-space/unpixel/internal/metric	0.002s
+PASS
+ok  	github.com/oioio-space/unpixel/internal/pixelate	0.002s
+goos: linux
+goarch: amd64
+pkg: github.com/oioio-space/unpixel/internal/render
+cpu: 13th Gen Intel(R) Core(TM) i7-1370P
+BenchmarkXImage_Render/default_32pt-20         	   31734	     37914 ns/op	   57411 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   32769	     38039 ns/op	   57411 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   30722	     38190 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   30218	     38491 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   33166	     37426 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   32174	     37465 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   42817	     28325 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   41180	     28687 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   41754	     28726 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   41233	     29439 ns/op	   41025 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   42896	     28844 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   40131	     29193 ns/op	   41025 B/op	       2 allocs/op
+PASS
+ok  	github.com/oioio-space/unpixel/internal/render	14.458s
+goos: linux
+goarch: amd64
+pkg: github.com/oioio-space/unpixel/internal/search
+cpu: 13th Gen Intel(R) Core(TM) i7-1370P
+BenchmarkDiscoverOffsets/workers_1-20         	      46	  25482470 ns/op	37295209 B/op	   17173 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      49	  24900284 ns/op	37295182 B/op	   17174 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      48	  24477680 ns/op	37295024 B/op	   17173 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      54	  24554209 ns/op	37295074 B/op	   17174 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      40	  25020196 ns/op	37294996 B/op	   17173 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      49	  24291941 ns/op	37295201 B/op	   17175 allocs/op
+PASS
+ok  	github.com/oioio-space/unpixel/internal/search	7.091s
