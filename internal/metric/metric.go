@@ -4,9 +4,20 @@ package metric
 
 import (
 	"image"
+	"sync"
 
 	"github.com/orisano/pixelmatch"
 )
+
+// grayscalePool pools []float64 scratch buffers used by grayscale.
+// Each buffer is sized to hold at least w*h float64 luminance values for one
+// image. grayscale() allocates from this pool and Compare() returns it
+// immediately after use — the buffer never escapes SSIM.Compare.
+// A Get that returns an insufficiently-sized slice is discarded and a fresh
+// one is allocated, so correctness is never compromised.
+var grayscalePool = sync.Pool{
+	New: func() any { return new([]float64) },
+}
 
 // RGB is a simple per-pixel metric: the fraction of pixels whose RGB values
 // differ by any amount between the two images.
@@ -107,8 +118,21 @@ func (m SSIM) Compare(a, b *image.RGBA) float64 {
 	}
 	win := min(m.window, w, h)
 
-	ga := grayscale(a, w, h)
-	gb := grayscale(b, w, h)
+	// Borrow two scratch buffers from the pool; each holds w*h luminance values.
+	// Both are returned before Compare returns, so they never escape this call.
+	need := w * h
+	pA := grayscalePool.Get().(*[]float64)
+	pB := grayscalePool.Get().(*[]float64)
+	if cap(*pA) < need {
+		*pA = make([]float64, need)
+	}
+	if cap(*pB) < need {
+		*pB = make([]float64, need)
+	}
+	ga := (*pA)[:need]
+	gb := (*pB)[:need]
+	grayscale(a, w, h, ga)
+	grayscale(b, w, h, gb)
 
 	// Stabilising constants for dynamic range L=255 (Wang et al. 2004).
 	const (
@@ -124,6 +148,10 @@ func (m SSIM) Compare(a, b *image.RGBA) float64 {
 			windows++
 		}
 	}
+
+	grayscalePool.Put(pA)
+	grayscalePool.Put(pB)
+
 	if windows == 0 {
 		return 0
 	}
@@ -164,16 +192,16 @@ func windowSSIM(ga, gb []float64, w, x0, y0, win int, c1, c2 float64) float64 {
 	return ((2*muA*muB + c1) * (2*cov + c2)) / ((muA*muA + muB*muB + c1) * (varA + varB + c2))
 }
 
-// grayscale returns the Rec.601 luminance of the top-left w×h region of img as a
-// row-major slice of length w*h.
-func grayscale(img *image.RGBA, w, h int) []float64 {
+// grayscale fills out with the Rec.601 luminance of the top-left w×h region of
+// img. out must have length exactly w*h; it is overwritten before any read, so
+// no zeroing is required. grayscale never returns out, keeping it non-escaping
+// from the caller's perspective and making it safe to borrow from grayscalePool.
+func grayscale(img *image.RGBA, w, h int, out []float64) {
 	b := img.Bounds()
-	out := make([]float64, w*h)
 	for y := range h {
 		for x := range w {
 			c := img.RGBAAt(b.Min.X+x, b.Min.Y+y)
 			out[y*w+x] = 0.299*float64(c.R) + 0.587*float64(c.G) + 0.114*float64(c.B)
 		}
 	}
-	return out
 }

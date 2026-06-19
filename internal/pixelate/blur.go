@@ -9,7 +9,17 @@ package pixelate
 import (
 	"image"
 	"math"
+	"sync"
 )
+
+// blurTmpPool pools the interleaved RGBA float64 scratch buffer used by the
+// horizontal pass of GaussianBlur.Pixelate. The buffer is sized w*h*4 float64s
+// and is fully overwritten before any read, so no zeroing is needed between
+// uses. It is Put back before Pixelate returns and never escapes the call,
+// making it safe to share across concurrent Pixelate calls on distinct images.
+var blurTmpPool = sync.Pool{
+	New: func() any { return new([]float64) },
+}
 
 // GaussianBlur implements unpixel.Pixelator as a separable Gaussian blur with
 // clamped edges. The Pixelate origin arguments are ignored (blur has no grid).
@@ -56,7 +66,14 @@ func (g *GaussianBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 	}
 
 	// Horizontal pass: src → tmp (float, 4 channels interleaved).
-	tmp := make([]float64, w*h*4)
+	// Borrow a scratch buffer from the pool; it is returned before Pixelate
+	// returns so it never escapes this call.
+	need := w * h * 4
+	pTmp := blurTmpPool.Get().(*[]float64)
+	if cap(*pTmp) < need {
+		*pTmp = make([]float64, need)
+	}
+	tmp := (*pTmp)[:need]
 	for y := range h {
 		rowOff := src.PixOffset(b.Min.X, b.Min.Y+y)
 		for x := range w {
@@ -95,6 +112,7 @@ func (g *GaussianBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 			dst.Pix[d+3] = round8(a)
 		}
 	}
+	blurTmpPool.Put(pTmp)
 	return dst
 }
 

@@ -11,7 +11,17 @@ package pixelate
 import (
 	"image"
 	"math"
+	"sync"
 )
+
+// fastBlurBufPool pools the interleaved RGBA uint8 ping-pong buffers used by
+// FastBlur.Pixelate. Each buffer holds w*h*4 bytes for one image. Pixelate
+// borrows two pointers, fills them during the box passes, then returns both
+// before the function exits — neither buffer escapes the call, making concurrent
+// Pixelate calls on distinct images safe.
+var fastBlurBufPool = sync.Pool{
+	New: func() any { return new([]uint8) },
+}
 
 // FastBlur implements unpixel.Pixelator as a 3-box-pass Gaussian approximation.
 type FastBlur struct {
@@ -67,12 +77,24 @@ func (f *FastBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 	}
 
 	// Work on a tight copy of src (origin 0,0) ping-ponged between two buffers.
-	a := make([]uint8, w*h*4)
+	// Borrow both from the pool; they are returned before Pixelate returns so
+	// neither escapes this call.
+	need := w * h * 4
+	pA := fastBlurBufPool.Get().(*[]uint8)
+	pBuf := fastBlurBufPool.Get().(*[]uint8)
+	if cap(*pA) < need {
+		*pA = make([]uint8, need)
+	}
+	if cap(*pBuf) < need {
+		*pBuf = make([]uint8, need)
+	}
+	a := (*pA)[:need]
+	buf := (*pBuf)[:need]
+
 	for y := range h {
 		so := src.PixOffset(b.Min.X, b.Min.Y+y)
 		copy(a[y*w*4:y*w*4+w*4], src.Pix[so:so+w*4])
 	}
-	buf := make([]uint8, w*h*4)
 
 	for _, r := range f.radii {
 		if r <= 0 {
@@ -82,6 +104,8 @@ func (f *FastBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 		boxBlurV(buf, a, w, h, r)
 	}
 	copy(dst.Pix, a)
+	fastBlurBufPool.Put(pA)
+	fastBlurBufPool.Put(pBuf)
 	return dst
 }
 
