@@ -32,6 +32,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/fixture"
+	"github.com/oioio-space/unpixel/internal/secrets"
 )
 
 // baselinePath is the committed previous-version panel the current run is
@@ -70,15 +71,21 @@ type panelSummary struct {
 }
 
 // recoverOne runs the engine on one fixture with its known parameters and
-// returns the result; identical option wiring to the recovery matrix.
+// returns the result. Secret fixtures additionally get the structured-secret
+// prior (internal/secrets), so the panel measures that feature on the cases it
+// targets — credentials and structured tokens.
 func recoverOne(ctx context.Context, img image.Image, s fixture.Spec) (unpixel.Result, error) {
-	return unpixel.Recover(ctx, img,
+	opts := []unpixel.Option{
 		unpixel.WithStyle(s.Style()),
 		unpixel.WithBlockSize(s.BlockSize),
 		unpixel.WithCharset(s.Charset),
-		unpixel.WithMaxLength(utf8.RuneCountInString(s.Text)+1),
+		unpixel.WithMaxLength(utf8.RuneCountInString(s.Text) + 1),
 		unpixel.WithWorkers(2),
-	)
+	}
+	if s.Secret {
+		opts = append(opts, unpixel.WithPriors(secrets.Prior))
+	}
+	return unpixel.Recover(ctx, img, opts...)
 }
 
 // runPanel recovers every fixture once and assembles the report.

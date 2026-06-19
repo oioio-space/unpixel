@@ -907,6 +907,58 @@ func WithLanguageModel(score func(string) float64) Option {
 // only the k most-likely next characters per position (k<=0 disables pruning).
 func WithCharsetTopK(k int) Option { return func(c *Config) { c.CharsetTopK = k } }
 
+// WithPriors composes one or more plausibility priors into Config.LanguageModel.
+// Each prior is a function from candidate string to a non-negative log-space
+// score (higher = more plausible). Nil priors are silently skipped.
+//
+// The resulting LanguageModel is the sum of all provided priors AND any
+// LanguageModel already set on the Config, so WithPriors composes correctly
+// regardless of option order:
+//
+//	unpixel.Recover(ctx, img,
+//	    unpixel.WithLanguageModel(myBigram),   // set first
+//	    unpixel.WithPriors(secrets.Prior),     // adds on top
+//	)
+//
+// The combined prior is used in two places:
+//   - RankFinal breaks ties between candidates whose whole-image scores are
+//     within lmTieBand (0.01) of each other, preferring higher-prior strings.
+//   - WithCharsetTopK prunes the per-position charset to the K most-likely
+//     next characters before evaluating any candidates, trading a little recall
+//     for speed on wide charsets.
+func WithPriors(priors ...func(string) float64) Option {
+	return func(c *Config) {
+		// Collect non-nil priors.
+		active := make([]func(string) float64, 0, len(priors)+1)
+		for _, p := range priors {
+			if p != nil {
+				active = append(active, p)
+			}
+		}
+		if len(active) == 0 {
+			return
+		}
+		// Incorporate any prior already on the Config.
+		if c.LanguageModel != nil {
+			active = append(active, c.LanguageModel)
+		}
+		// Single prior — avoid the allocation of a closure that just calls one func.
+		if len(active) == 1 {
+			c.LanguageModel = active[0]
+			return
+		}
+		// Capture by value so the closure is independent of further mutations.
+		captured := active
+		c.LanguageModel = func(s string) float64 {
+			var sum float64
+			for _, p := range captured {
+				sum += p(s)
+			}
+			return sum
+		}
+	}
+}
+
 // ErrNoComponents is returned by the Recover helpers when the Config leaves a
 // component (Renderer, Pixelator, Metric, or Strategy) nil and the defaults
 // package has not been imported to wire them.

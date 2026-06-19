@@ -138,5 +138,38 @@
     "block_size": 8,
     "padding_top": 8,
     "padding_left": 8
+  },
+  {
+    "name": "secret_admin",
+    "text": "admin",
+    "charset": "admin xyz0",
+    "font_size": 32,
+    "bold": false,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "secret": true
+  },
+  {
+    "name": "secret_azerty",
+    "text": "azerty",
+    "charset": "azerty 0",
+    "font_size": 32,
+    "bold": false,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "secret": true
+  },
+  {
+    "name": "secret_pin1234",
+    "text": "1234",
+    "charset": "0123456789",
+    "font_size": 32,
+    "bold": false,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "secret": true
   }
 ]

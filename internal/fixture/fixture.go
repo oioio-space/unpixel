@@ -29,6 +29,10 @@ type Spec struct {
 	BlockSize   int     `json:"block_size"`
 	PaddingTop  int     `json:"padding_top"`
 	PaddingLeft int     `json:"padding_left"`
+	// Secret marks a fixture whose plaintext is a credential/structured token
+	// (common password, PIN, …). Recovery harnesses use it to exercise the
+	// structured-secret prior (internal/secrets) on these cases.
+	Secret bool `json:"secret,omitempty"`
 }
 
 // Style returns the unpixel.Style described by the spec.
@@ -78,6 +82,13 @@ func Matrix() []Spec {
 		{Name: "text_cat", Text: "cat", Charset: "cat eoabd", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8},
 		{Name: "text_with_space", Text: "a b", Charset: "ab cde", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8},
 		{Name: "text_hello", Text: "hello", Charset: "helo abcd", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8},
+		// Secrets: credential/structured-token plaintext, used to exercise the
+		// structured-secret prior (internal/secrets). "admin" and "azerty" are
+		// common passwords; "1234" is a digit PIN. Charsets stay compact so the
+		// matrix stays fast (target chars plus a few distractors).
+		{Name: "secret_admin", Text: "admin", Charset: "admin xyz0", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8, Secret: true},
+		{Name: "secret_azerty", Text: "azerty", Charset: "azerty 0", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8, Secret: true},
+		{Name: "secret_pin1234", Text: "1234", Charset: "0123456789", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8, Secret: true},
 	}
 }
 

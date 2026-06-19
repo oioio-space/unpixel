@@ -57,6 +57,43 @@ func TestBuildConfig_Defaults(t *testing.T) {
 	}
 }
 
+// TestBuildConfig_SecretsFlag verifies that --secrets wires a non-nil LanguageModel
+// via secrets.Prior through WithPriors.
+func TestBuildConfig_SecretsFlag(t *testing.T) {
+	t.Parallel()
+	cfg := buildConfig(flagParams{secrets: true})
+	if cfg.LanguageModel == nil {
+		t.Fatal("buildConfig(secrets=true): LanguageModel is nil, want non-nil")
+	}
+	// A UUID should receive a positive prior (BonusStructured = 1.0).
+	if got := cfg.LanguageModel("550e8400-e29b-41d4-a716-446655440000"); got <= 0 {
+		t.Errorf("LanguageModel(uuid) = %v, want > 0", got)
+	}
+	// An arbitrary word gets no bonus.
+	if got := cfg.LanguageModel("xyzzy"); got != 0 {
+		t.Errorf("LanguageModel(unknown) = %v, want 0", got)
+	}
+}
+
+// TestBuildConfig_LanguageAndSecretsBothSet verifies that --language and --secrets
+// compose: the resulting LanguageModel is the sum of both priors.
+func TestBuildConfig_LanguageAndSecretsBothSet(t *testing.T) {
+	t.Parallel()
+	cfgBoth := buildConfig(flagParams{language: true, secrets: true})
+	cfgLang := buildConfig(flagParams{language: true})
+	cfgSec := buildConfig(flagParams{secrets: true})
+	if cfgBoth.LanguageModel == nil || cfgLang.LanguageModel == nil || cfgSec.LanguageModel == nil {
+		t.Fatal("one of the LanguageModels is nil")
+	}
+	// For a UUID, both = language(s) + secrets(s) = lang + struct bonus.
+	s := "550e8400-e29b-41d4-a716-446655440000"
+	gotBoth := cfgBoth.LanguageModel(s)
+	wantBoth := cfgLang.LanguageModel(s) + cfgSec.LanguageModel(s)
+	if gotBoth != wantBoth {
+		t.Errorf("both priors: LanguageModel(%q) = %v, want %v (sum)", s, gotBoth, wantBoth)
+	}
+}
+
 // TestJSONOutput verifies the resultJSON struct round-trips through encoding/json
 // with stable field names and that all required keys are present.
 func TestJSONOutput(t *testing.T) {

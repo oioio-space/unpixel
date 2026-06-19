@@ -36,8 +36,10 @@ import (
 	"golang.org/x/term"
 
 	"github.com/oioio-space/unpixel"
-	"github.com/oioio-space/unpixel/defaults" // named: strategy/metric constructors; init() still wires defaults
-	"github.com/oioio-space/unpixel/fonts"    // bundled redistributable fonts for the zero-config sweep
+	"github.com/oioio-space/unpixel/defaults"         // named: strategy/metric constructors; init() still wires defaults
+	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
+	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
+	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
 )
 
 // version and commit are injected by goreleaser via -ldflags -X.
@@ -82,6 +84,7 @@ type flagParams struct {
 	quiet           bool
 	blurExact       bool
 	language        bool
+	secrets         bool
 	escalate        bool
 	charsetExplicit bool
 }
@@ -136,8 +139,22 @@ func buildConfig(p flagParams) unpixel.Config {
 	} else {
 		cfg.Metric = defaults.PixelmatchMetric()
 	}
+	// Compose priors: --language and --secrets both contribute when set.
+	// WithPriors sums them and merges with any prior already on cfg.LanguageModel.
+	var priors []func(string) float64
 	if p.language {
-		cfg.LanguageModel = defaults.LanguageModel()
+		// --language wires both the character-bigram model (local letter
+		// transitions) and the dictionary prior (whole-word validity). The two
+		// priors are complementary: bigram handles spelling plausibility within
+		// tokens; dictionary rewards candidates composed of real words. Both are
+		// summed by WithPriors, so enabling one flag gives the full language signal.
+		priors = append(priors, defaults.LanguageModel(), lang.DictionaryPrior())
+	}
+	if p.secrets {
+		priors = append(priors, secrets.Prior)
+	}
+	if len(priors) > 0 {
+		unpixel.WithPriors(priors...)(&cfg)
 	}
 	return cfg
 }
@@ -743,6 +760,10 @@ Examples:
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
 			},
+			&cli.BoolFlag{
+				Name:  "secrets",
+				Usage: "prefer structured secrets (UUIDs, hex tokens, Luhn card numbers, common passwords) when breaking ties",
+			},
 			&cli.FloatFlag{
 				Name:  "min-confidence",
 				Usage: "refuse a recovery below this whole-image confidence in [0,1] (0 = always report)",
@@ -822,6 +843,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		blurSigma:       cmd.Float("blur-sigma"),
 		blurExact:       cmd.Bool("blur-exact"),
 		language:        cmd.Bool("language"),
+		secrets:         cmd.Bool("secrets"),
 		minConfidence:   cmd.Float("min-confidence"),
 		escalate:        cmd.Bool("escalate"),
 		charsetTopK:     cmd.Int("charset-topk"),
