@@ -506,3 +506,5 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `833afbb` 2026-06-19 — feat(fonts): add Adwaita Mono + Noto Sans Mono to the bundle (P3.3+) _(4 fichiers)_
 - `29e1327` 2026-06-19 — test(real): add real-world blurred sample + locate/infer fixture _(2 fichiers)_
 - `b991063` 2026-06-19 — feat(grid): block-grid phase detection + skew deskew (P4.3a) _(5 fichiers)_
+- `60959e2` 2026-06-19 — perf(metric): in-repo pixelmatch on *image.RGBA.Pix (P4.10 step 1) _(5 fichiers)_
+- `12edfde` 2026-06-19 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(1 fichiers)_
