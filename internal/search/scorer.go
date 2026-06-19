@@ -4,25 +4,89 @@
 package search
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"image"
 	"image/color"
+	"sync"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
 )
+
+// renderCacheCap bounds the per-scorer render cache. Discovery renders the whole
+// charset, and a DFS reuses each parent as the next level's prevGuess, so a few
+// hundred entries capture the reuse while keeping memory bounded.
+const renderCacheCap = 256
+
+// renderEntry is one cached rendering, keyed by candidate text.
+type renderEntry struct {
+	text      string
+	img       *image.RGBA
+	sentinelX int
+}
 
 // PipelineScorer implements Scorer using the pluggable Renderer, Pixelator,
 // and Metric from a Config.
 type PipelineScorer struct {
 	redacted *image.RGBA
 	cfg      unpixel.Config
+
+	// Render cache: Render(text) is offset-independent and Style is fixed per
+	// scorer, so the same text is otherwise rendered once per grid offset (64×
+	// in discovery) and again as each child's prevGuess. Caching by text removes
+	// that redundant glyph rasterisation; cached images are read-only (callers
+	// only Crop them, which allocates), so sharing is safe.
+	rmu    sync.Mutex
+	rlru   *list.List // front = most recently used; values are *renderEntry
+	rcache map[string]*list.Element
 }
 
 // NewPipelineScorer returns a PipelineScorer for the given redacted image and config.
 func NewPipelineScorer(redacted *image.RGBA, cfg unpixel.Config) *PipelineScorer {
-	return &PipelineScorer{redacted: redacted, cfg: cfg}
+	return &PipelineScorer{
+		redacted: redacted,
+		cfg:      cfg,
+		rlru:     list.New(),
+		rcache:   make(map[string]*list.Element),
+	}
+}
+
+// render returns the rendered image and sentinelX for text, using the per-scorer
+// render cache. The render runs outside the lock (a benign duplicate may occur on
+// a race; the result is identical). The returned image must not be mutated.
+func (s *PipelineScorer) render(text string) (*image.RGBA, int, error) {
+	s.rmu.Lock()
+	if el, ok := s.rcache[text]; ok {
+		s.rlru.MoveToFront(el)
+		e := el.Value.(*renderEntry)
+		img, sx := e.img, e.sentinelX
+		s.rmu.Unlock()
+		return img, sx, nil
+	}
+	s.rmu.Unlock()
+
+	img, sx, err := s.cfg.Renderer.Render(text, s.cfg.Style)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	s.rmu.Lock()
+	defer s.rmu.Unlock()
+	if el, ok := s.rcache[text]; ok { // a concurrent miss already stored it
+		s.rlru.MoveToFront(el)
+		e := el.Value.(*renderEntry)
+		return e.img, e.sentinelX, nil
+	}
+	s.rcache[text] = s.rlru.PushFront(&renderEntry{text: text, img: img, sentinelX: sx})
+	if s.rlru.Len() > renderCacheCap {
+		if back := s.rlru.Back(); back != nil {
+			delete(s.rcache, back.Value.(*renderEntry).text)
+			s.rlru.Remove(back)
+		}
+	}
+	return img, sx, nil
 }
 
 // RedactedImage returns the redacted image held by this scorer.
@@ -56,8 +120,8 @@ func (s *PipelineScorer) stageImage(ctx context.Context, guess string, offset un
 		return stageResult{}, ctx.Err()
 	}
 
-	// Step 1: Render.
-	rendered, sentinelX, err := s.cfg.Renderer.Render(guess, s.cfg.Style)
+	// Step 1: Render (cached by text; offset-independent).
+	rendered, sentinelX, err := s.render(guess)
 	if err != nil {
 		return stageResult{}, err
 	}
@@ -144,7 +208,7 @@ func (s *PipelineScorer) evalFromStage(
 	guessImg := img // saved for totalScore
 	leftBoundary := 0
 	if prevGuess != "" {
-		prevRendered, prevBlue, prevErr := s.cfg.Renderer.Render(prevGuess, s.cfg.Style)
+		prevRendered, prevBlue, prevErr := s.render(prevGuess)
 		if prevErr == nil {
 			prevBm, _ := imutil.BlueMargin(prevRendered)
 			if prevBm == 0 {

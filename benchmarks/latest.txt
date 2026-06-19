@@ -6,14 +6,14 @@ goos: linux
 goarch: amd64
 pkg: github.com/oioio-space/unpixel/internal/imutil
 cpu: 13th Gen Intel(R) Core(TM) i7-1370P
-BenchmarkFillWhite-20    	 6693558	       173.6 ns/op	184358.64 MB/s	       0 B/op	       0 allocs/op
-BenchmarkFillWhite-20    	 6933289	       172.1 ns/op	185934.89 MB/s	       0 B/op	       0 allocs/op
-BenchmarkFillWhite-20    	 6876157	       173.5 ns/op	184455.45 MB/s	       0 B/op	       0 allocs/op
-BenchmarkFillWhite-20    	 6923496	       170.5 ns/op	187629.24 MB/s	       0 B/op	       0 allocs/op
-BenchmarkFillWhite-20    	 7057938	       170.4 ns/op	187811.78 MB/s	       0 B/op	       0 allocs/op
-BenchmarkFillWhite-20    	 7114308	       168.7 ns/op	189651.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6706670	       170.9 ns/op	187257.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6935281	       171.7 ns/op	186369.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 6842002	       170.1 ns/op	188156.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 7007493	       170.5 ns/op	187634.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 7084728	       169.0 ns/op	189293.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkFillWhite-20    	 7106751	       168.7 ns/op	189702.69 MB/s	       0 B/op	       0 allocs/op
 PASS
-ok  	github.com/oioio-space/unpixel/internal/imutil	7.138s
+ok  	github.com/oioio-space/unpixel/internal/imutil	7.099s
 PASS
 ok  	github.com/oioio-space/unpixel/internal/metric	0.002s
 PASS
@@ -22,29 +22,29 @@ goos: linux
 goarch: amd64
 pkg: github.com/oioio-space/unpixel/internal/render
 cpu: 13th Gen Intel(R) Core(TM) i7-1370P
-BenchmarkXImage_Render/default_32pt-20         	   31734	     37914 ns/op	   57411 B/op	       2 allocs/op
-BenchmarkXImage_Render/default_32pt-20         	   32769	     38039 ns/op	   57411 B/op	       2 allocs/op
-BenchmarkXImage_Render/default_32pt-20         	   30722	     38190 ns/op	   57410 B/op	       2 allocs/op
-BenchmarkXImage_Render/default_32pt-20         	   30218	     38491 ns/op	   57410 B/op	       2 allocs/op
-BenchmarkXImage_Render/default_32pt-20         	   33166	     37426 ns/op	   57410 B/op	       2 allocs/op
-BenchmarkXImage_Render/default_32pt-20         	   32174	     37465 ns/op	   57410 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   42817	     28325 ns/op	   41026 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   41180	     28687 ns/op	   41026 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   41754	     28726 ns/op	   41026 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   41233	     29439 ns/op	   41025 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   42896	     28844 ns/op	   41026 B/op	       2 allocs/op
-BenchmarkXImage_Render/small_24pt-20           	   40131	     29193 ns/op	   41025 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   30810	     38791 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   30508	     38229 ns/op	   57409 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   32683	     37276 ns/op	   57411 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   32049	     36549 ns/op	   57411 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   33159	     37361 ns/op	   57410 B/op	       2 allocs/op
+BenchmarkXImage_Render/default_32pt-20         	   31668	     36987 ns/op	   57411 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   42055	     28939 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   39648	     29877 ns/op	   41025 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   40410	     29984 ns/op	   41025 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   39840	     29581 ns/op	   41025 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   41222	     28848 ns/op	   41026 B/op	       2 allocs/op
+BenchmarkXImage_Render/small_24pt-20           	   41544	     28904 ns/op	   41025 B/op	       2 allocs/op
 PASS
-ok  	github.com/oioio-space/unpixel/internal/render	14.458s
+ok  	github.com/oioio-space/unpixel/internal/render	14.352s
 goos: linux
 goarch: amd64
 pkg: github.com/oioio-space/unpixel/internal/search
 cpu: 13th Gen Intel(R) Core(TM) i7-1370P
-BenchmarkDiscoverOffsets/workers_1-20         	      46	  25482470 ns/op	37295209 B/op	   17173 allocs/op
-BenchmarkDiscoverOffsets/workers_1-20         	      49	  24900284 ns/op	37295182 B/op	   17174 allocs/op
-BenchmarkDiscoverOffsets/workers_1-20         	      48	  24477680 ns/op	37295024 B/op	   17173 allocs/op
-BenchmarkDiscoverOffsets/workers_1-20         	      54	  24554209 ns/op	37295074 B/op	   17174 allocs/op
-BenchmarkDiscoverOffsets/workers_1-20         	      40	  25020196 ns/op	37294996 B/op	   17173 allocs/op
-BenchmarkDiscoverOffsets/workers_1-20         	      49	  24291941 ns/op	37295201 B/op	   17175 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      55	  21488963 ns/op	31242754 B/op	   16148 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      56	  20826629 ns/op	31241075 B/op	   16148 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      55	  20671106 ns/op	31240865 B/op	   16147 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      58	  21167383 ns/op	31240964 B/op	   16148 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      51	  20624475 ns/op	31240838 B/op	   16147 allocs/op
+BenchmarkDiscoverOffsets/workers_1-20         	      54	  21439521 ns/op	31240927 B/op	   16148 allocs/op
 PASS
-ok  	github.com/oioio-space/unpixel/internal/search	7.091s
+ok  	github.com/oioio-space/unpixel/internal/search	6.929s
