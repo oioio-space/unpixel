@@ -5,11 +5,50 @@ import (
 	"testing"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/fixture"
 	"github.com/oioio-space/unpixel/internal/metric"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/search"
 )
+
+// BenchmarkGuidedSearch exercises the multi-character DFS on a real rendering
+// pipeline, so it covers the prevGuess marginal-region path (render + pixelate +
+// diff + metric) that DiscoverOffsets (prevGuess == "") does not.
+func BenchmarkGuidedSearch(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	spec := fixture.Spec{Text: "ab", Charset: "ab ", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8}
+	redacted, err := fixture.Redact(spec)
+	if err != nil {
+		b.Fatalf("redact: %v", err)
+	}
+	cfg := unpixel.Config{
+		Charset:        spec.Charset,
+		MaxLength:      3,
+		BlockSize:      spec.BlockSize,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          spec.Style(),
+		Renderer:       r,
+		Pixelator:      pixelate.NewBlockAverage(spec.BlockSize),
+		Metric:         metric.NewPixelmatch(0.02),
+	}
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		// Fresh scorer each iteration so the render cache doesn't hide the work.
+		scorer := search.NewPipelineScorer(redacted, cfg)
+		var evals []unpixel.Eval
+		search.GuidedDFS(context.Background(), scorer, cfg, offset, func(e unpixel.Eval) {
+			evals = append(evals, e)
+		})
+		sinkEvals = evals
+	}
+}
 
 // sinkEvals defeats dead-code elimination for GuidedDFS benchmark results.
 var sinkEvals []unpixel.Eval

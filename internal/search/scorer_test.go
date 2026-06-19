@@ -148,7 +148,7 @@ func TestPipelineScorer_cancelledContext(t *testing.T) {
 	}
 }
 
-// TestPipelineScorer_identicalConsecutiveGuess exercises the diffRed path where
+// TestPipelineScorer_identicalConsecutiveGuess exercises the marginColumn path where
 // consecutive identical characters produce an all-white diff (leftBoundary falls
 // back to prevImg width).
 func TestPipelineScorer_identicalConsecutiveGuess(t *testing.T) {

@@ -338,3 +338,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `18749c3` 2026-06-19 — perf(imutil): FillWhite via exponential copy — 37x faster, render -30% _(1 fichiers)_
 - `1984b52` 2026-06-19 — chore(bench): persist per-commit perf stats (benchmarks/ + mise bench:record) _(4 fichiers)_
 - `bdca2f0` 2026-06-19 — perf(search): per-scorer render cache — discovery -15%, exact (P4.6) _(4 fichiers)_
+- `9557cab` 2026-06-19 — perf(pixelate): direct Pix indexing + row-copy fill — Pixelate -58%, discovery -8% _(4 fichiers)_

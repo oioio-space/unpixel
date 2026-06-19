@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"image"
-	"image/color"
 	"sync"
 
 	"github.com/oioio-space/unpixel"
@@ -231,8 +230,7 @@ func (s *PipelineScorer) evalFromStage(
 				prevImg = imutil.Crop(prevImg, 0, 0, img.Bounds().Dx(), prevImg.Bounds().Dy())
 			}
 
-			diffImg := diffRed(img, prevImg)
-			lb := imutil.Margins(diffImg)
+			lb := marginColumn(img, prevImg)
 			if lb == 0 {
 				// Identical (e.g. consecutive spaces) — use prev width as boundary.
 				leftBoundary = prevImg.Bounds().Dx()
@@ -271,27 +269,23 @@ func (s *PipelineScorer) evalFromStage(
 	}
 }
 
-// diffRed produces an image whose pixels are red where a and b differ and
-// white elsewhere, matching the output Jimp.diff produces for getMargins.
-// a and b must have the same dimensions.
-func diffRed(a, b *image.RGBA) *image.RGBA {
-	bounds := a.Bounds()
-	out := image.NewRGBA(bounds)
-	red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
-	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	for y := range bounds.Dy() {
-		for x := range bounds.Dx() {
-			px, py := bounds.Min.X+x, bounds.Min.Y+y
-			ca := a.RGBAAt(px, py)
-			cb := b.RGBAAt(px, py)
-			if ca.R != cb.R || ca.G != cb.G || ca.B != cb.B {
-				out.SetRGBA(px, py, red)
-			} else {
-				out.SetRGBA(px, py, white)
-			}
+// marginColumn returns the x of the first column on the middle row where a and b
+// differ in RGB, or 0 if they are identical there. It equals
+// imutil.Margins(diffRed(a, b)) — the first red column of the faithful diff
+// image — without materialising that full-image diff (only the middle row is
+// read). a and b are expected to have the same dimensions and origin (0,0).
+func marginColumn(a, b *image.RGBA) int {
+	ab, bb := a.Bounds(), b.Bounds()
+	w := min(ab.Dx(), bb.Dx())
+	midY := ab.Dy() / 2
+	for x := range w {
+		ca := a.RGBAAt(ab.Min.X+x, ab.Min.Y+midY)
+		cb := b.RGBAAt(bb.Min.X+x, bb.Min.Y+midY)
+		if ca.R != cb.R || ca.G != cb.G || ca.B != cb.B {
+			return x
 		}
 	}
-	return out
+	return 0
 }
 
 // equalise pads the smaller image with white so both have identical bounds.
