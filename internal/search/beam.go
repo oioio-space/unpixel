@@ -226,7 +226,9 @@ func searchOffsets(
 				})
 			}
 		})
-		topN := RankTopN(candidates, cfg.TopN)
+		// Rank only substantive candidates: an all-whitespace guess scores ~0 and
+		// would otherwise dominate the Top-N with a misleading confidence of 1.
+		topN := RankTopN(substantiveOnly(candidates), cfg.TopN)
 		conf, ambiguity := Confidence(topN)
 		outcomes[i] = offsetOutcome{
 			candidates: candidates,
@@ -238,8 +240,10 @@ func searchOffsets(
 		}
 	})
 
-	// Deterministic merge: the authoritative best is the lowest-scoring candidate
-	// scanned in offset then discovery order, so it never depends on scheduling.
+	// Deterministic merge: the authoritative best is the lowest-scoring
+	// substantive candidate scanned in offset then discovery order, so it never
+	// depends on scheduling. All-whitespace candidates are skipped — they score
+	// ~0 against blank regions and are never a real recovery (see Substantive).
 	finalScore := 1.0
 	var finalGuess string
 	for _, oc := range outcomes {
@@ -247,7 +251,7 @@ func searchOffsets(
 			continue
 		}
 		for _, e := range oc.candidates {
-			if e.Score < finalScore {
+			if e.Score < finalScore && Substantive(e.Guess) {
 				finalScore = e.Score
 				finalGuess = e.Guess
 			}
