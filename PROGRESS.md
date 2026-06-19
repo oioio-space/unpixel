@@ -359,3 +359,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `09b716b` 2026-06-19 — docs(perf): record measured P4.4 (AA-off) tradeoff + session perf summary _(2 fichiers)_
 - `177cc2f` 2026-06-19 — perf(imutil): FillWhite exponential-copy fill — ~97% faster (exact) _(2 fichiers)_
 - `7c0c2c9` 2026-06-19 — feat(cli): warn when no mosaic grid is detected (likely non-pixelated input) _(3 fichiers)_
+- `4d93016` 2026-06-19 — feat(search): never select an all-whitespace guess as the recovery _(4 fichiers)_

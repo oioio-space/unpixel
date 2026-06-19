@@ -57,10 +57,14 @@ type flagParams struct {
 	strategy       string
 	metric         string
 	format         string
+	fontPath       string
+	fontBoldPath   string
 	maxLength      int
 	blockSize      int
 	threshold      float64
 	spaceThreshold float64
+	fontSize       float64
+	letterSpacing  float64
 	topN           int
 	workers        int
 	beamWidth      int
@@ -82,6 +86,11 @@ func buildConfig(p flagParams) unpixel.Config {
 		TopN:           p.topN,
 		Workers:        p.workers,
 		BeamWidth:      p.beamWidth,
+		Style: unpixel.Style{
+			// FontSize 0 lets New apply the 32 pt default; a non-zero flag wins.
+			FontSize:      p.fontSize,
+			LetterSpacing: p.letterSpacing,
+		},
 	}
 	if p.strategy == "beam" {
 		cfg.Strategy = defaults.BeamStrategy(p.beamWidth)
@@ -234,6 +243,27 @@ func isTTY(f *os.File) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
 
+// loadRenderer builds a renderer from the font file at regularPath, optionally
+// using boldPath for bold text (empty reuses the regular font). It returns an
+// actionable error if a file cannot be read or parsed as a font.
+func loadRenderer(regularPath, boldPath string) (unpixel.Renderer, error) {
+	regular, err := os.ReadFile(regularPath) // #nosec G304 -- user-provided CLI font path
+	if err != nil {
+		return nil, fmt.Errorf("read font %q: %w", regularPath, err)
+	}
+	var bold []byte
+	if boldPath != "" {
+		if bold, err = os.ReadFile(boldPath); err != nil { // #nosec G304 -- user-provided CLI font path
+			return nil, fmt.Errorf("read bold font %q: %w", boldPath, err)
+		}
+	}
+	r, err := defaults.RendererFromFonts(regular, bold)
+	if err != nil {
+		return nil, fmt.Errorf("load font %q: %w", regularPath, err)
+	}
+	return r, nil
+}
+
 // warnIfNoMosaic writes a one-line warning to w when the block size is being
 // auto-detected (blockSize <= 0) but no mosaic pixelation grid can be inferred
 // from img. A grid that reduces to nothing is a strong sign the image is not
@@ -330,6 +360,24 @@ Examples:
 				Usage: `image-distance metric: "pixelmatch" (faithful) or "ssim" (structural)`,
 				Value: "pixelmatch",
 			},
+			&cli.StringFlag{
+				Name:  "font",
+				Usage: "path to a TTF/OTF font to render candidates with (default: embedded Liberation Sans ≈ Arial)",
+			},
+			&cli.StringFlag{
+				Name:  "font-bold",
+				Usage: "path to a bold TTF/OTF font (default: reuse --font)",
+			},
+			&cli.FloatFlag{
+				Name:  "font-size",
+				Usage: "font size in points to match the redaction (0 = default 32)",
+				Value: 0,
+			},
+			&cli.FloatFlag{
+				Name:  "letter-spacing",
+				Usage: "extra pixels after each glyph, like CSS letter-spacing (may be negative)",
+				Value: 0,
+			},
 			&cli.IntFlag{
 				Name:  "workers",
 				Usage: "max grid offsets searched concurrently (0 = number of CPUs)",
@@ -385,6 +433,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		beamWidth:      cmd.Int("beam-width"),
 		metric:         cmd.String("metric"),
 		format:         cmd.String("format"),
+		fontPath:       cmd.String("font"),
+		fontBoldPath:   cmd.String("font-bold"),
+		fontSize:       cmd.Float("font-size"),
+		letterSpacing:  cmd.Float("letter-spacing"),
 		quiet:          cmd.Bool("quiet"),
 		timeout:        cmd.Duration("timeout"),
 	}
@@ -411,6 +463,16 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
 
 	cfg := buildConfig(p)
+
+	// A --font path overrides the embedded renderer so candidates are rasterised
+	// in the redaction's actual typeface (e.g. user-supplied Consolas).
+	if p.fontPath != "" {
+		renderer, ferr := loadRenderer(p.fontPath, p.fontBoldPath)
+		if ferr != nil {
+			return ferr
+		}
+		cfg.Renderer = renderer
+	}
 
 	showProgress := !p.quiet && isTTY(os.Stderr)
 

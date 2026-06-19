@@ -62,6 +62,24 @@ func Wire(cfg *unpixel.Config) error {
 	return nil
 }
 
+// RendererFromFonts returns an XImage renderer that rasterises candidate text
+// with the given TrueType/OpenType font data instead of the embedded Liberation
+// Sans default, ready to assign to Config.Renderer (or pass via WithRenderer).
+//
+// Use it to match the exact typeface of a redaction — for example a user-
+// supplied Consolas font for source-code screenshots, which keeps any font
+// licensing on the caller's side:
+//
+//	reg, _ := os.ReadFile("Consolas.ttf")
+//	r, _ := defaults.RendererFromFonts(reg, nil)
+//	res, _ := unpixel.Recover(ctx, img, unpixel.WithRenderer(r),
+//	    unpixel.WithStyle(unpixel.Style{FontSize: 24, LetterSpacing: -0.2}))
+//
+// regularTTF is required; boldTTF may be nil to reuse the regular font for bold.
+func RendererFromFonts(regularTTF, boldTTF []byte) (unpixel.Renderer, error) {
+	return render.NewXImageFromFonts(regularTTF, boldTTF)
+}
+
 // GuidedStrategy returns the guided depth-first search strategy as an
 // unpixel.Strategy, ready to assign to Config.Strategy. It is the same strategy
 // Wire installs when Config.Strategy is nil; call it explicitly only for

@@ -6,9 +6,11 @@ package render
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"sync"
 
 	"golang.org/x/image/font"
@@ -53,8 +55,29 @@ type XImage struct {
 	glyphMu sync.Mutex
 }
 
-// NewXImage parses the embedded TTF fonts and returns an XImage renderer.
+// NewXImage parses the embedded TTF fonts (Liberation Sans, metrically identical
+// to Arial) and returns an XImage renderer. Use NewXImageFromFonts to render with
+// a different font, e.g. a monospace face matching a Consolas-pixelated redaction.
 func NewXImage() (*XImage, error) {
+	return NewXImageFromFonts(regularTTF, boldTTF)
+}
+
+// NewXImageFromFonts returns an XImage renderer that rasterises text with the
+// given TrueType/OpenType font data instead of the embedded default. This lets
+// callers match the exact typeface of a redacted screenshot — for example a
+// user-supplied Consolas.ttf for source-code redactions, avoiding any font
+// licensing concern on our side.
+//
+// regularTTF is required. boldTTF may be nil, in which case the regular font is
+// reused for bold text. It returns an error if regularTTF is empty or either
+// font fails to parse.
+func NewXImageFromFonts(regularTTF, boldTTF []byte) (*XImage, error) {
+	if len(regularTTF) == 0 {
+		return nil, errors.New("regular font data is empty")
+	}
+	if len(boldTTF) == 0 {
+		boldTTF = regularTTF
+	}
 	r := &XImage{
 		regularTTF:  regularTTF,
 		boldTTF:     boldTTF,
@@ -101,6 +124,18 @@ func (r *XImage) faceFor(bold bool, size float64) (faceMetrics, error) {
 	return fm, nil
 }
 
+// measureSpaced returns the total advance of text rendered with per-glyph
+// letter spacing: the sum of each rune's own advance plus spacing after it. It
+// mirrors the per-glyph draw loop in Render exactly so the sentinel lands where
+// drawing ends. The caller holds glyphMu (MeasureString rasterises glyphs).
+func measureSpaced(face font.Face, text string, spacing fixed.Int26_6) fixed.Int26_6 {
+	var w fixed.Int26_6
+	for _, c := range text {
+		w += font.MeasureString(face, string(c)) + spacing
+	}
+	return w
+}
+
 func parseFace(ttf []byte, size float64) (font.Face, error) {
 	parsed, err := opentype.Parse(ttf)
 	if err != nil {
@@ -135,10 +170,18 @@ func (r *XImage) Render(text string, style unpixel.Style) (*image.RGBA, int, err
 	paddingLeft := style.PaddingLeft
 	paddingTop := style.PaddingTop
 
+	// letterSpacing in 26.6 fixed-point pixels; zero keeps the fast path below.
+	spacing := fixed.Int26_6(math.Round(style.LetterSpacing * 64))
+
 	// Measure the text advance; fixed.Int26_6.Ceil() converts to pixels.
 	// MeasureString rasterizes glyphs, so guard the shared face (see glyphMu).
 	r.glyphMu.Lock()
-	textW := font.MeasureString(fm.face, text).Ceil()
+	var textW int
+	if spacing == 0 {
+		textW = font.MeasureString(fm.face, text).Ceil()
+	} else {
+		textW = measureSpaced(fm.face, text, spacing).Ceil()
+	}
 	r.glyphMu.Unlock()
 
 	imgH := paddingTop + fm.ascent + fm.descent + 4 // small bottom margin
@@ -158,7 +201,18 @@ func (r *XImage) Render(text string, style unpixel.Style) (*image.RGBA, int, err
 		},
 	}
 	r.glyphMu.Lock()
-	drawer.DrawString(text)
+	if spacing == 0 {
+		drawer.DrawString(text)
+	} else {
+		// Per-glyph draw so letter-spacing can be inserted after each rune. This
+		// drops cross-glyph kerning, which is fine for the monospace faces this
+		// path targets (Consolas-class code redactions); the zero-spacing path
+		// above keeps kerning and exact prior behaviour.
+		for _, c := range text {
+			drawer.DrawString(string(c))
+			drawer.Dot.X += spacing
+		}
+	}
 	r.glyphMu.Unlock()
 
 	// sentinelX is the pixel column where the blue sentinel starts.

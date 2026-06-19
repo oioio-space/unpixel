@@ -81,6 +81,12 @@ type Style struct {
 	PaddingTop int
 	// PaddingLeft is the left padding applied before the text, in pixels. Defaults to 8.
 	PaddingLeft int
+	// LetterSpacing is extra horizontal space, in pixels, inserted after each
+	// glyph — the equivalent of the CSS letter-spacing property. It may be
+	// negative to tighten text (e.g. -0.2 to match a Consolas redaction). The
+	// default 0 leaves glyph advances untouched and preserves kerning; a
+	// non-zero value renders glyph-by-glyph without kerning.
+	LetterSpacing float64
 }
 
 // Config holds all tunable parameters for an Engine. Every field is optional:
@@ -655,6 +661,11 @@ func WithWorkers(n int) Option { return func(c *Config) { c.Workers = n } }
 
 // WithStrategy sets Config.Strategy (the search algorithm).
 func WithStrategy(s Strategy) Option { return func(c *Config) { c.Strategy = s } }
+
+// WithRenderer sets Config.Renderer (the text rasteriser). Use it with a
+// custom font, e.g. defaults.RendererFromFonts, to match the typeface of the
+// redacted image.
+func WithRenderer(r Renderer) Option { return func(c *Config) { c.Renderer = r } }
 
 // WithMetric sets Config.Metric (the image-distance metric).
 func WithMetric(m Metric) Option { return func(c *Config) { c.Metric = m } }

@@ -1,11 +1,65 @@
 package render_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/render"
 )
+
+// embeddedRegular reads the bundled regular font from disk so the external-font
+// path can be exercised without depending on any system font.
+func embeddedRegular(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile("fonts/LiberationSans-Regular.ttf")
+	if err != nil {
+		t.Fatalf("read embedded font: %v", err)
+	}
+	return b
+}
+
+func TestNewXImageFromFonts_emptyRegularErrors(t *testing.T) {
+	if _, err := render.NewXImageFromFonts(nil, nil); err == nil {
+		t.Error("NewXImageFromFonts(nil, nil): expected error, got nil")
+	}
+}
+
+func TestNewXImageFromFonts_rendersWithSuppliedFont(t *testing.T) {
+	// boldTTF nil must fall back to the regular font, not fail.
+	r, err := render.NewXImageFromFonts(embeddedRegular(t), nil)
+	if err != nil {
+		t.Fatalf("NewXImageFromFonts: %v", err)
+	}
+	_, sentinelX, err := r.Render("hi", unpixel.Style{FontSize: 24, PaddingTop: 8, PaddingLeft: 8})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if sentinelX <= 0 {
+		t.Errorf("sentinelX = %d, want > 0", sentinelX)
+	}
+}
+
+func TestRender_letterSpacingWidensAndTightens(t *testing.T) {
+	r, err := render.NewXImage()
+	if err != nil {
+		t.Fatalf("NewXImage: %v", err)
+	}
+	base := unpixel.Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+	widthAt := func(ls float64) int {
+		s := base
+		s.LetterSpacing = ls
+		_, sentinelX, err := r.Render("mmmm", s)
+		if err != nil {
+			t.Fatalf("Render(ls=%v): %v", ls, err)
+		}
+		return sentinelX
+	}
+	neg, zero, pos := widthAt(-3), widthAt(0), widthAt(4)
+	if neg >= zero || zero >= pos {
+		t.Errorf("letter-spacing not monotonic in width: neg=%d zero=%d pos=%d", neg, zero, pos)
+	}
+}
 
 func TestXImage_sentinelX_matchesMeasuredAdvance(t *testing.T) {
 	r, err := render.NewXImage()
