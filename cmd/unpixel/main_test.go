@@ -248,6 +248,96 @@ func TestWarnIfNoMosaic(t *testing.T) {
 	}
 }
 
+// embeddedFontData reads the repo's bundled font so tests can exercise the
+// font-loading paths without depending on any system font.
+func embeddedFontData(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile("../../internal/render/fonts/LiberationSans-Regular.ttf")
+	if err != nil {
+		t.Fatalf("read embedded font: %v", err)
+	}
+	return b
+}
+
+// TestRunSweep drives the parallel multi-font sweep over a synthetic image with
+// two valid fonts and one unparseable one (exercising the skip branch), in both
+// text and JSON output modes.
+func TestRunSweep(t *testing.T) {
+	data := embeddedFontData(t)
+	dir := t.TempDir()
+	var fonts []string
+	for _, n := range []string{"f1.ttf", "f2.ttf"} {
+		p := filepath.Join(dir, n)
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", n, err)
+		}
+		fonts = append(fonts, p)
+	}
+	bogus := filepath.Join(dir, "bad.ttf") // unparseable → skipped with a note
+	if err := os.WriteFile(bogus, []byte("not a font"), 0o600); err != nil {
+		t.Fatalf("write bogus: %v", err)
+	}
+	fonts = append(fonts, bogus)
+
+	img := image.NewRGBA(image.Rect(0, 0, 40, 40))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	cfg := buildConfig(flagParams{
+		charset: "a", maxLength: 1, blockSize: 8, threshold: 0.25,
+		spaceThreshold: 0.5, topN: 5, strategy: "guided", metric: "pixelmatch",
+	})
+
+	// Text mode: prints the winning guess (empty for a white image) + newline.
+	textOut := captureStdout(t, func() {
+		if err := runSweep(t.Context(), img, cfg, fonts, flagParams{format: "text", quiet: true, workers: 2}); err != nil {
+			t.Errorf("runSweep text: %v", err)
+		}
+	})
+	if !strings.HasSuffix(textOut, "\n") {
+		t.Errorf("runSweep text output should end with a newline, got %q", textOut)
+	}
+
+	// JSON mode: emits a ranked "fonts" array.
+	jsonOut := captureStdout(t, func() {
+		if err := runSweep(t.Context(), img, cfg, fonts, flagParams{format: "json", quiet: true, workers: 2}); err != nil {
+			t.Errorf("runSweep json: %v", err)
+		}
+	})
+	var r resultJSON
+	if err := json.Unmarshal([]byte(jsonOut), &r); err != nil {
+		t.Fatalf("runSweep json: invalid JSON: %v\n%s", err, jsonOut)
+	}
+	if len(r.Fonts) != 2 { // the two valid fonts; bogus was skipped
+		t.Errorf("ranked fonts = %d, want 2", len(r.Fonts))
+	}
+
+	// All fonts invalid → an error.
+	if err := runSweep(t.Context(), img, cfg, []string{bogus}, flagParams{format: "text", quiet: true}); err == nil {
+		t.Error("runSweep with only an invalid font: expected error, got nil")
+	}
+}
+
+// TestRun_singleFont drives the CLI end to end with one --font (the single-font
+// branch + loadRenderer).
+func TestRun_singleFont(t *testing.T) {
+	dir := t.TempDir()
+	fontPath := filepath.Join(dir, "f.ttf")
+	if err := os.WriteFile(fontPath, embeddedFontData(t), 0o600); err != nil {
+		t.Fatalf("write font: %v", err)
+	}
+	img := whitePNG(t, 16, 16)
+	out := captureStdout(t, func() {
+		args := []string{"unpixel", "--quiet", "--font", fontPath, "--font-size", "24", "--letter-spacing", "-0.2", "--block-size", "8", "--max-length", "1", "--charset", "a", img}
+		if err := buildApp().Run(t.Context(), args); err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("expected newline-terminated output, got %q", out)
+	}
+}
+
 // TestCollectFonts verifies that explicit --font paths and a --font-dir scan
 // are merged, filtered to font extensions, and de-duplicated in order.
 func TestCollectFonts(t *testing.T) {

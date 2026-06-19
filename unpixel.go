@@ -30,6 +30,7 @@
 package unpixel
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -39,6 +40,8 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -775,6 +778,109 @@ func RecoverFile(ctx context.Context, path string, opts ...Option) (Result, erro
 	}
 	defer func() { _ = f.Close() }()
 	return RecoverReader(ctx, f, opts...)
+}
+
+// FontResult pairs one candidate renderer with the Result it produced, as
+// returned by RecoverMultiFont.
+type FontResult struct {
+	// Result is the recovery produced with this renderer.
+	Result Result
+	// Index is the position of the renderer in the slice passed to
+	// RecoverMultiFont, identifying which font produced this Result.
+	Index int
+}
+
+// RecoverMultiFont runs Recover once per renderer and returns the results ranked
+// best-fit first, so the caller can recover a redaction without knowing its exact
+// typeface — supply several candidate fonts and let the tool pick.
+//
+// Ranking is by Result.BestTotal, the whole-image distance of the best guess:
+// unlike BestScore (a per-character marginal score that ties at ~0 across fonts),
+// BestTotal is comparable between separate runs, so the lowest-BestTotal font is
+// the one that reconstructs the redaction most faithfully. ret[0] is the best
+// fit. A renderer with an empty recovery is ranked last; a renderer whose run
+// errors is omitted. RecoverMultiFont returns an error only when redacted is nil,
+// renderers is empty, or every renderer failed.
+//
+// The runs execute in parallel within a fixed core budget (runtime.GOMAXPROCS):
+// min(len(renderers), budget) run concurrently, each search using an equal share
+// of workers, so the two layers never oversubscribe the CPU. A WithRenderer or
+// WithWorkers option in opts is overridden per run.
+//
+// Build the renderers with [github.com/oioio-space/unpixel/defaults.RendererFromFonts]:
+//
+//	var rs []unpixel.Renderer
+//	for _, data := range fontData {
+//	    r, err := defaults.RendererFromFonts(data, nil)
+//	    if err != nil { return err }
+//	    rs = append(rs, r)
+//	}
+//	ranked, err := unpixel.RecoverMultiFont(ctx, img, rs, unpixel.WithBlockSize(5))
+//	best := ranked[0]
+func RecoverMultiFont(ctx context.Context, redacted image.Image, renderers []Renderer, opts ...Option) ([]FontResult, error) {
+	if redacted == nil {
+		return nil, ErrNilImage
+	}
+	if len(renderers) == 0 {
+		return nil, errors.New("unpixel: no renderers provided")
+	}
+
+	// Split the core budget between fonts in parallel and each font's offset
+	// fan-out so the two layers don't oversubscribe (mirrors the CLI sweep).
+	budget := runtime.GOMAXPROCS(0)
+	concurrency := max(1, min(len(renderers), budget))
+	workersPerFont := max(1, budget/concurrency)
+
+	results := make([]FontResult, len(renderers))
+	errs := make([]error, len(renderers))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, r := range renderers {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := ctx.Err(); err != nil {
+				errs[i] = err
+				return
+			}
+			runOpts := append(slices.Clone(opts), WithRenderer(r), WithWorkers(workersPerFont))
+			res, err := Recover(ctx, redacted, runOpts...)
+			results[i] = FontResult{Result: res, Index: i}
+			errs[i] = err
+		})
+	}
+	wg.Wait()
+
+	ranked := make([]FontResult, 0, len(renderers))
+	var firstErr error
+	for i := range results {
+		if errs[i] != nil {
+			if firstErr == nil {
+				firstErr = errs[i]
+			}
+			continue
+		}
+		ranked = append(ranked, results[i])
+	}
+	if len(ranked) == 0 {
+		return nil, firstErr
+	}
+
+	// effectiveTotal treats an empty recovery as the worst distance so a font
+	// that found nothing (e.g. cancelled) never out-ranks a real match.
+	effectiveTotal := func(fr FontResult) float64 {
+		if fr.Result.BestGuess == "" {
+			return 1
+		}
+		return fr.Result.BestTotal
+	}
+	slices.SortStableFunc(ranked, func(a, b FontResult) int {
+		if c := cmp.Compare(effectiveTotal(a), effectiveTotal(b)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Result.BestScore, b.Result.BestScore)
+	})
+	return ranked, nil
 }
 
 // componentsMissing reports whether any pluggable component is still nil.
