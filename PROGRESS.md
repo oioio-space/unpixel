@@ -14,14 +14,20 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 ## 📍 État actuel
 
 Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
-**v0.2.0 publiée** sur pkg.go.dev.
+**v0.3.0 publiée** sur pkg.go.dev (polices custom + balayage de polices).
 
 - **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
   Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
+- **Release v0.3.0** : **polices personnalisées + balayage de polices** — récupérer une redaction
+  sans connaître sa typographie. `render.NewXImageFromFonts` / `defaults.RendererFromFonts` /
+  `unpixel.WithRenderer` ; `Style.LetterSpacing` ; flags CLI `--font` (répétable) / `--font-dir` /
+  `--font-size` / `--letter-spacing`. Helper lib `unpixel.RecoverMultiFont` (+ `FontResult`) :
+  essaie plusieurs polices **en parallèle** et garde la meilleure par **score d'image entière**
+  (`Result.BestTotal`). Plus deux garde-fous (avertir si aucune grille mosaïque ; ne jamais
+  retenir un résultat tout-espaces). Release goreleaser auto sur le tag (CI verte requise).
+  `go get …@v0.3.0` / `go install …/cmd/unpixel@v0.3.0`. API pré-1.0, additive depuis v0.2.x.
 - **Release v0.2.0** : Phase 2 (beam+cache, SSIM, inférence block-size, fan-out goroutines) +
-  CLI ergonomique. Consommable via `go get github.com/oioio-space/unpixel@v0.2.0` et
-  `go install …/cmd/unpixel@v0.2.0`. API pré-1.0, rétro-compatible v0.1.0 (ajouts seulement).
-  v0.1.0 : premier module public indexé sur pkg.go.dev.
+  CLI ergonomique. v0.1.0 : premier module public indexé sur pkg.go.dev.
 - **Package core** : port Go fidèle de l'algorithme unredacter implémenté et testé. Le package
   racine (`unpixel`) expose `Engine`, `Config`, `Result`, `Eval`, `Offset`, les interfaces
   pluggables `Renderer`/`Pixelator`/`Metric`/`Strategy`, et une **API de progression library-agnostique**
@@ -134,6 +140,26 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 - [ ] **Phase 2 (reporté)** : renderer `chromedp` (fidélité Chromium) — dép. lourde exigeant un
       binaire Chrome au runtime/CI ; métriques edge-aware. Cf. `docs/DESIGN.md`.
 
+### 🔤 v0.3.0 — polices personnalisées & balayage (récupérer sans connaître la typo)
+
+- [x] **Polices externes** : `render.NewXImageFromFonts(regular, bold)` + `defaults.RendererFromFonts`
+      + option `unpixel.WithRenderer` ; flags CLI `--font` / `--font-bold` / `--font-size`.
+      L'utilisateur fournit ses `.ttf` → aucun souci de licence côté projet.
+- [x] **Letter-spacing** : `Style.LetterSpacing` (façon CSS, négatif possible) ; chemin zéro-spacing
+      byte-identique (kerning préservé) → fixtures inchangées, hot-path neutre (benchstat).
+- [x] **Balayage de polices** : `--font` répétable + `--font-dir` ; chaque police essayée **en
+      parallèle dans un budget de cœurs** (pas de sur-souscription), classée par fidélité image
+      entière. Helper lib `unpixel.RecoverMultiFont(ctx, img, []Renderer, …) []FontResult`.
+      Le CLI délègue à ce helper (source unique).
+- [x] **Score d'image entière `Result.BestTotal`** (`PipelineScorer.TotalScore` + interface
+      `TotalScorer`, `RankFinal`) : départage la réponse finale — choisit la chaîne **complète**
+      plutôt qu'un préfixe correct ou un faux-positif marginal, et permet de classer les polices.
+      Réintroduit le `totalScore` retiré du chemin chaud en P4.1, **uniquement pour le classement
+      final** (pas par-candidat) → benchstat GuidedSearch neutre.
+- [x] **Garde-fous qualité** : avertir si aucune grille mosaïque détectée (`InferBlockSize==0`,
+      image probablement non pixélisée) ; ne jamais sélectionner un résultat tout-espaces
+      (`Substantive`) qui scorait 0 et donnait une confiance trompeuse de 1.
+
 ### 🎯 Phase 3 — zéro-config « image → texte » (auto-détection + qualité, perf préservée)
 
 **Étoile polaire** : l'utilisateur fournit une image de texte pixélisé → le texte en sort, avec
@@ -159,11 +185,14 @@ Priorité haute :
       - [ ] couleur exacte texte/fond (au-delà du clair/sombre), taille de police (hauteur d'x),
             poids/gras, padding/baseline. Tout dérivé de l'image, surchargeable via `Config`.
       (block-size & offset déjà auto.)
-- [ ] **P3.3 — police comme dimension de recherche / auto-calibration** *(piste n°1 reformulée)* :
-      bundler des polices métrique-compatibles redistribuables (Liberation=Arial/Times/Courier,
-      Carlito≈Calibri, Arimo/Tinos/Cousine, DejaVu/Noto) couvrant les plus courantes ; tester
-      chaque police, scorer par re-pixelisation, **élaguer via une sonde bon-marché** avant la
-      recherche complète. (Pas de DeepFont : CNN exclu en pur-Go.)
+- [~] **P3.3 — police comme dimension de recherche / auto-calibration** *(piste n°1 reformulée)* :
+      - [x] **balayage de polices fournies** (v0.3.0) : `RecoverMultiFont` / `--font`(×N) / `--font-dir`
+            testent chaque police, scorent par re-pixelisation (`BestTotal`), gardent la meilleure,
+            en parallèle. (Pas de DeepFont : CNN exclu en pur-Go.)
+      - [ ] **bundler** des polices métrique-compatibles redistribuables (Liberation=Arial/Times/Courier,
+            Carlito≈Calibri, Arimo/Tinos/Cousine, DejaVu/Noto, monospaces de code) pour un défaut
+            zéro-config sans que l'utilisateur fournisse les fichiers.
+      - [ ] **sonde bon-marché** pour élaguer les polices improbables avant la recherche complète.
 
 Priorité moyenne :
 - [ ] **P3.8 — confiance calibrée + abandon honnête** : fusionner distance image + score LM +
@@ -279,8 +308,9 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 
 ## 🧭 Décisions clés
 
-- **Repo public** ; **v0.1.0** (premier module public) puis **v0.2.0** (Phase 2 + CLI) publiées
-  sur pkg.go.dev. API stable pré-1.0 (peut évoluer avant 1.0.0).
+- **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
+  (polices custom + balayage) publiées sur pkg.go.dev. API stable pré-1.0, additive (peut évoluer
+  avant 1.0.0). Release auto par goreleaser sur tag `v*` (gated sur CI verte).
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
 - Licence : **GPL-3.0** (œuvre dérivée de bishopfox/unredacter, GPL-3.0 — copyleft préservé).
 - Deux couches de garde-fou : linters (objectif) + revue IA (subjectif).
@@ -367,3 +397,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `3711b13` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_
 - `3071b26` 2026-06-19 — feat(api): RecoverMultiFont — library multi-font sweep _(4 fichiers)_
 - `b4e6339` 2026-06-19 — refactor(cli): drive the font sweep through unpixel.RecoverMultiFont _(3 fichiers)_
+- `620a294` 2026-06-19 — docs(readme): document custom fonts and the font sweep _(2 fichiers)_
