@@ -10,7 +10,7 @@
 //     Liberation Mono (≈ Courier New) — SIL OFL 1.1
 //   - Carlito (≈ Calibri) — SIL OFL 1.1
 //   - Caladea (≈ Cambria) — Apache 2.0
-//   - Source Code Pro, JetBrains Mono — code monospaces — SIL OFL 1.1
+//   - Source Code Pro, JetBrains Mono, Adwaita Mono, Noto Sans Mono — code monospaces — SIL OFL 1.1 / Apache 2.0
 //
 // Usage:
 //
@@ -64,6 +64,8 @@ var catalog = []Font{
 	{Name: "Caladea", Style: "serif", Approx: "Cambria", File: "Caladea-Regular.ttf"},
 	{Name: "Source Code Pro", Style: "mono", Approx: "", File: "SourceCodePro-Regular.otf"},
 	{Name: "JetBrains Mono", Style: "mono", Approx: "", File: "JetBrainsMono-Regular.ttf"},
+	{Name: "Adwaita Mono", Style: "mono", Approx: "", File: "AdwaitaMono-Regular.ttf"},
+	{Name: "Noto Sans Mono", Style: "mono", Approx: "", File: "NotoSansMono-Regular.ttf"},
 }
 
 // All returns the bundled fonts, in sweep order, each with its Data populated.

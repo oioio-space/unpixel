@@ -15,9 +15,11 @@ Apache License 2.0 (`Apache-2.0.txt`).
 | Caladea | `Caladea-Regular.ttf` | Cambria | © 2013 Google Corporation (Huerta Tipográfica) | Apache-2.0 |
 | Source Code Pro | `SourceCodePro-Regular.otf` | (code monospace) | © 2010-2023 Adobe, Reserved Font Name "Source" | OFL-1.1 |
 | JetBrains Mono | `JetBrainsMono-Regular.ttf` | (code monospace) | © 2020 The JetBrains Mono Project Authors | OFL-1.1 |
+| Adwaita Mono | `AdwaitaMono-Regular.ttf` | (code monospace) | © 2016 The Inter Project Authors; © 2015-2025 Renzhi Li; © 2025 Jamie Gravendeel; © 2025 Florian Müllner | OFL-1.1 |
+| Noto Sans Mono | `NotoSansMono-Regular.ttf` | (code monospace) | © Google LLC | Apache-2.0 |
 
 The SIL OFL permits bundling and redistribution provided the license and
 copyright notices accompany the fonts (this file and `licenses/`), the fonts are
 not sold by themselves, and the Reserved Font Names are not used on modified
-versions. UnPixel ships the fonts unmodified. Caladea is under the Apache
-License 2.0 (no reserved-name restriction).
+versions. UnPixel ships the fonts unmodified. Caladea and Noto Sans Mono are
+under the Apache License 2.0 (no reserved-name restriction).
