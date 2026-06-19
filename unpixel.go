@@ -573,6 +573,87 @@ func InferBlurSigma(img image.Image) float64 {
 	return math.Max(0, sigma)
 }
 
+// LocateRedaction returns the bounding box of a blurred region inside img — for
+// zero-config recovery of a redaction embedded in a larger screenshot. A blurred
+// edge has a bounded peak gradient (≈ contrast/(σ·√(2π)), far below sharp text),
+// so a row/column is "blurred content" when it carries contrast yet its peak
+// luminance gradient stays low. The result is the tight box of the largest such
+// band; ok is false when no blurred region stands out (e.g. an all-sharp image).
+//
+// It is the missing piece for screenshots: estimating sigma or recovering on the
+// whole image is skewed by sharp surrounding text (on the Bishop Fox challenge,
+// whole-image σ≈0.6 vs ≈5.6 on the blurred line), so crop to this box first.
+func LocateRedaction(img image.Image) (image.Rectangle, bool) {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 4 || h < 4 {
+		return image.Rectangle{}, false
+	}
+	lum := func(x, y int) int {
+		c := rgba.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		return (299*int(c.R) + 587*int(c.G) + 114*int(c.B)) / 1000
+	}
+
+	const (
+		contrastMin = 24 // a row/column carries content when its range exceeds this
+		blurMaxPeak = 90 // a blurred edge's peak gradient stays below this (sharp ≫)
+	)
+
+	// Classify each row as blurred-content: has contrast but a low peak gradient.
+	blurred := make([]bool, h)
+	for y := range h {
+		lo, hi, peak, prev := 255, 0, 0, lum(0, y)
+		for x := range w {
+			v := lum(x, y)
+			lo, hi = min(lo, v), max(hi, v)
+			if d := v - prev; d > peak || -d > peak {
+				peak = max(d, -d)
+			}
+			prev = v
+		}
+		blurred[y] = (hi-lo) >= contrastMin && peak < blurMaxPeak
+	}
+
+	// Largest contiguous run of blurred rows → vertical band.
+	y0, y1 := longestRun(blurred)
+	if y1 <= y0 {
+		return image.Rectangle{}, false
+	}
+
+	// Horizontal extent: columns within the band that carry contrast.
+	x0, x1 := w, 0
+	for x := range w {
+		lo, hi := 255, 0
+		for y := y0; y < y1; y++ {
+			v := lum(x, y)
+			lo, hi = min(lo, v), max(hi, v)
+		}
+		if hi-lo >= contrastMin {
+			x0, x1 = min(x0, x), max(x1, x+1)
+		}
+	}
+	if x1 <= x0 {
+		x0, x1 = 0, w
+	}
+	return image.Rect(b.Min.X+x0, b.Min.Y+y0, b.Min.X+x1, b.Min.Y+y1), true
+}
+
+// longestRun returns [start,end) of the longest run of true values in flags.
+func longestRun(flags []bool) (start, end int) {
+	bestLen, curStart := 0, 0
+	for i := 0; i <= len(flags); i++ {
+		if i < len(flags) && flags[i] {
+			continue
+		}
+		if i-curStart > bestLen {
+			bestLen, start, end = i-curStart, curStart, i
+		}
+		curStart = i + 1
+	}
+	return start, end
+}
+
 // ErrNilImage is returned by New when a nil image is passed.
 var ErrNilImage = errors.New("redacted image must not be nil")
 

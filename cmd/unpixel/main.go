@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/png"
 	"io"
 	"os"
@@ -464,6 +465,20 @@ func warnIfNoMosaic(w io.Writer, img image.Image, blockSize int, source string) 
 	return true
 }
 
+// smaller reports whether r covers less than the full bounds b (so cropping is
+// worthwhile).
+func smaller(r, b image.Rectangle) bool {
+	return r.Dx() < b.Dx() || r.Dy() < b.Dy()
+}
+
+// cropToRegion returns a fresh origin-(0,0) RGBA copy of img restricted to r, so
+// downstream stages (which require equal, zero-origin bounds) work correctly.
+func cropToRegion(img image.Image, r image.Rectangle) *image.RGBA {
+	dst := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
+	draw.Draw(dst, dst.Bounds(), img, r.Min, draw.Src)
+	return dst
+}
+
 // resolveBlur decides whether to recover blurred (rather than mosaic) text and
 // at what sigma, returning 0 for mosaic mode. --redaction blur forces blur
 // (sigma from --blur-sigma, else estimated); --redaction mosaic forces mosaic;
@@ -703,6 +718,18 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	source := imgPath
 	if source == "-" {
 		source = "the input image"
+	}
+
+	// Zero-config screenshots: when looking for a blur and there is no mosaic
+	// grid, crop to the blurred region so sigma estimation and recovery aren't
+	// skewed by surrounding sharp text (the whole-image vs region sigma gap).
+	if p.redaction != "mosaic" && p.blurSigma == 0 && unpixel.InferBlockSize(img) == 0 {
+		if region, ok := unpixel.LocateRedaction(img); ok && smaller(region, img.Bounds()) {
+			img = cropToRegion(img, region)
+			if !p.quiet {
+				fmt.Fprintf(os.Stderr, "Located blurred region: %dx%d\n", region.Dx(), region.Dy())
+			}
+		}
 	}
 
 	cfg := buildConfig(p)
