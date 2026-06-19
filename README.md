@@ -4,7 +4,7 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** the **library and CLI are usable** (~92% test coverage, all gates green).
+> **Status:** the **library and CLI are usable** (~90% test coverage, all gates green).
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap.
 
 ## Table of contents
@@ -46,13 +46,19 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the algorithm and the library choices
   regardless of scheduling. ~4× faster offset discovery on a typical laptop.
 - **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
   grid from the image (`InferBlockSize`), so callers don't have to measure it.
+- **Bring any font — or sweep several.** Recovery needs the redaction's typeface, so match it
+  with a custom font (`--font` / `render.NewXImageFromFonts`, plus `--font-size` and CSS-style
+  `--letter-spacing`). Don't know which font? Pass several `--font` (or a `--font-dir`) and
+  UnPixel recovers with each **in parallel** and keeps the **best fit by whole-image score** —
+  you supply the font files, so no font licensing falls on this project. Library: `RecoverMultiFont`.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
-  offset (sorted by score, ties broken deterministically) plus `Confidence` and `Ambiguity`
-  scores, so callers can surface alternatives instead of a single best guess.
+  offset (sorted by score, ties broken deterministically) plus `Confidence`/`Ambiguity` and a
+  whole-image `BestTotal` distance — comparable across runs, so it can rank fonts or styles —
+  letting callers surface alternatives instead of a single best guess.
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
-- **~92% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
+- **~90% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
 
 ## Install
 
@@ -87,6 +93,13 @@ unpixel redacted.png                       # recover; best guess to stdout
 cat redacted.png | unpixel -               # read PNG from stdin
 unpixel --format json --top 10 redacted.png
 unpixel --strategy beam --metric ssim --workers 8 redacted.png
+
+# Match the redaction's typeface (e.g. a Consolas-pixelated code screenshot):
+unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.png
+
+# Don't know the font? Sweep several (or a whole directory) and keep the best fit:
+unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
+unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 ```
 
 Key flags (`unpixel --help` for the full list):
@@ -96,16 +109,24 @@ Key flags (`unpixel --help` for the full list):
 | `--charset` | `a–z` + space | Candidate characters to try |
 | `--charset-preset` | — | Named charset when `--charset` is unset: `lower`, `alnum`, `ascii`/`code` |
 | `--block-size`, `-b` | `0` (auto) | Pixelation block size; `0` auto-detects from the image |
+| `--font` | embedded (Liberation Sans) | TTF/OTF font to render candidates; **repeat to sweep** and keep the best fit |
+| `--font-dir` | — | Directory of TTF/OTF fonts to sweep (each tried; best whole-image fit wins) |
+| `--font-size` | `0` (32) | Font size in points to match the redaction |
+| `--letter-spacing` | `0` | Extra px after each glyph, like CSS `letter-spacing` (may be negative) |
 | `--strategy` | `guided` | `guided` (full DFS) or `beam` (bounded, faster) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
-| `--workers` | `0` (all CPUs) | Grid offsets searched concurrently |
+| `--workers` | `0` (all CPUs) | Grid offsets searched concurrently; also the sweep's core budget |
 | `--top`, `-n` | `5` | Ranked candidates to report |
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
 | `--timeout` | `0` (none) | Max recovery time |
 
 The best guess prints to stdout (so it pipes cleanly); the ranked table and live progress go to
-stderr. `--format json` emits a stable schema (`best_guess`, `confidence`, `top`, …).
+stderr. `--format json` emits a stable schema (`best_guess`, `confidence`, `total_score`, `top`,
+and a ranked `fonts` array when sweeping).
+
+> **Tip:** lower block sizes carry less information per glyph, so a tighter `--threshold`
+> (e.g. `0.1`) prunes coincidental matches and lets the whole-image score pick the complete answer.
 
 ## Quick start
 
@@ -141,6 +162,25 @@ res, err := unpixel.Recover(ctx, img,
 )
 ```
 
+Unknown typeface? Build a renderer per candidate font (you supply the `.ttf`) and let
+`RecoverMultiFont` recover with each in parallel, ranked best-fit first:
+
+```go
+import "github.com/oioio-space/unpixel/defaults"
+
+var rs []unpixel.Renderer
+for _, data := range fontFiles { // each is TTF/OTF bytes you read
+	r, err := defaults.RendererFromFonts(data, nil)
+	if err != nil {
+		panic(err)
+	}
+	rs = append(rs, r)
+}
+ranked, err := unpixel.RecoverMultiFont(ctx, img, rs, unpixel.WithBlockSize(5))
+best := ranked[0] // lowest BestTotal — the font that fit best
+fmt.Printf("%q via font #%d\n", best.Result.BestGuess, best.Index)
+```
+
 For streaming progress or full control, drop to the low-level `Engine` (the helpers wrap exactly
 this):
 
@@ -166,14 +206,15 @@ Public API (root package `unpixel`):
 |--------|---------|
 | `Recover(ctx, image.Image, ...Option) (Result, error)` | One call: search and return the best result |
 | `RecoverReader(ctx, io.Reader, ...Option)` / `RecoverFile(ctx, path, ...Option)` | Decode then `Recover` |
-| `With*` options (`WithCharset`, `WithWorkers`, `WithStrategy`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
+| `RecoverMultiFont(ctx, image.Image, []Renderer, ...Option) ([]FontResult, error)` | Sweep candidate fonts in parallel; results ranked best-fit first by `BestTotal` |
+| `With*` options (`WithCharset`, `WithWorkers`, `WithRenderer`, `WithStrategy`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
 | `New(redacted image.Image, cfg Config) (*Engine, error)` | Build an engine; zero `Config` = faithful defaults |
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
 | `OnProgress(ch <-chan Progress, fn func(Progress))` | Drain progress events into a callback (any UI) |
 | `InferBlockSize(image.Image) int` | Detect the mosaic block size |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
-| `Config`, `Style`, `Result`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
+| `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
 
 ## Configuration
 
@@ -188,7 +229,7 @@ Pass a `Config` to `unpixel.New`. Every zero value falls back to a documented de
 | `SpaceThreshold` | `float64` | `0.5` | Looser threshold for extending with a space (whitespace blur) |
 | `ThresholdFor` | `func(rune) float64` | space→`SpaceThreshold`, else `Threshold` | Per-character threshold; override for new char classes |
 | `TopN` | `int` | `5` | Ranked candidates kept per offset in `Result.TopN` |
-| `Style` | `Style` | Liberation Sans, 32 px, white bg | Font family/size/weight/padding for rendering |
+| `Style` | `Style` | Liberation Sans, 32 px, white bg | Font size/weight/padding and `LetterSpacing` for rendering (the font itself comes from the `Renderer`) |
 | `Renderer` | `Renderer` | `x/image/font` (pure Go) | Text → raster |
 | `Pixelator` | `Pixelator` | block-average | Raster → pixelated |
 | `Metric` | `Metric` | `orisano/pixelmatch` | Image-distance score |
@@ -215,10 +256,10 @@ github.com/oioio-space/unpixel
 │   ├── imutil/             # crop / pad / compose; blueMargin & leftEdge detection
 │   ├── pixelate/           # block-average pixelator; grid-origin crop; white padding
 │   ├── metric/             # pixelmatch (faithful default) + simple RGB metric
-│   ├── render/             # pure-Go x/image/font renderer
+│   ├── render/             # pure-Go x/image/font renderer (embedded or custom fonts; letter-spacing)
 │   │   └── fonts/          #   embedded Liberation Sans (Regular/Bold) + OFL license
-│   └── search/             # offset discovery + marginal cropping + guided DFS
-└── cmd/unpixel/            # CLI (placeholder)
+│   └── search/             # offset discovery + marginal cropping + guided DFS + whole-image ranking
+└── cmd/unpixel/            # CLI (urfave/cli/v3): recovery, font sweep, text/JSON output
 ```
 
 The four interfaces (`Renderer`, `Pixelator`, `Metric`, `Strategy`) live in the root package so

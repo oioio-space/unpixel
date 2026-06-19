@@ -366,3 +366,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `7444a59` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_
 - `3711b13` 2026-06-19 — perf(cli): run the font sweep in parallel within a core budget _(2 fichiers)_
 - `3071b26` 2026-06-19 — feat(api): RecoverMultiFont — library multi-font sweep _(4 fichiers)_
+- `b4e6339` 2026-06-19 — refactor(cli): drive the font sweep through unpixel.RecoverMultiFont _(3 fichiers)_
