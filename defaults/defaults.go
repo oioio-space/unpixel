@@ -143,6 +143,15 @@ func BeamStrategy(width int) unpixel.Strategy {
 	return search.NewBeamStrategy(width)
 }
 
+// MonospaceStrategy returns the monospace fast-path strategy as an
+// unpixel.Strategy. For fixed-advance fonts, cells are independent, so it
+// classifies each position greedily with charset-wide parallelism — far cheaper
+// than the backtracking DFS. Use it for code/secret redactions in a monospace
+// face; recovery degrades if the font is actually proportional.
+func MonospaceStrategy() unpixel.Strategy {
+	return search.NewMonospaceStrategy()
+}
+
 // PixelmatchMetric returns the faithful default image-distance metric (a YIQ
 // perceptual pixel-difference, matching the original Jimp.diff) as an
 // unpixel.Metric, ready to assign to Config.Metric.

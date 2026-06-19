@@ -118,9 +118,12 @@ func buildConfig(p flagParams) unpixel.Config {
 			LetterSpacing: p.letterSpacing,
 		},
 	}
-	if p.strategy == "beam" {
+	switch p.strategy {
+	case "beam":
 		cfg.Strategy = defaults.BeamStrategy(p.beamWidth)
-	} else {
+	case "mono":
+		cfg.Strategy = defaults.MonospaceStrategy()
+	default:
 		cfg.Strategy = defaults.GuidedStrategy()
 	}
 	if p.metric == "ssim" {
@@ -155,8 +158,8 @@ func validateParams(p flagParams) error {
 	if p.format != "text" && p.format != "json" {
 		return fmt.Errorf("--format must be %q or %q, got %q", "text", "json", p.format)
 	}
-	if p.strategy != "guided" && p.strategy != "beam" {
-		return fmt.Errorf("--strategy must be %q or %q, got %q", "guided", "beam", p.strategy)
+	if p.strategy != "guided" && p.strategy != "beam" && p.strategy != "mono" {
+		return fmt.Errorf("--strategy must be %q, %q or %q, got %q", "guided", "beam", "mono", p.strategy)
 	}
 	if p.metric != "pixelmatch" && p.metric != "ssim" {
 		return fmt.Errorf("--metric must be %q or %q, got %q", "pixelmatch", "ssim", p.metric)
@@ -588,7 +591,7 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "strategy",
-				Usage: `search strategy: "guided" (full DFS) or "beam" (bounded, faster)`,
+				Usage: `search strategy: "guided" (full DFS), "beam" (bounded), or "mono" (monospace fast-path)`,
 				Value: "guided",
 			},
 			&cli.IntFlag{
