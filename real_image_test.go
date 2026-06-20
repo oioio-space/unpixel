@@ -11,12 +11,13 @@ import (
 )
 
 // realBlurSample is a real-world redaction of "Hello World !" (1450×509, with
-// large flat margins) committed under testdata/real. It is a hand-contributed
-// sample that exercises the locate/infer preprocessing path on genuine input
+// large flat margins), a hand-contributed sample committed under testdata/fixtures
+// (exempt from the manifest cross-check; see handContributedFixtures). It
+// exercises the locate/infer preprocessing path on genuine input
 // rather than synthetic data. The full forward-model decode of this sample lives
 // in real_mosaic_test.go; this test only pins the region-location and inference
 // helpers behave on a real image with wide margins.
-const realBlurSample = "testdata/real/text_hello-world.png"
+const realBlurSample = "testdata/fixtures/text_hello-world.png"
 
 // loadRealSample decodes the committed real-world blur sample.
 func loadRealSample(tb testing.TB) image.Image {

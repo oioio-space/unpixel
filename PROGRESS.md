@@ -533,3 +533,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `12edfde` 2026-06-19 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(1 fichiers)_
 - `6ed5806` 2026-06-20 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(2 fichiers)_
 - `959654e` 2026-06-20 — perf(metric): measure SIMD colorDelta prerequisite → not adopted (P4.10 step 2) _(3 fichiers)_
+- `f9ce9d4` 2026-06-20 — feat(pixelate): linear-light mosaic + decode real GIMP "Hello World !" sample _(9 fichiers)_

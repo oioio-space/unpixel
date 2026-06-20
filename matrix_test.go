@@ -93,6 +93,15 @@ func TestMatrix_Recovery(t *testing.T) {
 	}
 }
 
+// handContributedFixtures are PNGs committed under testdata/fixtures that are NOT
+// produced by the fixture generator (they are real third-party redactions, e.g.
+// a GIMP export), so the manifest does not — and should not — describe them.
+// They are exempt from the manifest ↔ file cross-check below; their own decode
+// lives in real_mosaic_test.go.
+var handContributedFixtures = map[string]bool{
+	"text_hello-world.png": true,
+}
+
 // TestMatrix_manifestMatchesFiles checks every manifest entry has a file and
 // vice-versa, so the image ↔ parameters link cannot silently drift.
 func TestMatrix_manifestMatchesFiles(t *testing.T) {
@@ -109,7 +118,7 @@ func TestMatrix_manifestMatchesFiles(t *testing.T) {
 		t.Fatalf("read fixture dir: %v", err)
 	}
 	for _, e := range entries {
-		if filepath.Ext(e.Name()) == ".png" && !named[e.Name()] {
+		if filepath.Ext(e.Name()) == ".png" && !named[e.Name()] && !handContributedFixtures[e.Name()] {
 			t.Errorf("orphan image %s not in manifest", e.Name())
 		}
 	}

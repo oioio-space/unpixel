@@ -50,11 +50,12 @@ func contentBounds(img *image.RGBA) image.Rectangle {
 // realMosaicSample is a real-world mosaic redaction of the text "Hello World !"
 // (1450×509, large white margins), created in GIMP: text set in "Monospace"
 // (Noto Sans Mono) at 62 px, GEGL Pixelize at a 16-px block, then the layer
-// scaled ~2× — giving 32-px square blocks in the export. Unlike the synthetic
-// matrix in testdata/fixtures it is a hand-contributed sample, so it exercises
-// the pipeline on genuine third-party output rather than the engine's own
-// renderer/pixelator round-tripped against itself.
-const realMosaicSample = "testdata/real/text_hello-world.png"
+// scaled ~2× — giving 32-px square blocks in the export. It is a hand-contributed
+// sample committed under testdata/fixtures (exempt from the generator's manifest
+// cross-check; see handContributedFixtures), so it exercises the pipeline on
+// genuine third-party output rather than the engine's own renderer/pixelator
+// round-tripped against itself.
+const realMosaicSample = "testdata/fixtures/text_hello-world.png"
 
 // notoMonoRenderer returns a renderer using the bundled Noto Sans Mono, the font
 // Fedora's "Monospace" alias resolves to (the font used to create the sample).
