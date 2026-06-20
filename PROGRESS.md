@@ -406,6 +406,41 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
       Large-charset single-offset ~1.5× plus vite ; défaut small-charset neutre ; `-race` propre.
 
+### P5 — Récupération aveugle des redactions réelles (issu de l'échantillon GIMP « Hello World ! »)
+
+Contexte : `testdata/fixtures/text_hello-world.png` (capture GIMP réelle) est **confirmé** par le
+modèle direct (pixelmatch **0,0000** avec Noto Sans Mono + `LinearBlockAverage`), mais la
+**recherche de bout en bout ne le retrouve pas seule**. Le déblocage clé manquant — la
+**pixelisation en lumière linéaire** (GEGL/GIMP/CSS) — est livré (`pixelate.NewLinearBlockAverage`,
+`defaults.LinearBlockAverage`, flag `--gamma`). Restent les chantiers d'autonomie suivants, par
+ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération inchangée) :
+
+- [ ] **P5.1 — auto-détection sRGB vs lumière linéaire.** Choisir automatiquement entre
+      `BlockAverage` (sRGB) et `LinearBlockAverage` (GEGL) — p.ex. essayer les deux et garder le
+      meilleur score d'image entière, ou détecter la signature « blocs plus clairs ». Aujourd'hui
+      l'utilisateur doit passer `--gamma`. *Prérequis du décodage zéro-config de ce type d'image.*
+- [ ] **P5.2 — localisation mosaïque-aware + recadrage auto.** `LocateRedaction` est réglé pour le
+      **flou** (faible gradient) et **tronque** une mosaïque nette (il rate le « ! » : x≤985 vs
+      contenu réel x≤1177). Ajouter un localisateur de bande mosaïque (bbox du contenu aligné sur la
+      grille de blocs détectée via `InferBlockGrid`) et recadrer avant la recherche, pour les
+      captures plein écran avec grandes marges.
+- [ ] **P5.3 — calibrage typographique automatique.** Estimer taille de police, étirement
+      horizontal anisotrope (la mise à l'échelle GIMP était ~1,06× plus large que haute) et phase de
+      grille à partir de la géométrie de l'image (pas via la réponse). Aujourd'hui fournis à la main
+      (≈124 pt, ×1,06, bloc 32). `InferFontSize` sur-estime sur mosaïque très claire (96 px → 104 pt
+      au lieu de ~62×2) — à fiabiliser.
+- [ ] **P5.4 — stratégie de recherche pour texte long et peu encré.** La DFS guidée/beam
+      incrémentale **se piège sur les glyphes fins** (« l », espace, « ! » battent « H ») car le
+      signal par-caractère est trop faible sur une mosaïque claire ; le signal discriminant
+      n'existe qu'au niveau de la **chaîne entière** (SSIM 0,99 pour la bonne chaîne, vs ~0,007 d'écart
+      entre voisins). Pistes : **segmentation en mots** (récupérer chaque mot court séparément),
+      **scoring image-entière / ré-classement de candidats** (générer un pool puis classer par score
+      global), ou un prior de langue/wordlist dominant. *C'est le verrou principal du décodage
+      réellement aveugle des textes de 10+ caractères monospace.*
+- [ ] **P5.5 — exposer le pipeline « capture réelle » de bout en bout.** Un helper/CLI qui enchaîne
+      localisation (P5.2) → calibrage (P5.3) → choix gamma (P5.1) → recherche adaptée (P5.4), pour
+      passer d'une capture brute à la récupération sans paramètres manuels.
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
@@ -534,3 +569,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `6ed5806` 2026-06-20 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(2 fichiers)_
 - `959654e` 2026-06-20 — perf(metric): measure SIMD colorDelta prerequisite → not adopted (P4.10 step 2) _(3 fichiers)_
 - `f9ce9d4` 2026-06-20 — feat(pixelate): linear-light mosaic + decode real GIMP "Hello World !" sample _(9 fichiers)_
+- `f10d3bf` 2026-06-20 — test(fixtures): host the real "Hello World !" sample at the path the user referenced _(5 fichiers)_
