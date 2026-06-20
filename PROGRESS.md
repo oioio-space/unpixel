@@ -22,7 +22,7 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
   (GIMP/GEGL Pixelize, CSS, navigateurs) moyennent les blocs en **lumière linéaire**, pas en sRGB —
   la moyenne d'un texte sombre sur fond clair y est nettement plus claire. Ajout de
   `pixelate.NewLinearBlockAverage` / `defaults.LinearBlockAverage` + flag CLI `--gamma` (chemin sRGB
-  par défaut **inchangé/fidèle**). Échantillon réel `testdata/real/text_hello-world.png` (capture GIMP :
+  par défaut **inchangé/fidèle**). Échantillon réel `testdata/fixtures/text_hello-world.png` (capture GIMP :
   Noto Sans Mono 62 px → Pixelize 16 → mise à l'échelle ~2×) **décodé** : le modèle generate-and-test,
   avec Noto Sans Mono (police « Monospace » de Fedora) + moyenne linéaire, **reproduit la redaction à
   l'identique** (pixelmatch **0,0000**) pour « Hello World ! », strictement mieux que tout quasi-voisin
@@ -570,3 +570,4 @@ ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération in
 - `959654e` 2026-06-20 — perf(metric): measure SIMD colorDelta prerequisite → not adopted (P4.10 step 2) _(3 fichiers)_
 - `f9ce9d4` 2026-06-20 — feat(pixelate): linear-light mosaic + decode real GIMP "Hello World !" sample _(9 fichiers)_
 - `f10d3bf` 2026-06-20 — test(fixtures): host the real "Hello World !" sample at the path the user referenced _(5 fichiers)_
+- `986facb` 2026-06-20 — docs(progress): add P5 roadmap — blind recovery of real redactions _(1 fichiers)_
