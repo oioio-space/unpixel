@@ -84,6 +84,7 @@ type flagParams struct {
 	timeout         time.Duration
 	quiet           bool
 	blurExact       bool
+	gamma           bool
 	language        bool
 	secrets         bool
 	escalate        bool
@@ -757,6 +758,10 @@ Examples:
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
+			&cli.BoolFlag{
+				Name:  "gamma",
+				Usage: "average mosaic blocks in linear light (matches GIMP/GEGL Pixelize, CSS, most editors) instead of sRGB; use for redactions made by those tools",
+			},
 			&cli.IntFlag{
 				Name:  "deblur",
 				Usage: "exploratory: pre-sharpen the input with Richardson-Lucy deconvolution for N iterations (uses --blur-sigma or auto; 0 = off)",
@@ -848,6 +853,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		letterSpacing:   cmd.Float("letter-spacing"),
 		blurSigma:       cmd.Float("blur-sigma"),
 		blurExact:       cmd.Bool("blur-exact"),
+		gamma:           cmd.Bool("gamma"),
 		deblur:          cmd.Int("deblur"),
 		language:        cmd.Bool("language"),
 		secrets:         cmd.Bool("secrets"),
@@ -932,6 +938,23 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 	} else {
 		warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
+		if p.gamma {
+			// Linear-light mosaic (GIMP/GEGL Pixelize, CSS, most editors). Resolve
+			// the block size now so the pixelator's grid matches the engine's.
+			block := p.blockSize
+			if block <= 0 {
+				block = unpixel.InferBlockSize(img)
+			}
+			if block >= 2 {
+				cfg.Pixelator = defaults.LinearBlockAverage(block)
+				cfg.BlockSize = block
+				if !p.quiet {
+					fmt.Fprintf(os.Stderr, "Mosaic: linear-light block average (block=%d)\n", block)
+				}
+			} else if !p.quiet {
+				fmt.Fprintln(os.Stderr, "--gamma ignored: no mosaic block grid detected (pass --block-size)")
+			}
+		}
 	}
 
 	fontPaths, ferr := collectFonts(p)

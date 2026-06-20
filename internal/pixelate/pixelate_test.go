@@ -154,3 +154,42 @@ func TestBlockAverage_whitepadToBlockMultiple(t *testing.T) {
 		}
 	}
 }
+
+// TestLinearBlockAverage_LighterThanSRGB verifies the linear-light variant: for
+// a half-black/half-white block its mean is markedly lighter than the sRGB mean
+// (~188 vs 128), matching GEGL/GIMP Pixelize. A uniform block is unchanged.
+func TestLinearBlockAverage_LighterThanSRGB(t *testing.T) {
+	// 2×1 block: one black, one white pixel.
+	img := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	img.SetRGBA(0, 0, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	img.SetRGBA(1, 0, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+
+	srgb := pixelate.NewBlockAverage(2).Pixelate(cloneRGBA(img), 0, 0).RGBAAt(0, 0)
+	lin := pixelate.NewLinearBlockAverage(2).Pixelate(cloneRGBA(img), 0, 0).RGBAAt(0, 0)
+
+	if got := srgb.R; got != 127 {
+		t.Errorf("sRGB mean R = %d, want 127", got)
+	}
+	if lin.R <= srgb.R {
+		t.Errorf("linear mean R = %d, want > sRGB mean %d (linear light is lighter)", lin.R, srgb.R)
+	}
+	if lin.R < 185 || lin.R > 192 {
+		t.Errorf("linear mean R = %d, want ≈188 (linear average of 0 and 255)", lin.R)
+	}
+
+	// A uniform block is identical under both (mean of equal values).
+	uni := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for i := range uni.Pix {
+		uni.Pix[i] = 200
+	}
+	if got := pixelate.NewLinearBlockAverage(4).Pixelate(cloneRGBA(uni), 0, 0).RGBAAt(0, 0); got.R != 200 {
+		t.Errorf("uniform linear mean R = %d, want 200", got.R)
+	}
+}
+
+// cloneRGBA returns a deep copy so an in-place pixelator cannot mutate the input.
+func cloneRGBA(src *image.RGBA) *image.RGBA {
+	dst := image.NewRGBA(src.Bounds())
+	copy(dst.Pix, src.Pix)
+	return dst
+}

@@ -91,6 +91,18 @@ func BlockAverage(blockSize int) unpixel.Pixelator {
 	return pixelate.NewBlockAverage(blockSize)
 }
 
+// LinearBlockAverage returns a mosaic operator that averages each block in
+// linear light (rather than sRGB), matching GIMP's GEGL Pixelize, CSS, and most
+// image editors. Their block mean of dark text on a light background is lighter
+// than the sRGB mean, so a redaction produced by those tools is reproduced
+// faithfully only with this variant. Assign it to Config.Pixelator alongside a
+// matching Config.BlockSize:
+//
+//	cfg := unpixel.Config{Pixelator: defaults.LinearBlockAverage(16), BlockSize: 16}
+func LinearBlockAverage(blockSize int) unpixel.Pixelator {
+	return pixelate.NewLinearBlockAverage(blockSize)
+}
+
 // GaussianBlur returns a Gaussian-blur redaction operator (sigma in pixels) as
 // an unpixel.Pixelator, for recovering blurred — rather than mosaic-pixelated —
 // text. Assign it to Config.Pixelator with Config.BlockSize = 1 (blur has no

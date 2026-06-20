@@ -18,6 +18,17 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 **v0.5.0 en préparation** : déconvolution Richardson-Lucy optionnelle, automation perf
 (auto Top-K + intra-node parallelism), bundle de polices élargi (Adwaita Mono, Noto Sans Mono).
 
+- **Mosaïque linéaire (GEGL/GIMP) + échantillon réel "Hello World !"** : la plupart des outils
+  (GIMP/GEGL Pixelize, CSS, navigateurs) moyennent les blocs en **lumière linéaire**, pas en sRGB —
+  la moyenne d'un texte sombre sur fond clair y est nettement plus claire. Ajout de
+  `pixelate.NewLinearBlockAverage` / `defaults.LinearBlockAverage` + flag CLI `--gamma` (chemin sRGB
+  par défaut **inchangé/fidèle**). Échantillon réel `testdata/real/text_hello-world.png` (capture GIMP :
+  Noto Sans Mono 62 px → Pixelize 16 → mise à l'échelle ~2×) **décodé** : le modèle generate-and-test,
+  avec Noto Sans Mono (police « Monospace » de Fedora) + moyenne linéaire, **reproduit la redaction à
+  l'identique** (pixelmatch **0,0000**) pour « Hello World ! », strictement mieux que tout quasi-voisin
+  ou le modèle sRGB (0,30) — cf. `real_mosaic_test.go`. La recherche aveugle de bout en bout reste
+  impraticable sur 13 glyphes monospace très peu encrés (signal par-caractère trop faible) ; la
+  confirmation par le modèle direct est le garde-fou retenu (comme `real_image_test.go`).
 - **Repo public** : `github.com/oioio-space/unpixel` (ouvert), CodeQL + secret-scanning +
   Codecov gratuits maintenant activés. Tags thématiques et description ajoutés.
 - **Release v0.4.0** : **au-delà de la mosaïque → flou gaussien** (type du défi Bishop Fox).
@@ -521,3 +532,4 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 - `60959e2` 2026-06-19 — perf(metric): in-repo pixelmatch on *image.RGBA.Pix (P4.10 step 1) _(5 fichiers)_
 - `12edfde` 2026-06-19 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(1 fichiers)_
 - `6ed5806` 2026-06-20 — docs: no-CGO GPU vs SIMD acceleration study + proposals (ACCELERATION.md) _(2 fichiers)_
+- `959654e` 2026-06-20 — perf(metric): measure SIMD colorDelta prerequisite → not adopted (P4.10 step 2) _(3 fichiers)_

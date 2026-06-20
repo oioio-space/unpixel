@@ -5,18 +5,63 @@ package pixelate
 
 import (
 	"image"
+	"math"
 
 	"github.com/oioio-space/unpixel/internal/imutil"
 )
 
 // BlockAverage implements unpixel.Pixelator using per-block mean RGBA.
+//
+// By default the mean is taken in the (gamma-encoded) sRGB space, matching the
+// original unredacter/Jimp pipeline. Set gamma via [NewLinearBlockAverage] to
+// average in linear light instead, which is what GEGL-based tools (GIMP's
+// Pixelize), most browsers, and many image editors do — so a redaction produced
+// by those tools is reproduced faithfully only with the linear variant.
 type BlockAverage struct {
 	blockSize int
+	// gamma, when true, averages each block in linear-light space (sRGB is
+	// decoded to linear, averaged, then re-encoded) rather than directly in sRGB.
+	gamma bool
 }
 
 // NewBlockAverage returns a BlockAverage pixelator with the given block size.
+// It averages in sRGB space (the faithful unredacter default).
 func NewBlockAverage(blockSize int) *BlockAverage {
 	return &BlockAverage{blockSize: blockSize}
+}
+
+// NewLinearBlockAverage returns a BlockAverage that averages each block in
+// linear-light space. This matches GIMP's GEGL Pixelize (and CSS/most editors),
+// whose block mean of dark text on a light background is noticeably lighter than
+// an sRGB mean — use it to recover redactions produced by those tools.
+func NewLinearBlockAverage(blockSize int) *BlockAverage {
+	return &BlockAverage{blockSize: blockSize, gamma: true}
+}
+
+// srgbToLinear maps an 8-bit sRGB channel to linear light in [0,1]. Precomputed
+// because the per-block sum touches every pixel on the hot path.
+var srgbToLinear = func() [256]float64 {
+	var t [256]float64
+	for i := range t {
+		c := float64(i) / 255
+		if c <= 0.04045 {
+			t[i] = c / 12.92
+		} else {
+			t[i] = math.Pow((c+0.055)/1.055, 2.4)
+		}
+	}
+	return t
+}()
+
+// linearToSrgb8 maps a linear-light value in [0,1] back to an 8-bit sRGB channel.
+func linearToSrgb8(c float64) uint8 {
+	var s float64
+	if c <= 0.0031308 {
+		s = c * 12.92
+	} else {
+		s = 1.055*math.Pow(c, 1/2.4) - 0.055
+	}
+	return uint8(math.Round(min(max(s, 0), 1) * 255))
 }
 
 // Pixelate replaces every blockSize×blockSize region of src (aligned to
@@ -71,19 +116,40 @@ func (b *BlockAverage) Pixelate(src *image.RGBA, originX, originY int) *image.RG
 			if x0 >= x1 || y0 >= y1 {
 				continue
 			}
-			var rSum, gSum, bSum, aSum int
-			for y := y0; y < y1; y++ {
-				off := y*stride + x0*4
-				for x := x0; x < x1; x++ {
-					rSum += int(pix[off])
-					gSum += int(pix[off+1])
-					bSum += int(pix[off+2])
-					aSum += int(pix[off+3])
-					off += 4
-				}
-			}
 			n := (x1 - x0) * (y1 - y0)
-			mr, mg, mb, ma := avg8(rSum, n), avg8(gSum, n), avg8(bSum, n), avg8(aSum, n)
+			var mr, mg, mb, ma uint8
+			if b.gamma {
+				// Average colour channels in linear light, then re-encode to sRGB
+				// (matches GEGL/GIMP/browser pixelation). Alpha stays linear in sRGB
+				// units (it is not gamma-encoded).
+				var rL, gL, bL float64
+				var aSum int
+				for y := y0; y < y1; y++ {
+					off := y*stride + x0*4
+					for x := x0; x < x1; x++ {
+						rL += srgbToLinear[pix[off]]
+						gL += srgbToLinear[pix[off+1]]
+						bL += srgbToLinear[pix[off+2]]
+						aSum += int(pix[off+3])
+						off += 4
+					}
+				}
+				nf := float64(n)
+				mr, mg, mb, ma = linearToSrgb8(rL/nf), linearToSrgb8(gL/nf), linearToSrgb8(bL/nf), avg8(aSum, n)
+			} else {
+				var rSum, gSum, bSum, aSum int
+				for y := y0; y < y1; y++ {
+					off := y*stride + x0*4
+					for x := x0; x < x1; x++ {
+						rSum += int(pix[off])
+						gSum += int(pix[off+1])
+						bSum += int(pix[off+2])
+						aSum += int(pix[off+3])
+						off += 4
+					}
+				}
+				mr, mg, mb, ma = avg8(rSum, n), avg8(gSum, n), avg8(bSum, n), avg8(aSum, n)
+			}
 
 			rowStart := y0*stride + x0*4
 			rowLen := (x1 - x0) * 4

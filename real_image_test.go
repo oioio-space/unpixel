@@ -10,11 +10,12 @@ import (
 	"github.com/oioio-space/unpixel"
 )
 
-// realBlurSample is a real-world Gaussian-blurred "hello world" redaction
-// (1450×509, with large flat margins) committed under testdata/real. Unlike the
-// generated mosaic matrix in testdata/fixtures, it is a hand-contributed sample
-// that exercises the preprocessing path on genuine input rather than synthetic
-// data — in particular the crop-first blur-sigma estimate.
+// realBlurSample is a real-world redaction of "Hello World !" (1450×509, with
+// large flat margins) committed under testdata/real. It is a hand-contributed
+// sample that exercises the locate/infer preprocessing path on genuine input
+// rather than synthetic data. The full forward-model decode of this sample lives
+// in real_mosaic_test.go; this test only pins the region-location and inference
+// helpers behave on a real image with wide margins.
 const realBlurSample = "testdata/real/text_hello-world.png"
 
 // loadRealSample decodes the committed real-world blur sample.

@@ -37,6 +37,18 @@ func BenchmarkBlockAverage_Pixelate(b *testing.B) {
 	}
 }
 
+// BenchmarkLinearBlockAverage_Pixelate benchmarks the linear-light variant (the
+// opt-in GEGL-matching mosaic) so its per-block sRGB↔linear conversion cost is
+// tracked alongside the default sRGB path.
+func BenchmarkLinearBlockAverage_Pixelate(b *testing.B) {
+	src := makePixelateSrc()
+	p := pixelate.NewLinearBlockAverage(8)
+	b.ReportAllocs()
+	for b.Loop() {
+		sink = p.Pixelate(src, 3, 3)
+	}
+}
+
 // BenchmarkGaussianBlur_Pixelate benchmarks the separable Gaussian blur (the
 // blur-redaction operator) on the same 264×40 image at sigma=6 — a realistic
 // redaction blur radius.
