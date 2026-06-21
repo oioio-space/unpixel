@@ -478,6 +478,17 @@ clustering k-means des blocs), et son émission bigramme apprise remplacée par 
 « On the (In)effectiveness of Mosaicing and Blurring as Tools for Document Redaction ».
 ² nathan-barry/tiny-infini-gram (infini-gram pur-Go via suffix array, backoff d'ordre variable).
 
+### P7 — Robustesse des entrées : bruit, flou, prior pondéré (tri d'une proposition ONNX externe)
+
+Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx-go`/`gorgonnx`) a été **évaluée et rejetée** comme architecture : `onnx-go` est archivé (mai 2024) et `gorgonnx` ne couvre que ~25 % des opérateurs ONNX, alors qu'ESRGAN ≈ 1200 opérations → infaisable ; aucun runtime ONNX **réellement pur-Go** n'existe (`yalue` = CGO ; `onnxruntime-purego` charge la `.so` native, instable) → casse la contrainte binaire-unique ; et la **super-résolution hallucine**, elle **n'inverse pas** une mosaïque (moyenne lossy) — l'inverse correct est notre generate-and-test. Bribes réellement utiles retenues + investigation flou :
+
+- [ ] **P7.1 — débruitage en prétraitement (filtre médian, pur-Go).** `internal/imutil` n'a pas de médian. Ajouter un médian 3×3/5×5 optionnel avant `LocateRedaction`/inférence pour les entrées bruitées (artefacts JPEG, captures). Bénéfice prouvé sur une fixture bruitée ; benchstat (hot path).
+- [ ] **P7.2 — dico FR pondéré par fréquence (= P6.2(a)).** `dict.go` award un `BonusWord` **uniforme**. Charger une liste de fréquences FR (Lexique383) et pondérer `P(mot)` dans `PriorFor`, pour mieux départager les mots au décodage aveugle FR (« est »/« été » plus probables que des mots rares de même longueur).
+- [ ] **P7.3 — flou : rester classique (conclusion d'investigation, sourcée).** Le SOTA *sans GPU ni dataset* pour le texte flou = **RL-deconv + estimation locale de PSF**, training-free (Nature 2026, s41598-026-38494-8) — c'est **déjà notre chemin** (`internal/pixelate/deconv.go` + `InferBlurSigma`). Un modèle appris exige un réseau **profond** (≥20 couches ; les petits réseaux échouent, arXiv:1406.7444) et **se dégrade sur les grands noyaux** → **ni viable pur-Go ni meilleur** sur flou modéré. Le flou gaussien étant linéaire/inversible, l'approche directe est saine. Améliorations classiques retenues :
+  - [ ] **P7.3a — σ comme dimension de recherche.** Generate-and-test sur σ (comme `block` en mosaïque) : rendre candidat → flouter(σ) → comparer, en balayant σ autour de `InferBlurSigma` (aujourd'hui σ est estimé une fois, pas recherché).
+  - [ ] **P7.3b — prior de langue pour le flou.** Le flou écrase le signal par-caractère comme la mosaïque → réutiliser l'infini-gram (P6) pour départager les chaînes ; généraliser `blind.Recover` au pixeliseur flou.
+- [ ] **P7.4 — (veille seulement) modèle appris.** À reconsidérer *uniquement* si un runtime **pur-Go, binaire unique** pour un **petit modèle de langue** émerge ; le besoin « vision » (deblur/OCR appris) reste hors de notre contrainte. Notre prior appris reste l'infini-gram, déjà pur-Go/zéro-dépendance.
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
@@ -613,3 +624,4 @@ clustering k-means des blocs), et son émission bigramme apprise remplacée par 
 - `986facb` 2026-06-20 — docs(progress): add P5 roadmap — blind recovery of real redactions _(1 fichiers)_
 - `2b3d20b` 2026-06-20 — docs(progress): fix stale sample path (testdata/real → testdata/fixtures) _(1 fichiers)_
 - `3ba57ec` 2026-06-21 — test(real): organize real mosaic samples under testdata/real with a manifest _(13 fichiers)_
+- `7ac5d1b` 2026-06-21 — ci: restore Go cache before mise-action to fix tar 'File exists' _(1 fichiers)_
