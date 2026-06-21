@@ -14,9 +14,9 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 ## 📍 État actuel
 
 Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
-**v0.4.0 publiée** sur pkg.go.dev (récupération **mosaïque + flou gaussien**, zéro-config) ;
-**v0.5.0 en préparation** : déconvolution Richardson-Lucy optionnelle, automation perf
-(auto Top-K + intra-node parallelism), bundle de polices élargi (Adwaita Mono, Noto Sans Mono).
+**v0.6.0 publiée** sur pkg.go.dev : récupération mosaïque + flou gaussien + zéro-config auto-détection,
+**décodage aveugle bilingue FR/EN** (paquet `blind`), **décodeur monospace zéro-config** (paquet `mosaictext`),
+et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (paramètres + ground truth).
 
 - **Mosaïque linéaire (GEGL/GIMP) + échantillon réel "Hello World !"** : la plupart des outils
   (GIMP/GEGL Pixelize, CSS, navigateurs) moyennent les blocs en **lumière linéaire**, pas en sRGB —
@@ -481,7 +481,10 @@ clustering k-means des blocs), et son émission bigramme apprise remplacée par 
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
-  (polices custom + balayage), **v0.4.0** (flou gaussien + zéro-config) publiées sur pkg.go.dev.
+  (polices custom + balayage), **v0.4.0** (flou gaussien + zéro-config), **v0.5.0** (déconvolution RL
+  optionnelle + auto Top-K + parallelisme intra-node + bundle de polices élargi),
+  **v0.6.0** (décodage aveugle bilingue FR/EN + paquet `mosaictext` zéro-config + samples réels
+  organisés sous `testdata/real`) publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).
@@ -609,3 +612,4 @@ clustering k-means des blocs), et son émission bigramme apprise remplacée par 
 - `f10d3bf` 2026-06-20 — test(fixtures): host the real "Hello World !" sample at the path the user referenced _(5 fichiers)_
 - `986facb` 2026-06-20 — docs(progress): add P5 roadmap — blind recovery of real redactions _(1 fichiers)_
 - `2b3d20b` 2026-06-20 — docs(progress): fix stale sample path (testdata/real → testdata/fixtures) _(1 fichiers)_
+- `3ba57ec` 2026-06-21 — test(real): organize real mosaic samples under testdata/real with a manifest _(13 fichiers)_

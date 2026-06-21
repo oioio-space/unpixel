@@ -4,8 +4,9 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.4.0** published — mosaic **and Gaussian-blur** recovery, zero-config
-> (auto block size / blur σ / region / font), ~89% test coverage, all gates green.
+> **Status:** **v0.6.0** published — mosaic and Gaussian-blur recovery, zero-config
+> auto-detection (block size / blur σ / region / font), **blind bilingual (FR/EN) text recovery**,
+> **monospace mosaic decoder** (`mosaictext`), and real GIMP sample corpus; ~89% test coverage, all gates green.
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
 > delta vs the original Bishop Fox unredacter.
 
@@ -254,7 +255,7 @@ fmt.Println("Font:", res.Font, "Block:", res.Block, "Distance:", res.Dist)
 
 The `blind` package re-exports `English`/`French` (and `ParseLanguage` for a string flag), so no internal import is needed. **Status: experimental.** Blind recovery is proven end-to-end on synthetic mosaics rendered in the bundled fonts (sans/serif/mono); it is most reliable there. Real captures in a font outside the bundle, or containing punctuation/apostrophes outside the dictionary, recover only partially. It is also compute-heavy: a large multi-line screenshot with the font sweep can take many minutes — pin `--block-size`/`--font-size` and a single language to keep it tractable.
 
-Public API (root package `unpixel`):
+Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
 |--------|---------|
@@ -269,6 +270,9 @@ Public API (root package `unpixel`):
 | `InferBlockSize(image.Image) int` | Detect the mosaic block size |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
 | `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
+| **`blind.Recover(ctx, image.Image, ...Option) (*Recovery, error)`** | **Blind bilingual recovery (FR/EN) without knowing font/block/offset; re-exports `English`/`French`/`ParseLanguage`** |
+| **`blind.With*` options (`WithLanguage`, `WithBlock`, `WithOffset`, `WithFontSize`, `WithLinear`, `WithFonts`, `WithMetric`)** | **Fine-tune blind recovery or override auto-detection** |
+| **`mosaictext.Decode(ctx, image.Image, ...Option) (string, error)`** | **Zero-config monospace mosaic decoder (auto grid inference + character recognition)** |
 
 ## Configuration
 
