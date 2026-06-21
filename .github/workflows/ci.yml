@@ -20,11 +20,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # full history so `mise run scan:secrets` (gitleaks) can scan all commits
-      - uses: jdx/mise-action@v3 # caches the mise toolchain (go, golangci-lint, gosec, …) by default
-      # Cache the Go build/module caches + per-tool caches across runs. Without
-      # this, every run recompiles the whole module from cold for golangci-lint,
-      # gosec, govulncheck, build, and test — the dominant cost. Keyed on go.sum
-      # (deps) with a prefix restore-key so the build cache survives dep bumps.
+      # Restore the Go build/module + per-tool caches BEFORE mise-action. mise
+      # installs the `go:` tools (gosec, govulncheck, …) via `go install`, which
+      # populates ~/go/pkg/mod and ~/.cache/go-build with read-only files; if the
+      # cache is restored after that, tar fails to overwrite them
+      # ("Cannot open: File exists"). Restoring first extracts into empty dirs.
+      # Without this caching every run recompiles the whole module from cold for
+      # golangci-lint, gosec, govulncheck, build, and test — the dominant cost.
       - name: Cache Go & tool caches
         uses: actions/cache@v4
         with:
@@ -36,6 +38,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      - uses: jdx/mise-action@v3 # caches the mise toolchain (go, golangci-lint, gosec, …) by default
       - run: mise run ci
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
