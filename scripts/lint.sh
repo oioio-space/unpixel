@@ -58,11 +58,9 @@ fi
 go build ./... || fail "go build failed"
 ok "go build"
 
-# 5. Tests — maintainability: comprehensive tests must pass. -short skips the
-# heavy recovery e2e tests (already gated), which otherwise blow Go's 10-minute
-# per-package test timeout on slow CI runners; the full suite runs via
-# `mise run test`. -timeout is an explicit guard.
-go test -short -timeout=8m ./... || fail "go test failed"
-ok "go test"
+# NOTE: tests are intentionally NOT run here. The dedicated `test:ci` task is the
+# authoritative test + coverage gate (and `mise run ci` runs both lint and
+# test:ci in parallel — running tests here too just duplicated the whole suite on
+# every CI run and every commit). Run tests via `mise run test` / `mise run ci`.
 
 printf '\n\033[32mAll style-guide checks passed.\033[0m\n'

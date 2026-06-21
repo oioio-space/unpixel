@@ -137,7 +137,7 @@ depends = ["test:ci"]
 run = "./scripts/cover.sh --check"
 
 [tasks.lint]
-description = "Full Google Go style-guide gate (gofmt + vet + golangci-lint + build + test)"
+description = "Google Go style-guide gate (gofmt + vet + golangci-lint + build; tests run via test:ci)"
 run = "./scripts/rtkx.sh ./scripts/lint.sh"
 
 [tasks."lint:staged"]
