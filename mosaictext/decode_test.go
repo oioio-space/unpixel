@@ -44,7 +44,7 @@ func TestDecode_HelloWorld(t *testing.T) {
 		t.Skip("skipping zero-config mosaic decode in -short mode")
 	}
 	guardHeap(t, 1<<30) // backstop (~2× the ~600 MB default peak) so an IDE-launched run can't OOM-freeze the box
-	img := loadPNG(t, "../testdata/fixtures/text_hello-world.png")
+	img := loadPNG(t, "../testdata/real/hello-world.png")
 	res, err := mosaictext.Decode(context.Background(), img)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)

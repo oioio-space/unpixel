@@ -58,7 +58,7 @@ var sinkF64 float64
 // cross-check; see handContributedFixtures), so it exercises the pipeline on
 // genuine third-party output rather than the engine's own renderer/pixelator
 // round-tripped against itself.
-const realMosaicSample = "testdata/fixtures/text_hello-world.png"
+const realMosaicSample = "testdata/real/hello-world.png"
 
 // notoMonoRenderer returns a renderer using the bundled Noto Sans Mono, the font
 // Fedora's "Monospace" alias resolves to (the font used to create the sample).

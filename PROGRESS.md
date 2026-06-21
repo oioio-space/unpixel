@@ -22,7 +22,7 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
   (GIMP/GEGL Pixelize, CSS, navigateurs) moyennent les blocs en **lumière linéaire**, pas en sRGB —
   la moyenne d'un texte sombre sur fond clair y est nettement plus claire. Ajout de
   `pixelate.NewLinearBlockAverage` / `defaults.LinearBlockAverage` + flag CLI `--gamma` (chemin sRGB
-  par défaut **inchangé/fidèle**). Échantillon réel `testdata/fixtures/text_hello-world.png` (capture GIMP :
+  par défaut **inchangé/fidèle**). Échantillon réel `testdata/real/hello-world.png` (capture GIMP :
   Noto Sans Mono 62 px → Pixelize 16 → mise à l'échelle ~2×) **décodé** : le modèle generate-and-test,
   avec Noto Sans Mono (police « Monospace » de Fedora) + moyenne linéaire, **reproduit la redaction à
   l'identique** (pixelmatch **0,0000**) pour « Hello World ! », strictement mieux que tout quasi-voisin
@@ -408,7 +408,7 @@ Faites (gains prouvés, sortie de récupération inchangée) :
 
 ### P5 — Récupération aveugle des redactions réelles (issu de l'échantillon GIMP « Hello World ! »)
 
-Contexte : `testdata/fixtures/text_hello-world.png` (capture GIMP réelle) est **confirmé** par le
+Contexte : `testdata/real/hello-world.png` (capture GIMP réelle) est **confirmé** par le
 modèle direct (pixelmatch **0,0000** avec Noto Sans Mono + `LinearBlockAverage`), mais la
 **recherche de bout en bout ne le retrouve pas seule**. Le déblocage clé manquant — la
 **pixelisation en lumière linéaire** (GEGL/GIMP/CSS) — est livré (`pixelate.NewLinearBlockAverage`,
@@ -443,7 +443,7 @@ ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération in
 
 ### P6 — Décodage aveugle guidé par un prior linguistique (le verrou P5.4, conçu en détail)
 
-Confirmé sur un 2ᵉ échantillon réel : `docs/text-citation-marx.png` (GIMP, Sans-serif 62 px, bloc
+Confirmé sur un 2ᵉ échantillon réel : `testdata/real/marx.png` (GIMP, Sans-serif 62 px, bloc
 **19×19**, décalage **(5,5)**, isotrope) est reproduit par le modèle direct à **98,4 % de fidélité**
 (distance linéaire 0,0163 ; near-miss au niveau du **mot** 4,7× pire ; sRGB 8–13× pire → la lumière
 linéaire est bien le bon modèle). La **géométrie** se calibre déjà en zéro-config (`LocateRedaction`

@@ -1,0 +1,40 @@
+[
+  {
+    "name": "hello-world",
+    "file": "hello-world.png",
+    "text": "Hello World !",
+    "lang": "en",
+    "font": "Noto Sans Mono",
+    "font_size": 124.0,
+    "x_scale": 1.06,
+    "block": 32,
+    "offset_x": 0,
+    "offset_y": 0,
+    "linear": true,
+    "lines": 1,
+    "source": "GIMP GEGL Pixelize",
+    "notes": "Monospace (Noto Sans Mono) 62 px, 16 px pixelize, layer scaled ~2x -> 32 px blocks, slightly anisotropic (~1.06x wider than tall). Single line."
+  },
+  {
+    "name": "marx",
+    "file": "marx.png",
+    "reference": "marx-clair.png",
+    "params_images": ["marx-params-fonts.png", "marx-params-pixelize.png"],
+    "text": "Celui qui ne connaît pas l'histoire est condamné à la revivre.",
+    "line_texts": [
+      "Celui qui ne connaît pas l'histoire est",
+      "condamné à la revivre."
+    ],
+    "lang": "fr",
+    "font": "Noto Sans",
+    "font_size": 62.0,
+    "x_scale": 1.0,
+    "block": 19,
+    "offset_x": 5,
+    "offset_y": 5,
+    "linear": true,
+    "lines": 2,
+    "source": "GIMP GEGL Pixelize",
+    "notes": "Sans-serif (Fedora alias -> Noto Sans) 62 px, square block 19, offset (5,5), isotropic (1.0). Two lines. marx-clair.png is the legible ground truth; the two params images are the GIMP font and pixelize dialogs."
+  }
+]

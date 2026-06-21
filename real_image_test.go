@@ -17,7 +17,7 @@ import (
 // rather than synthetic data. The full forward-model decode of this sample lives
 // in real_mosaic_test.go; this test only pins the region-location and inference
 // helpers behave on a real image with wide margins.
-const realBlurSample = "testdata/fixtures/text_hello-world.png"
+const realBlurSample = "testdata/real/hello-world.png"
 
 // loadRealSample decodes the committed real-world blur sample.
 func loadRealSample(tb testing.TB) image.Image {

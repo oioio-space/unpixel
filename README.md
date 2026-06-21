@@ -233,7 +233,7 @@ fmt.Println("\nrecovered:", (<-results).BestGuess)
 UnPixel can recover text without knowing the font, block size, or language in advance. The **blind** package auto-detects the redaction region, calibrates the block size and font size, sweeps built-in fonts, and uses a bilingual prior (French or English) to score candidates by rendering and comparing the whole line:
 
 ```bash
-unpixel --blind --lang fr docs/redaction.png
+unpixel --blind --lang fr testdata/real/marx.png
 unpixel --blind --lang en --block-size 8 image.png
 ```
 
