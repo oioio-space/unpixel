@@ -45,6 +45,11 @@ type Result struct {
 	Dist float64
 	// Lines holds the per-line recovered text in reading order.
 	Lines []string
+	// Denoise is the median-filter radius actually applied before detection and
+	// decoding: 0 means no filtering was done (either the image was clean and
+	// auto-detect chose not to filter, or WithDenoise(0) disabled auto).
+	// Positive values correspond to the imutil.Median radius (1 = 3×3, 2 = 5×5).
+	Denoise int
 }
 
 // config holds the resolved options for a Recover call.
@@ -57,7 +62,7 @@ type config struct {
 	linear        bool
 	fonts         []string
 	metric        unpixel.Metric
-	denoiseRadius int // 0 = off
+	denoiseRadius int // -1 = auto (default), 0 = off, >0 = forced radius
 }
 
 // Language selects the dictionary and language prior used for scoring. The
@@ -121,11 +126,30 @@ func WithMetric(m unpixel.Metric) Option {
 	return func(c *config) { c.metric = m }
 }
 
-// WithDenoise applies an imutil.Median filter of the given radius to the image
-// before detection and decoding. Useful for noisy or JPEG-compressed captures
-// where salt-and-pepper speckle interferes with block-size detection. A radius
-// of 1 removes single-pixel spikes (3×3 kernel); radius 2 removes larger
-// speckle clusters (5×5 kernel). 0 (the default) disables filtering entirely.
+// autoDenoiseThreshold is the InferImpulseNoise ratio below which Recover
+// does not apply any median filter in auto mode. Chosen conservatively at 0.3 %
+// so that clean mosaic captures (block edges have ratio ≈ 0) and typical
+// lossless PNG screenshots are never filtered, while even modest salt-and-pepper
+// contamination (≥ 0.5 %) triggers radius-1 filtering.
+const autoDenoiseThreshold = 0.003
+
+// heavyDenoiseThreshold is the InferImpulseNoise ratio above which Recover
+// upgrades from radius 1 to radius 2 (5×5 kernel) in auto mode. At 5 % noise
+// density a 3×3 kernel starts leaving residual spikes because two adjacent
+// corrupted pixels can survive the median; a 5×5 kernel is more robust.
+const heavyDenoiseThreshold = 0.05
+
+// WithDenoise controls the median pre-filter applied to the image before block-
+// size detection and decoding. Three modes:
+//   - default (no WithDenoise call): auto-detect — Recover calls
+//     unpixel.InferImpulseNoise and applies radius 1 or 2 only when the image
+//     looks noisy (ratio ≥ autoDenoiseThreshold). Clean images are unaffected.
+//   - WithDenoise(0): disable — no filtering regardless of image content.
+//   - WithDenoise(r), r > 0: force radius r (1 = 3×3 kernel, 2 = 5×5, …).
+//
+// Useful for JPEG-compressed or noisy screen captures where salt-and-pepper
+// speckle interferes with block-size detection. A radius of 1 removes single-
+// pixel spikes; radius 2 handles larger speckle clusters.
 func WithDenoise(radius int) Option {
 	return func(c *config) { c.denoiseRadius = radius }
 }
@@ -150,9 +174,10 @@ const defaultFontSize = 32.0
 // error when no usable font can be built or the image is unrecoverable.
 func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, error) {
 	cfg := config{
-		language: lang.English,
-		linear:   true,
-		fonts:    []string{"sans"},
+		language:      lang.English,
+		linear:        true,
+		fonts:         []string{"sans"},
+		denoiseRadius: -1, // auto by default
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -161,9 +186,27 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 	// Convert to *image.RGBA.
 	rgba := toRGBA(img)
 
-	// Apply median denoise before any detection step, if requested.
-	if cfg.denoiseRadius > 0 {
-		rgba = imutil.Median(rgba, cfg.denoiseRadius)
+	// Resolve the denoise radius from the three-state config field, then apply.
+	//
+	//   denoiseRadius < 0 (auto): sample the image for impulse noise and choose
+	//     radius 0 (clean), 1 (modest noise), or 2 (heavy noise).
+	//   denoiseRadius == 0 (off): skip filtering entirely.
+	//   denoiseRadius > 0 (forced): use that radius directly.
+	var appliedRadius int
+	switch {
+	case cfg.denoiseRadius > 0:
+		appliedRadius = cfg.denoiseRadius
+	case cfg.denoiseRadius < 0: // auto
+		ratio := unpixel.InferImpulseNoise(rgba)
+		switch {
+		case ratio >= heavyDenoiseThreshold:
+			appliedRadius = 2
+		case ratio >= autoDenoiseThreshold:
+			appliedRadius = 1
+		}
+	}
+	if appliedRadius > 0 {
+		rgba = imutil.Median(rgba, appliedRadius)
 	}
 
 	// Resolve block size.
@@ -251,12 +294,13 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 
 	lines := splitLines(imgResult.Text)
 	return Result{
-		Text:  imgResult.Text,
-		Font:  imgResult.Font,
-		Lang:  cfg.language.String(),
-		Block: block,
-		Dist:  imgResult.Dist,
-		Lines: lines,
+		Text:    imgResult.Text,
+		Font:    imgResult.Font,
+		Lang:    cfg.language.String(),
+		Block:   block,
+		Dist:    imgResult.Dist,
+		Lines:   lines,
+		Denoise: appliedRadius,
 	}, nil
 }
 

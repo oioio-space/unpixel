@@ -27,6 +27,8 @@ const realDir = "testdata/real"
 // realSample mirrors the schema of testdata/real/manifest.json.
 // Only the fields needed by the geometry tests are decoded; schema additions
 // are silently ignored by json.Unmarshal so parsing stays stable.
+// Noise is set for derived fixtures (e.g. "salt-pepper 4% seed=PCG(1,2)");
+// geometry tests skip those entries because noise breaks heuristics.
 type realSample struct {
 	Name    string `json:"name"`
 	File    string `json:"file"`
@@ -34,6 +36,7 @@ type realSample struct {
 	Lines   int    `json:"lines"`
 	OffsetX int    `json:"offset_x"`
 	OffsetY int    `json:"offset_y"`
+	Noise   string `json:"noise"`
 }
 
 // loadRealManifest reads and parses testdata/real/manifest.json.
@@ -82,6 +85,9 @@ func openRealPNG(tb testing.TB, file string) *image.RGBA {
 func TestRealSamples_geometry(t *testing.T) {
 	for _, s := range loadRealManifest(t) {
 		t.Run(s.Name, func(t *testing.T) {
+			if s.Noise != "" {
+				t.Skipf("skipping geometry test for noisy fixture %q (noise=%s)", s.Name, s.Noise)
+			}
 			img := openRealPNG(t, s.File)
 
 			// LocateRedaction must find a plausible band.

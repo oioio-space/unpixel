@@ -162,3 +162,101 @@ func pixelDiff(a, b *image.RGBA) int {
 	}
 	return count
 }
+
+// TestAutoDenoiseFiresOnNoisy verifies that blind.Recover (with default options,
+// i.e. auto-denoise) applies denoising when the image has significant
+// salt-and-pepper noise. Result.Denoise must be >= 1 on a heavily noisy image.
+func TestAutoDenoiseFiresOnNoisy(t *testing.T) {
+	t.Parallel()
+
+	// Build a synthetic pixelated band, then add heavy S&P noise so
+	// InferImpulseNoise returns a ratio well above autoThr.
+	clean := syntheticBand(t, "ok", 0)
+	cleanRGBA := toRGBAHelper(t, clean)
+
+	// 10% S&P noise — far above any reasonable autoThr (~0.003).
+	rng := rand.New(rand.NewPCG(0xaabbccdd, 0x11223344))
+	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
+	// Also add salt (white) spikes so both extremes are present.
+	for range int(float64(noisy.Bounds().Dx()*noisy.Bounds().Dy()) * 0.05) {
+		x := rng.IntN(noisy.Bounds().Dx())
+		y := rng.IntN(noisy.Bounds().Dy())
+		noisy.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
+	}
+
+	result, err := blind.Recover(t.Context(), noisy,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		// No WithDenoise → auto mode (default -1).
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	t.Logf("auto-denoise on noisy: Result.Denoise=%d", result.Denoise)
+	if result.Denoise < 1 {
+		t.Errorf("Result.Denoise = %d, want >= 1 (auto-denoise should fire on 15%% S&P noise)", result.Denoise)
+	}
+}
+
+// TestAutoDenoiseSkipsClean verifies that blind.Recover (default auto-denoise)
+// does NOT apply denoising to a clean pixelated image. Result.Denoise must be 0.
+func TestAutoDenoiseSkipsClean(t *testing.T) {
+	t.Parallel()
+
+	clean := syntheticBand(t, "ok", 0)
+
+	result, err := blind.Recover(t.Context(), clean,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		// No WithDenoise → auto mode.
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	t.Logf("auto-denoise on clean: Result.Denoise=%d", result.Denoise)
+	if result.Denoise != 0 {
+		t.Errorf("Result.Denoise = %d, want 0 (clean image should not be auto-denoised)", result.Denoise)
+	}
+}
+
+// TestWithDenoise_ForceRadius verifies that WithDenoise(2) forces radius 2
+// and is reflected in Result.Denoise, regardless of the image content.
+func TestWithDenoise_ForceRadius(t *testing.T) {
+	t.Parallel()
+
+	clean := syntheticBand(t, "ok", 0)
+	result, err := blind.Recover(t.Context(), clean,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithDenoise(2),
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if result.Denoise != 2 {
+		t.Errorf("Result.Denoise = %d, want 2 (forced radius)", result.Denoise)
+	}
+}
+
+// TestWithDenoise_ZeroDisables verifies that WithDenoise(0) disables auto-denoise
+// even on a heavily noisy image: Result.Denoise must be 0.
+func TestWithDenoise_ZeroDisables(t *testing.T) {
+	t.Parallel()
+
+	clean := syntheticBand(t, "ok", 0)
+	cleanRGBA := toRGBAHelper(t, clean)
+	rng := rand.New(rand.NewPCG(0xfeedface, 0xdeadbeef))
+	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
+
+	result, err := blind.Recover(t.Context(), noisy,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithDenoise(0), // explicitly off
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if result.Denoise != 0 {
+		t.Errorf("Result.Denoise = %d, want 0 (WithDenoise(0) should disable auto)", result.Denoise)
+	}
+}

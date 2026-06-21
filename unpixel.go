@@ -637,6 +637,127 @@ func InferFontSize(img image.Image) float64 {
 	return float64(bot-top+1) / ascDescRatio
 }
 
+// impulseNoiseThreshold is the minimum BT.601 luminance deviation from the
+// neighbourhood median that must hold for a pixel to be a candidate impulse.
+// The value 80 (on a 0–255 scale, i.e. ~31 %) was chosen to:
+//   - comfortably exceed normal block-edge gradients in 8-pixel mosaic images
+//     (which are ≤ 60 on the typical redaction palette), so structured edges
+//     are never counted as impulses; and
+//   - catch genuine salt-and-pepper spikes (absolute black/white against a
+//     mid-grey background), which have deviation ≥ 100.
+//
+// Tune by comparing InferImpulseNoise on clean mosaic fixtures (must stay
+// below autoDenoiseThreshold) and on salt-and-pepper test images (must be
+// clearly above it).
+const impulseNoiseThreshold = 80
+
+// lum601 is the BT.601 luma of an 8-bit RGB pixel, in [0, 255]. Small enough to
+// inline, so callers in pixel loops pay no call overhead.
+func lum601(r, g, b uint8) int {
+	return (299*int(r) + 587*int(g) + 114*int(b)) / 1000
+}
+
+// InferImpulseNoise estimates the fraction [0, 1] of impulse-corrupted pixels
+// in img. It is a cheap sampled estimate (O(samples), ≤ 50 000 pixels checked)
+// used by blind.Recover to decide whether to apply a median pre-filter
+// automatically before block-size detection and decoding.
+//
+// Method (RVIN / local-extremum test from the SAPN literature): for each
+// sampled interior pixel p, collect the BT.601 luminance of its 8 neighbours.
+// Pixel p is counted as an impulse if both of the following hold:
+//
+//  1. |lum(p) – median8| > impulseNoiseThreshold (large deviation from context).
+//  2. lum(p) is the strict minimum OR strict maximum among the 9 values in the
+//     3×3 window (isolated spike, not part of a ramp).
+//
+// Condition 2 rejects smooth gradients and structured block edges — an edge
+// pixel sits between two blocks whose colours straddle its own, so it is never
+// the strict extremum of its 3×3 neighbourhood.
+//
+// Returns impulse_count / samples_checked. An empty or sub-3×3 image returns 0.
+func InferImpulseNoise(img image.Image) float64 {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 3 || h < 3 {
+		return 0
+	}
+
+	// Work directly on the pixel buffer to avoid closure heap-escapes and
+	// interface dispatch through RGBAAt. Each pixel is 4 bytes (R,G,B,A) at
+	// offset y*stride + x*4 from the start of the slice.
+	pix := rgba.Pix
+	stride := rgba.Stride
+	// base is the byte offset of the top-left corner (b.Min) in pix.
+	base := rgba.PixOffset(b.Min.X, b.Min.Y)
+
+	// Stride: sample at most ~50 000 interior pixels. Interior pixels skip the
+	// 1-pixel border so every sampled pixel has a full 8-neighbour window.
+	iw, ih := w-2, h-2 // interior dimensions
+	totalInterior := iw * ih
+	const maxSamples = 50_000
+	step := 1
+	if totalInterior > maxSamples {
+		step = int(math.Sqrt(float64(totalInterior)/maxSamples)) + 1
+	}
+
+	var impulses, sampled int
+	for iy := 1; iy < h-1; iy += step {
+		for ix := 1; ix < w-1; ix += step {
+			off := base + iy*stride + ix*4
+			lp := lum601(pix[off], pix[off+1], pix[off+2])
+
+			// Gather 8-neighbour luminances into a fixed array (stack, no alloc).
+			var ns [8]int
+			ni := 0
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					noff := base + (iy+dy)*stride + (ix+dx)*4
+					ns[ni] = lum601(pix[noff], pix[noff+1], pix[noff+2])
+					ni++
+				}
+			}
+
+			// Insertion-sort ns to find the upper-median (position 4 of 8).
+			for j := 1; j < 8; j++ {
+				v := ns[j]
+				k := j - 1
+				for k >= 0 && ns[k] > v {
+					ns[k+1] = ns[k]
+					k--
+				}
+				ns[k+1] = v
+			}
+			m := ns[4]
+
+			sampled++
+			if abs(lp-m) <= impulseNoiseThreshold {
+				continue
+			}
+			// Check strict min/max in the 3×3 window (9 values including p).
+			isMin, isMax := true, true
+			for _, n := range ns {
+				if n < lp {
+					isMax = false
+				}
+				if n > lp {
+					isMin = false
+				}
+			}
+			if isMin || isMax {
+				impulses++
+			}
+		}
+	}
+	if sampled == 0 {
+		return 0
+	}
+	return float64(impulses) / float64(sampled)
+}
+
 // abs returns the absolute value of x.
 func abs(x int) int {
 	if x < 0 {

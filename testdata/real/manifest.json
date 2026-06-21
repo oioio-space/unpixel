@@ -16,6 +16,23 @@
     "notes": "Monospace (Noto Sans Mono) 62 px, 16 px pixelize, layer scaled ~2x -> 32 px blocks, slightly anisotropic (~1.06x wider than tall). Single line."
   },
   {
+    "name": "hello-world-noisy",
+    "file": "hello-world-noisy.png",
+    "text": "Hello World !",
+    "lang": "en",
+    "font": "Noto Sans Mono",
+    "font_size": 124.0,
+    "x_scale": 1.06,
+    "block": 32,
+    "offset_x": 0,
+    "offset_y": 0,
+    "linear": true,
+    "lines": 1,
+    "source": "generated",
+    "noise": "salt-pepper 4% seed=PCG(1,2)",
+    "notes": "Derived from hello-world.png by adding 4% salt-and-pepper noise (rand.NewPCG(1,2), alternating black/white pixels). Used as regression fixture for auto-denoise (P7): InferImpulseNoise must fire on this image but not on the clean original. Generator: testdata/real/gen_noisy/main.go (//go:build ignore)."
+  },
+  {
     "name": "marx",
     "file": "marx.png",
     "reference": "marx-clair.png",

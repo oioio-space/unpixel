@@ -484,6 +484,8 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 
 - [x] **P7.1 — débruitage en prétraitement (filtre médian, pur-Go).** ✅ réalisé — `imutil.Median(src, radius)` (médian par canal, bords clampés, 2 allocs/op) + option opt-in `blind.WithDenoise(radius)` appliquée avant détection (défaut 0 = off, aucun impact existant). Amélioration prouvée : `segment.Lines` 2 (propre) → 1 (3 % poivre) → **2 après Median** ; plumbing −64,5 % de pixels divergents. Bench : r1 ~880 µs, r2 ~2,29 ms.
 - [x] **P7.2 — dico FR pondéré par fréquence (= P6.2(a)).** ✅ réalisé — `freq_fr.txt` (321 mots, ordonnés par fréquence, projet-authored, pas de dépendance externe/Lexique) + `FreqWeight`/`(*Dict).WeightedScore` (Zipf `w=(log(F+1)−log r)/log(F+1)`, base 0,15 OOV-in-dico). `PriorFor(French)` pondère le dico (anglais inchangé). Amélioration prouvée : « il est là » vs « il tes là » — dico uniforme **égaux** (1,0=1,0), pondéré **séparés** (+23 %), `PriorFor` +0,26 vers le mot fréquent. Benchstat : aucune régression significative (FR 4,48→4,55 µs, p=0,063 ; allocs identiques).
+
+**Auto-denoise zéro-config (P7 intégration)** : ✅ `unpixel.InferImpulseNoise` détecte le bruit impulsif (poivre-sel) ; `blind.Recover` l'applique **automatiquement par défaut** (optionnel `blind.WithDenoise(-1|0|N)` pour forcer/désactiver) via `imutil.Median`. Résultat enregistré : `Result.Denoise` (rayon appliqué, 0 = aucun). Images nettes lisent ~0 (pas de débruitage) ; bruitées ~5 % lisent ≥0.05 → rayon appliqué. CLI flag `--denoise` pour `--blind` : `-1` = auto (défaut), `0` = off, `N` = force N×N. Perf : InferImpulseNoise ~880 µs zéro allocs ; Median exact (fenêtre glissante, bords clampés, 2 allocs/op).
 - [ ] **P7.3 — flou : rester classique (conclusion d'investigation, sourcée).** Le SOTA *sans GPU ni dataset* pour le texte flou = **RL-deconv + estimation locale de PSF**, training-free (Nature 2026, s41598-026-38494-8) — c'est **déjà notre chemin** (`internal/pixelate/deconv.go` + `InferBlurSigma`). Un modèle appris exige un réseau **profond** (≥20 couches ; les petits réseaux échouent, arXiv:1406.7444) et **se dégrade sur les grands noyaux** → **ni viable pur-Go ni meilleur** sur flou modéré. Le flou gaussien étant linéaire/inversible, l'approche directe est saine. Améliorations classiques retenues :
   - [ ] **P7.3a — σ comme dimension de recherche.** Generate-and-test sur σ (comme `block` en mosaïque) : rendre candidat → flouter(σ) → comparer, en balayant σ autour de `InferBlurSigma` (aujourd'hui σ est estimé une fois, pas recherché).
   - [ ] **P7.3b — prior de langue pour le flou.** Le flou écrase le signal par-caractère comme la mosaïque → réutiliser l'infini-gram (P6) pour départager les chaînes ; généraliser `blind.Recover` au pixeliseur flou.
@@ -495,7 +497,9 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
   (polices custom + balayage), **v0.4.0** (flou gaussien + zéro-config), **v0.5.0** (déconvolution RL
   optionnelle + auto Top-K + parallelisme intra-node + bundle de polices élargi),
   **v0.6.0** (décodage aveugle bilingue FR/EN + paquet `mosaictext` zéro-config + samples réels
-  organisés sous `testdata/real`) publiées sur pkg.go.dev.
+  organisés sous `testdata/real`), **v0.7.0** (robustesse entrées : prior FR pondéré par fréquence +
+  débruitage médian auto-détecté zéro-config + flag `--denoise`)
+  publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
 - Module : `github.com/oioio-space/unpixel`, Go 1.26 (aligné sur le repo).

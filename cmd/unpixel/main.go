@@ -92,6 +92,7 @@ type flagParams struct {
 	charsetExplicit bool
 	blind           bool
 	lang            string
+	denoise         int
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -674,6 +675,11 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	if p.fontSize > 0 {
 		opts = append(opts, blind.WithFontSize(p.fontSize))
 	}
+	// --denoise: -1 (default) means auto; pass WithDenoise only when the user
+	// explicitly set the flag (0 = off, N > 0 = force radius N).
+	if p.denoise >= 0 {
+		opts = append(opts, blind.WithDenoise(p.denoise))
+	}
 
 	if !p.quiet {
 		fmt.Fprintf(os.Stderr, "Blind recovery (lang=%s)…\n", l)
@@ -685,8 +691,8 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f\n",
-			result.Font, result.Block, result.Dist)
+		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f  denoise: %d\n",
+			result.Font, result.Block, result.Dist, result.Denoise)
 	}
 	fmt.Println(result.Text)
 	return nil
@@ -814,6 +820,11 @@ Examples:
 				Usage: `language model for --blind: "en" (English, default) or "fr" (French)`,
 				Value: "en",
 			},
+			&cli.IntFlag{
+				Name:  "denoise",
+				Value: -1,
+				Usage: "blind mode: median denoise radius — -1=auto-detect (default), 0=off, N=force ((2N+1)×(2N+1) kernel; 1=3×3, 2=5×5)",
+			},
 			&cli.BoolFlag{
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
@@ -925,6 +936,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		timeout:         cmd.Duration("timeout"),
 		blind:           cmd.Bool("blind"),
 		lang:            cmd.String("lang"),
+		denoise:         cmd.Int("denoise"),
 	}
 
 	if err := validateParams(p); err != nil {

@@ -4,8 +4,9 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.6.0** published — mosaic and Gaussian-blur recovery, zero-config
+> **Status:** **v0.7.0** published — mosaic and Gaussian-blur recovery, zero-config
 > auto-detection (block size / blur σ / region / font), **blind bilingual (FR/EN) text recovery**,
+> **noise-robust zero-config recovery (auto median denoise) and a frequency-weighted French language prior**,
 > **monospace mosaic decoder** (`mosaictext`), and real GIMP sample corpus; ~89% test coverage, all gates green.
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
 > delta vs the original Bishop Fox unredacter.
@@ -140,6 +141,7 @@ Key flags (`unpixel --help` for the full list):
 | `--blur-sigma` | `0` (auto) | Gaussian blur radius for `--redaction blur`; `0` estimates it from the image |
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
 | `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
+| `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
 | `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
@@ -231,26 +233,30 @@ fmt.Println("\nrecovered:", (<-results).BestGuess)
 
 ### Blind & bilingual recovery (experimental)
 
-UnPixel can recover text without knowing the font, block size, or language in advance. The **blind** package auto-detects the redaction region, calibrates the block size and font size, sweeps built-in fonts, and uses a bilingual prior (French or English) to score candidates by rendering and comparing the whole line:
+UnPixel can recover text without knowing the font, block size, or language in advance. The **blind** package auto-detects the redaction region, calibrates the block size and font size, sweeps built-in fonts, uses a frequency-weighted bilingual prior (French or English) to score candidates, and automatically denoises salt-pepper/impulse noise by default:
 
 ```bash
 unpixel --blind --lang fr testdata/real/marx.png
 unpixel --blind --lang en --block-size 8 image.png
+unpixel --blind --lang fr --denoise 0 image.png    # disable auto-denoise
+unpixel --blind --denoise 3 image.png              # force 3×3 median window
 ```
 
-In Go, use `blind.Recover` with language selection:
+In Go, use `blind.Recover` with language selection and optional denoise control:
 
 ```go
 import "github.com/oioio-space/unpixel/blind"
 
 res, err := blind.Recover(ctx, img,
 	blind.WithLanguage(blind.French), // or blind.English (the default)
+	blind.WithDenoise(-1),             // auto-detect (default); 0 = off, N = force N×N window
 )
 if err != nil {
 	panic(err)
 }
 fmt.Println(res.Text)
 fmt.Println("Font:", res.Font, "Block:", res.Block, "Distance:", res.Dist)
+fmt.Println("Denoise applied:", res.Denoise)  // radius used, or 0 if none
 ```
 
 The `blind` package re-exports `English`/`French` (and `ParseLanguage` for a string flag), so no internal import is needed. **Status: experimental.** Blind recovery is proven end-to-end on synthetic mosaics rendered in the bundled fonts (sans/serif/mono); it is most reliable there. Real captures in a font outside the bundle, or containing punctuation/apostrophes outside the dictionary, recover only partially. It is also compute-heavy: a large multi-line screenshot with the font sweep can take many minutes — pin `--block-size`/`--font-size` and a single language to keep it tractable.
@@ -268,6 +274,7 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
 | `OnProgress(ch <-chan Progress, fn func(Progress))` | Drain progress events into a callback (any UI) |
 | `InferBlockSize(image.Image) int` | Detect the mosaic block size |
+| `InferImpulseNoise(image.Image) float64` | Detect impulse (salt-pepper) noise; returned value used by `blind.Recover` to auto-denoise |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
 | `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
 | **`blind.Recover(ctx, image.Image, ...Option) (*Recovery, error)`** | **Blind bilingual recovery (FR/EN) without knowing font/block/offset; re-exports `English`/`French`/`ParseLanguage`** |
