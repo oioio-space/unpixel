@@ -13,7 +13,10 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 25 min: the blind/mosaictext recovery tests run a CPU-heavy beam search
+    # that is far slower on the hosted runner's few cores than on a dev box;
+    # the full (non-short) suite needs headroom beyond the old 10-min budget.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
