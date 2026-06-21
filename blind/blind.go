@@ -49,14 +49,15 @@ type Result struct {
 
 // config holds the resolved options for a Recover call.
 type config struct {
-	language lang.Language
-	block    int // 0 = auto
-	offsetX  int
-	offsetY  int
-	fontSize float64 // 0 = auto
-	linear   bool
-	fonts    []string
-	metric   unpixel.Metric
+	language      lang.Language
+	block         int // 0 = auto
+	offsetX       int
+	offsetY       int
+	fontSize      float64 // 0 = auto
+	linear        bool
+	fonts         []string
+	metric        unpixel.Metric
+	denoiseRadius int // 0 = off
 }
 
 // Language selects the dictionary and language prior used for scoring. The
@@ -120,6 +121,15 @@ func WithMetric(m unpixel.Metric) Option {
 	return func(c *config) { c.metric = m }
 }
 
+// WithDenoise applies an imutil.Median filter of the given radius to the image
+// before detection and decoding. Useful for noisy or JPEG-compressed captures
+// where salt-and-pepper speckle interferes with block-size detection. A radius
+// of 1 removes single-pixel spikes (3×3 kernel); radius 2 removes larger
+// speckle clusters (5×5 kernel). 0 (the default) disables filtering entirely.
+func WithDenoise(radius int) Option {
+	return func(c *config) { c.denoiseRadius = radius }
+}
+
 // defaultFontSize is the fallback font size when InferFontSize returns 0.
 const defaultFontSize = 32.0
 
@@ -150,6 +160,11 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 
 	// Convert to *image.RGBA.
 	rgba := toRGBA(img)
+
+	// Apply median denoise before any detection step, if requested.
+	if cfg.denoiseRadius > 0 {
+		rgba = imutil.Median(rgba, cfg.denoiseRadius)
+	}
 
 	// Resolve block size.
 	block := cfg.block

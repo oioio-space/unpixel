@@ -224,6 +224,11 @@ func PriorFor(l Language) func(string) float64 {
 	}
 	infini := NewInfini(corpusText)
 
+	if l == French {
+		return func(s string) float64 {
+			return wDict*WeightedScoreFR(s) + wChar*infini.Score(s)
+		}
+	}
 	return func(s string) float64 {
 		return wDict*dict.Score(s) + wChar*infini.Score(s)
 	}
