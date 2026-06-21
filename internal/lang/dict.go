@@ -60,21 +60,19 @@ func (d *Dict) Contains(word string) bool {
 	return ok
 }
 
-// DictionaryScore scores s as a plausibility prior based on whole-word
-// dictionary membership. It splits s on whitespace into tokens and returns the
-// mean per-token bonus: BonusWord for each token that is a known dictionary
-// word (after lowercasing), 0 otherwise. Single-character tokens that are
-// valid English words ("a", "i") are counted; other single-character tokens
-// score 0.
+// Score scores s as a plausibility prior based on whole-word dictionary
+// membership. It splits s on whitespace into tokens and returns the mean
+// per-token bonus: BonusWord for each token that is a known dictionary word
+// (after lowercasing), 0 otherwise. Single-character tokens that are valid
+// words ("a", "i") are counted; other single-character tokens score 0.
 //
 // The return value is in [0, BonusWord]. An empty string or a string with no
 // tokens returns 0, so the prior never penalises a candidate — it only rewards
 // recognisable text.
-func DictionaryScore(s string) float64 {
+func (d *Dict) Score(s string) float64 {
 	if s == "" {
 		return 0
 	}
-	d := Dictionary()
 	var bonus float64
 	n := 0
 	for token := range strings.FieldsSeq(s) {
@@ -87,6 +85,13 @@ func DictionaryScore(s string) float64 {
 		return 0
 	}
 	return bonus / float64(n)
+}
+
+// DictionaryScore scores s against the shared English dictionary. It is a
+// convenience wrapper around Dictionary().Score(s); see [Dict.Score] for full
+// semantics.
+func DictionaryScore(s string) float64 {
+	return Dictionary().Score(s)
 }
 
 // DictionaryPrior returns a plausibility scorer backed by the embedded English

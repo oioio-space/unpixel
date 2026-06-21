@@ -36,6 +36,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/blind"            // blind recovery API (P6.6)
 	"github.com/oioio-space/unpixel/defaults"         // named: strategy/metric constructors; init() still wires defaults
 	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
@@ -89,6 +90,8 @@ type flagParams struct {
 	secrets         bool
 	escalate        bool
 	charsetExplicit bool
+	blind           bool
+	lang            string
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -641,6 +644,54 @@ func resolveBlur(img image.Image, p flagParams) float64 {
 	}
 }
 
+// runBlind runs the blind-recovery pipeline (P6.6) when --blind is set.
+// It reuses --block-size, --font-size, and --gamma from the classic path and
+// prints the recovered text to stdout.
+func runBlind(ctx context.Context, imgPath string, p flagParams) error {
+	l, ok := lang.ParseLanguage(p.lang)
+	if !ok {
+		return fmt.Errorf("--lang: unknown language %q (supported: en, fr)", p.lang)
+	}
+
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	opts := []blind.Option{
+		blind.WithLanguage(l),
+		blind.WithLinear(p.gamma),
+	}
+	if p.blockSize > 0 {
+		opts = append(opts, blind.WithBlock(p.blockSize))
+	}
+	if p.fontSize > 0 {
+		opts = append(opts, blind.WithFontSize(p.fontSize))
+	}
+
+	if !p.quiet {
+		fmt.Fprintf(os.Stderr, "Blind recovery (lang=%s)…\n", l)
+	}
+
+	result, err := blind.Recover(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("blind recovery: %w", err)
+	}
+
+	if !p.quiet {
+		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f\n",
+			result.Font, result.Block, result.Dist)
+	}
+	fmt.Println(result.Text)
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -755,6 +806,15 @@ Examples:
 				Value: 0,
 			},
 			&cli.BoolFlag{
+				Name:  "blind",
+				Usage: "blind recovery mode: no charset needed — recovers text via dictionary beam search (P6.6)",
+			},
+			&cli.StringFlag{
+				Name:  "lang",
+				Usage: `language model for --blind: "en" (English, default) or "fr" (French)`,
+				Value: "en",
+			},
+			&cli.BoolFlag{
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
@@ -863,10 +923,16 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		charsetExplicit: cmd.IsSet("charset") || cmd.IsSet("charset-preset"),
 		quiet:           cmd.Bool("quiet"),
 		timeout:         cmd.Duration("timeout"),
+		blind:           cmd.Bool("blind"),
+		lang:            cmd.String("lang"),
 	}
 
 	if err := validateParams(p); err != nil {
 		return err
+	}
+
+	if p.blind {
+		return runBlind(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {

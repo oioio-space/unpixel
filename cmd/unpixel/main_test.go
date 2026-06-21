@@ -670,6 +670,40 @@ func TestRun_validationAndArgErrors(t *testing.T) {
 	}
 }
 
+// TestRun_blindFlag exercises the --blind flag wiring: bad --lang is rejected,
+// and a valid call on a small white image completes without error.
+// We pass --block-size and --font-size to avoid auto-detect overhead and pin a
+// specific white image that produces no recoverable text (empty output is fine).
+func TestRun_blindFlag(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+
+	// Unknown language must error before touching the image.
+	if err := buildApp().Run(t.Context(), []string{
+		"unpixel", "--blind", "--lang", "klingon", path,
+	}); err == nil {
+		t.Error("--lang klingon: expected error, got nil")
+	}
+
+	// Valid call: white image, English, tiny — must complete without error.
+	// (No text is recoverable from a blank image; empty output is correct.)
+	if testing.Short() {
+		t.Skip("blind flag test skipped in -short mode")
+	}
+	out := captureStdout(t, func() {
+		args := []string{
+			"unpixel", "--quiet", "--blind", "--lang", "en",
+			"--block-size", "8", "--font-size", "26", path,
+		}
+		if err := buildApp().Run(t.Context(), args); err != nil {
+			t.Errorf("blind run: %v", err)
+		}
+	})
+	// A blank image may produce empty output; we only verify newline termination.
+	if len(out) > 0 && out[len(out)-1] != '\n' {
+		t.Errorf("blind output should end with a newline, got %q", out)
+	}
+}
+
 // TestPrintJSONAndText exercises the formatters directly.
 func TestPrintJSONAndText(t *testing.T) {
 	r := recoveryResult{

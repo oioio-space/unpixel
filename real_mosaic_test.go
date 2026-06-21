@@ -47,6 +47,9 @@ func contentBounds(img *image.RGBA) image.Rectangle {
 	return image.Rect(x0, y0, x1, y1)
 }
 
+// sinkF64 is a package-level sink that defeats dead-code elimination in benchmarks.
+var sinkF64 float64
+
 // realMosaicSample is a real-world mosaic redaction of the text "Hello World !"
 // (1450×509, large white margins), created in GIMP: text set in "Monospace"
 // (Noto Sans Mono) at 62 px, GEGL Pixelize at a 16-px block, then the layer
@@ -59,7 +62,7 @@ const realMosaicSample = "testdata/fixtures/text_hello-world.png"
 
 // notoMonoRenderer returns a renderer using the bundled Noto Sans Mono, the font
 // Fedora's "Monospace" alias resolves to (the font used to create the sample).
-func notoMonoRenderer(t *testing.T) unpixel.Renderer {
+func notoMonoRenderer(t testing.TB) unpixel.Renderer {
 	t.Helper()
 	for _, f := range fonts.All() {
 		if f.Name == "Noto Sans Mono" {
@@ -96,7 +99,7 @@ func inkBounds(img *image.RGBA, sentinelX int) image.Rectangle {
 
 // renderStretched reproduces the pre-pixelation half of the GIMP pipeline for
 // text in Noto Sans Mono: render → crop to ink → stretch horizontally by xScale.
-func renderStretched(t *testing.T, r unpixel.Renderer, text string, fontSize, xScale float64) *image.RGBA {
+func renderStretched(t testing.TB, r unpixel.Renderer, text string, fontSize, xScale float64) *image.RGBA {
 	t.Helper()
 	img, sx, err := r.Render(text, unpixel.Style{FontSize: fontSize})
 	if err != nil {
@@ -210,4 +213,41 @@ func TestRealMosaic_HelloWorld(t *testing.T) {
 		t.Errorf("sRGB-mean model scored %.4f, expected worse than linear %.4f", srgb, truth)
 	}
 	t.Logf("Hello World ! linear=%.4f sRGB=%.4f", truth, srgb)
+}
+
+// BenchmarkRealMosaic_HelloWorld measures the forward-model decode speed for the
+// real GIMP mosaic sample: render → stretch → bestDistance (grid-phase sweep +
+// placement slide). All one-time setup runs outside the measured loop; only the
+// hot generate-and-test core is timed.
+func BenchmarkRealMosaic_HelloWorld(b *testing.B) {
+	f, err := os.Open(realMosaicSample)
+	if err != nil {
+		b.Fatalf("open %s: %v", realMosaicSample, err)
+	}
+	defer func() { _ = f.Close() }()
+	src, err := decodePNG(f)
+	if err != nil {
+		b.Fatalf("decode %s: %v", realMosaicSample, err)
+	}
+
+	// Build the same cropped+padded target used by the test.
+	rect := contentBounds(src)
+	target := image.NewRGBA(image.Rect(0, 0, rect.Dx()+128, rect.Dy()+32))
+	xdraw.Draw(target, target.Bounds(), image.White, image.Point{}, xdraw.Src)
+	xdraw.Draw(target, image.Rect(0, 0, rect.Dx(), rect.Dy()), src, rect.Min, xdraw.Src)
+
+	const (
+		fontSize = 124.0
+		xScale   = 1.06
+		block    = 32
+	)
+	r := notoMonoRenderer(b)
+	m := metric.NewPixelmatch(0.1)
+	linear := defaults.LinearBlockAverage(block)
+	truthStretched := renderStretched(b, r, "Hello World !", fontSize, xScale)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		sinkF64 = bestDistance(truthStretched, target, linear, m, block)
+	}
 }

@@ -441,6 +441,43 @@ ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération in
       localisation (P5.2) → calibrage (P5.3) → choix gamma (P5.1) → recherche adaptée (P5.4), pour
       passer d'une capture brute à la récupération sans paramètres manuels.
 
+### P6 — Décodage aveugle guidé par un prior linguistique (le verrou P5.4, conçu en détail)
+
+Confirmé sur un 2ᵉ échantillon réel : `docs/text-citation-marx.png` (GIMP, Sans-serif 62 px, bloc
+**19×19**, décalage **(5,5)**, isotrope) est reproduit par le modèle direct à **98,4 % de fidélité**
+(distance linéaire 0,0163 ; near-miss au niveau du **mot** 4,7× pire ; sRGB 8–13× pire → la lumière
+linéaire est bien le bon modèle). La **géométrie** se calibre déjà en zéro-config (`LocateRedaction`
+→ `InferBlockSize`=19 ✓, `InferFontSize`=62 px ✓ sur le crop). **Seul le texte ne se récupère pas
+en aveugle** : brute-force sur ~60 caractères de français (charset ~70, accents/majuscules/ponctuation)
+= espace combinatoire impraticable, et le signal discriminant n'existe qu'au niveau de la chaîne entière.
+
+**Idée directrice — fusionner deux signaux complémentaires dans un beam search.** Sur une mosaïque
+claire le signal *par-caractère* de l'image est trop faible (c'est l'échec documenté de la DFS), mais
+un modèle de langue *connaît* le caractère/mot suivant ; inversement l'image fournit la cohérence
+*globale* que le langage seul n'a pas. On score chaque hypothèse partielle `s` par un coût fusionné :
+
+> `cost(s) = α · imageCost(s) + β · (−log P(s))`
+
+où `imageCost` est notre **forward model exact** (render → `LinearBlockAverage` au bloc/décalage
+détectés → distance image, balayage phase-grille + glissement — déjà implémenté) et `P(s)` le prior
+de langue. C'est l'émission de DepixHMM¹ remplacée par notre modèle direct (bien plus fidèle que son
+clustering k-means des blocs), et son émission bigramme apprise remplacée par un prior d'ordre variable.
+
+**Architecture (pure-Go / zéro-CGO, branchée sur les interfaces `Strategy`/`Metric` existantes) :**
+
+- [x] **P6.1 — segmentation en lignes & mots.** ✅ réalisé — `internal/segment` : `Lines`/`Words`/`Segment` + découpe par largeur rendue (k=0,15·H). 5/5 tests, ~24 µs/op.
+- [x] **P6.2 — bilingue FR+EN (char + dict).** ✅ réalisé — `internal/lang` : type `Language` (English/French, ParseLanguage), dicos FR (~2021 mots accentués) + EN, infini-gram unicode-safe via `index/suffixarray`, prior fusionné `PriorFor`. Mesuré : FR correct −2,71 > mélangé −3,05 > EN −4,36.
+- [x] **P6.3 — décodage mot-par-mot.** ✅ réalisé — `internal/blinddecode.DecodeWord` : candidats = dico filtrés par largeur, scorés par distance image. Récupère « histoire »/« history » en top-1.
+- [x] **P6.4 — ré-classement ligne entière.** ✅ réalisé — `internal/blinddecode.DecodeLineWhole` : beam sur combinaisons de mots, chaque hypothèse rendue+pixelisée+comparée (SSIM), signaux globaux. Top-1 exact sur synthétique, distance 0,000.
+- [x] **P6.5 — balayage famille de police.** ✅ réalisé — `BundledRenderers(styles…)` + `blinddecode.Recover` balaie sans/serif/mono, garde le meilleur par score ligne-entière.
+- [x] **P6.6 — API publique + CLI + bilingue.** ✅ réalisé — paquet public `blind` (`blind.Recover(ctx, img, opts...)`) avec `WithLanguage`/`WithBlock`/`WithOffset`/`WithFontSize`/`WithLinear`/`WithFonts`/`WithMetric`. Auto-détection bloc/police/taille. CLI `unpixel --blind --lang fr|en image.png`. Tests E2E FR/EN, distance 0,000, ~1,5–2 s chacun.
+
+**Réalisé (synthèse)** : pipeline aveugle complet fonctionnel (segmentation → décodage mot-à-mot → ré-classement ligne-entière) + balayage de police + support bilingue FR+EN embarqué. Preuve de concept sur synthétique exact (SSIM 0,000, FR « le chat » + EN « the cat » récupérés de bout en bout, ~1,5–2 s). **Caveats honnêtes** : (1) **police** — validé sur les polices **embarquées** (sans/serif/mono) ; sur une capture réelle dont la police n'est pas dans le lot (p.ex. Noto Sans pour `docs/text-citation-marx.png`) la récupération est partielle. (2) **ponctuation/apostrophe** hors-dico (« l'histoire », « ! ») non gérée. (3) **performance** — le décodage aveugle d'une grande image réelle (marx, 1450×509, 2 lignes longues, balayage de police) **dépasse 600 s** : beam ligne-entière × pool de candidats × balayage de police est coûteux. Optimisations nécessaires avant usage réel : prefiltre de candidats plus agressif, recadrage/sous-échantillonnage, restreindre le balayage de police une fois la famille identifiée. (4) **prochaine brique** P6.2(a) : étage *mot* à fréquences pondérées (Lexique383) — le dico est aujourd'hui non-pondéré.
+
+¹ JonasSchatz/DepixHMM (HMM + Viterbi, émission k-means) ; fondé sur Hill, Zhou, Saul & Shacham,
+« On the (In)effectiveness of Mosaicing and Blurring as Tools for Document Redaction ».
+² nathan-barry/tiny-infini-gram (infini-gram pur-Go via suffix array, backoff d'ordre variable).
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
@@ -571,3 +608,4 @@ ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération in
 - `f9ce9d4` 2026-06-20 — feat(pixelate): linear-light mosaic + decode real GIMP "Hello World !" sample _(9 fichiers)_
 - `f10d3bf` 2026-06-20 — test(fixtures): host the real "Hello World !" sample at the path the user referenced _(5 fichiers)_
 - `986facb` 2026-06-20 — docs(progress): add P5 roadmap — blind recovery of real redactions _(1 fichiers)_
+- `2b3d20b` 2026-06-20 — docs(progress): fix stale sample path (testdata/real → testdata/fixtures) _(1 fichiers)_

@@ -228,6 +228,32 @@ fmt.Println("\nrecovered:", (<-results).BestGuess)
 
 </details>
 
+### Blind & bilingual recovery (experimental)
+
+UnPixel can recover text without knowing the font, block size, or language in advance. The **blind** package auto-detects the redaction region, calibrates the block size and font size, sweeps built-in fonts, and uses a bilingual prior (French or English) to score candidates by rendering and comparing the whole line:
+
+```bash
+unpixel --blind --lang fr docs/redaction.png
+unpixel --blind --lang en --block-size 8 image.png
+```
+
+In Go, use `blind.Recover` with language selection:
+
+```go
+import "github.com/oioio-space/unpixel/blind"
+
+res, err := blind.Recover(ctx, img,
+	blind.WithLanguage(blind.French), // or blind.English (the default)
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(res.Text)
+fmt.Println("Font:", res.Font, "Block:", res.Block, "Distance:", res.Dist)
+```
+
+The `blind` package re-exports `English`/`French` (and `ParseLanguage` for a string flag), so no internal import is needed. **Status: experimental.** Blind recovery is proven end-to-end on synthetic mosaics rendered in the bundled fonts (sans/serif/mono); it is most reliable there. Real captures in a font outside the bundle, or containing punctuation/apostrophes outside the dictionary, recover only partially. It is also compute-heavy: a large multi-line screenshot with the font sweep can take many minutes — pin `--block-size`/`--font-size` and a single language to keep it tractable.
+
 Public API (root package `unpixel`):
 
 | Symbol | Purpose |
