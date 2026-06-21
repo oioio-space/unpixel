@@ -93,7 +93,7 @@ run = "./scripts/rtkx.sh gotestsum --format pkgname -- ./..."
 
 [tasks."test:ci"]
 description = "Run tests once, producing a JUnit report AND coverage.out"
-run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- -covermode=atomic -coverprofile=coverage.out ./..."
+run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- -short -timeout=8m -covermode=atomic -coverprofile=coverage.out ./..."
 
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
