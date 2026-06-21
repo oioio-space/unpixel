@@ -58,8 +58,11 @@ fi
 go build ./... || fail "go build failed"
 ok "go build"
 
-# 5. Tests — maintainability: comprehensive tests must pass.
-go test ./... || fail "go test failed"
+# 5. Tests — maintainability: comprehensive tests must pass. -short skips the
+# heavy recovery e2e tests (already gated), which otherwise blow Go's 10-minute
+# per-package test timeout on slow CI runners; the full suite runs via
+# `mise run test`. -timeout is an explicit guard.
+go test -short -timeout=8m ./... || fail "go test failed"
 ok "go test"
 
 printf '\n\033[32mAll style-guide checks passed.\033[0m\n'

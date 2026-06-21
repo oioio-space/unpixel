@@ -13,15 +13,29 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    # 25 min: the blind/mosaictext recovery tests run a CPU-heavy beam search
-    # that is far slower on the hosted runner's few cores than on a dev box;
-    # the full (non-short) suite needs headroom beyond the old 10-min budget.
-    timeout-minutes: 25
+    # CI runs the -short suite (heavy recovery e2e tests are gated out), so the
+    # gate is lint + scans + fast tests; 15 min is ample headroom.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # full history so `mise run scan:secrets` (gitleaks) can scan all commits
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@v3 # caches the mise toolchain (go, golangci-lint, gosec, …) by default
+      # Cache the Go build/module caches + per-tool caches across runs. Without
+      # this, every run recompiles the whole module from cold for golangci-lint,
+      # gosec, govulncheck, build, and test — the dominant cost. Keyed on go.sum
+      # (deps) with a prefix restore-key so the build cache survives dep bumps.
+      - name: Cache Go & tool caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/grype/db
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - run: mise run ci
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
