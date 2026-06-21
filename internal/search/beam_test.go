@@ -41,6 +41,60 @@ func TestBeamStrategy_recoversTarget(t *testing.T) {
 	}
 }
 
+// TestBeamDFS_lmBlendSurvivor verifies that the language-model blend in
+// topBeamLM rescues a path that would be pruned by image score alone.
+//
+// Setup (K=1 greedy, charset "ab"):
+//   - "a" image score 0.05 — better (lower) than "b" at 0.10 by image alone.
+//   - "b" has much higher LM plausibility (lm("b")=−1 vs lm("a")=−5), so its
+//     composite rank = 0.10 − 0.05*(−1−(−7)) = 0.10−0.30 = −0.20, beating "a"s
+//     composite rank = 0.05 − 0.05*(−5−(−7)) = 0.05−0.10 = −0.05.
+//   - With the LM blend, "b" survives and "ba" (the true target) is reachable.
+//   - Without the LM, K=1 prunes "b" and "ba" is never found.
+func TestBeamDFS_lmBlendSurvivor(t *testing.T) {
+	scorer := &mockScorer{scores: map[string]search.EvalResult{
+		"a":  {Score: 0.05},
+		"b":  {Score: 0.10},
+		"ba": {Score: 0.01},
+	}}
+	cfgBase := unpixel.Config{
+		Charset:        "ab",
+		MaxLength:      5,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		TopN:           5,
+		BeamWidth:      1, // K=1: beam keeps only the top-1 after LM blend
+	}
+	offset := unpixel.Offset{}
+
+	// Without LM: "b" is pruned, "ba" never found.
+	cfgNoLM := cfgBase
+	cfgNoLM.LanguageModel = nil
+	var withoutLM []string
+	search.BeamDFS(t.Context(), scorer, cfgNoLM, offset, func(e unpixel.Eval) {
+		withoutLM = append(withoutLM, e.Guess)
+	})
+	if slices.Contains(withoutLM, "ba") {
+		t.Errorf("without LM: K=1 beam should have pruned 'b', so 'ba' must not appear; got %v", withoutLM)
+	}
+
+	// With LM that strongly prefers "b": composite rank flips, "b" survives, "ba" found.
+	cfgLM := cfgBase
+	cfgLM.LanguageModel = func(s string) float64 {
+		if s == "b" || s == "ba" {
+			return -1.0 // highly plausible
+		}
+		return -5.0 // very implausible
+	}
+	var withLM []string
+	search.BeamDFS(t.Context(), scorer, cfgLM, offset, func(e unpixel.Eval) {
+		withLM = append(withLM, e.Guess)
+	})
+	if !slices.Contains(withLM, "ba") {
+		t.Errorf("with LM: expected 'ba' to be found via LM-rescue of 'b'; got %v", withLM)
+	}
+}
+
 // TestBeamStrategy_greedyMiss documents that K=1 (greedy beam) may fail to find
 // a target that is not best at depth 1.
 //
@@ -184,4 +238,62 @@ func TestBeamStrategy_topNPopulated(t *testing.T) {
 	if !found {
 		t.Error("BeamStrategy produced no results with TopN populated")
 	}
+}
+
+// beamSink defeats dead-code elimination in BenchmarkBeamDFS.
+var beamSink []unpixel.Eval
+
+// BenchmarkBeamDFS measures BeamDFS throughput on a synthetic scorer with a
+// 26-char alphabet, MaxLength=5, and BeamWidth=16 — the parameters closest to
+// the default blur recovery path. Two sub-benchmarks cover the fast path (no
+// language model) and the LM-blend path (topBeamLM with a non-nil lm), so a
+// perf regression in either is immediately visible in benchstat.
+func BenchmarkBeamDFS(b *testing.B) {
+	// Synthetic scorer: every candidate passes at score=0.1 (uniform signal —
+	// worst case for beam pruning: all branches survive to MaxLength).
+	scores := make(map[string]search.EvalResult)
+	for _, ch := range "abcdefghijklmnopqrstuvwxyz" {
+		scores[string(ch)] = search.EvalResult{Score: 0.1}
+	}
+	scorer := &mockScorer{scores: scores}
+	cfg := unpixel.Config{
+		Charset:        "abcdefghijklmnopqrstuvwxyz",
+		MaxLength:      5,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		TopN:           5,
+		BeamWidth:      16,
+	}
+	offset := unpixel.Offset{}
+
+	b.Run("no_lm", func(b *testing.B) {
+		cfgNoLM := cfg
+		cfgNoLM.LanguageModel = nil
+		b.ReportAllocs()
+		var sink []unpixel.Eval
+		for b.Loop() {
+			sink = sink[:0]
+			search.BeamDFS(b.Context(), scorer, cfgNoLM, offset, func(e unpixel.Eval) {
+				sink = append(sink, e)
+			})
+		}
+		beamSink = sink
+	})
+
+	// Uniform LM: returns a constant so scores are identical — isolates the
+	// overhead of calling lm(guess) and the composite sort from any ranking effect.
+	uniformLM := func(string) float64 { return -3.0 }
+	b.Run("with_lm", func(b *testing.B) {
+		cfgLM := cfg
+		cfgLM.LanguageModel = uniformLM
+		b.ReportAllocs()
+		var sink []unpixel.Eval
+		for b.Loop() {
+			sink = sink[:0]
+			search.BeamDFS(b.Context(), scorer, cfgLM, offset, func(e unpixel.Eval) {
+				sink = append(sink, e)
+			})
+		}
+		beamSink = sink
+	})
 }

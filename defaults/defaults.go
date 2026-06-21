@@ -34,8 +34,17 @@ import (
 	"github.com/oioio-space/unpixel/internal/search"
 )
 
+// blurDefaultBeamWidth is the beam width RecoverBlurred uses when the caller
+// has not supplied WithStrategy or WithBeamWidth. 32 comfortably exceeds the
+// typical blur charset (~10–27 chars), giving full per-level coverage for
+// small alphabets while bounding work to O(length × 32) for wider ones.
+const blurDefaultBeamWidth = 32
+
 func init() {
 	unpixel.DefaultComponents = Wire
+	unpixel.DefaultBlurStrategy = func() unpixel.Strategy {
+		return search.NewBeamStrategy(blurDefaultBeamWidth)
+	}
 }
 
 // Wire fills any nil component fields in cfg with the standard implementations.

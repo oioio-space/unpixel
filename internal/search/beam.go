@@ -23,6 +23,12 @@ import (
 // Unlike GuidedDFS, which expands every passing candidate depth-first, BeamDFS
 // caps the work per level to BeamWidth parents, trading recall for a fixed
 // branching factor; a larger width recovers more of GuidedDFS's recall.
+//
+// When cfg.LanguageModel is set, beam selection uses a language-blended rank
+// (see beamRank) so linguistically plausible prefixes survive beam pruning even
+// when their image distances are comparable to less-plausible alternatives. This
+// is essential for blur recovery, where per-character image signal is weak and
+// the correct path can be pruned by image distance alone.
 func BeamDFS(
 	ctx context.Context,
 	scorer Scorer,
@@ -39,7 +45,7 @@ func BeamDFS(
 	// Depth 1: seed the beam with every single character that passes the gate.
 	level := evalChildren(ctx, scorer, cfg, offset, "")
 	emitNodes(level, emit)
-	beam := topBeam(level, width)
+	beam := topBeamLM(level, width, cfg.LanguageModel)
 
 	for len(beam) > 0 {
 		if ctx.Err() != nil {
@@ -58,7 +64,7 @@ func BeamDFS(
 			emitNodes(children, emit)
 			next = append(next, children...)
 		}
-		beam = topBeam(next, width)
+		beam = topBeamLM(next, width, cfg.LanguageModel)
 	}
 }
 
@@ -73,17 +79,70 @@ func emitNodes(nodes []node, emit func(unpixel.Eval)) {
 	}
 }
 
-// topBeam sorts nodes ascending by score (ties broken by guess for determinism)
-// and returns at most width of them. It sorts nodes in place.
-func topBeam(nodes []node, width int) []node {
-	slices.SortFunc(nodes, func(a, b node) int {
-		if c := cmp.Compare(a.result.Score, b.result.Score); c != 0 {
+// beamLMBlend is the weight applied to the normalised language-model bonus when
+// ranking beam candidates. The combined rank is:
+//
+//	rank = imageScore − beamLMBlend × max(0, lm(guess) − beamLMFloor)
+//
+// Typical image scores (pixelmatch, blur) are in [0, 0.25]. The normalised LM
+// term is at most beamLMBlend × (0 − beamLMFloor) ≈ 0.35, so the prior can
+// overcome a ~0.35 image-score disadvantage — large enough to flip "cennect"
+// vs "connect" at σ≈3 (image gap ≈ 0) while staying smaller than the gap
+// between a correct and a truly wrong character (typically ≥ 0.08).
+const (
+	beamLMBlend = 0.05
+	// beamLMFloor is the log-prob floor (~e^-7 ≈ 0.09% plausibility) applied to
+	// the language-model score before the beam-rank blend. It prevents OOV strings
+	// from receiving an unbounded penalty while still giving plausible prefixes a
+	// meaningful bonus over noise.
+	beamLMFloor = -7.0
+)
+
+// beamRank returns the composite beam-selection score for a node: lower is
+// better. Without a language model it equals the raw image score. With one,
+// the LM bonus shifts linguistically plausible prefixes toward lower rank so
+// they survive pruning even when the image signal is nearly flat (blur).
+func beamRank(n node, lm func(string) float64) float64 {
+	if lm == nil {
+		return n.result.Score
+	}
+	lmScore := lm(n.guess)
+	bonus := max(0, lmScore-beamLMFloor) // ≥ 0; higher plausibility → larger bonus
+	return n.result.Score - beamLMBlend*bonus
+}
+
+// rankedNode pairs a node with its precomputed composite beam rank so the
+// sort comparator pays one lm call per node rather than O(log N).
+type rankedNode struct {
+	n    node
+	rank float64
+}
+
+// topBeamLM sorts nodes by their composite beam rank (image score blended with
+// an optional language-model bonus) and returns at most width of them. Ties
+// within floating-point equality break on guess for determinism.
+//
+// beamRank is precomputed once per node before sorting so the comparator never
+// calls lm(guess) more than once per node (vs. O(log N) calls with a naive
+// in-comparator evaluation).
+func topBeamLM(nodes []node, width int, lm func(string) float64) []node {
+	ranked := make([]rankedNode, len(nodes))
+	for i, n := range nodes {
+		ranked[i] = rankedNode{n: n, rank: beamRank(n, lm)}
+	}
+	slices.SortFunc(ranked, func(a, b rankedNode) int {
+		if c := cmp.Compare(a.rank, b.rank); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.guess, b.guess)
+		return cmp.Compare(a.n.guess, b.n.guess)
 	})
-	if len(nodes) > width {
-		nodes = nodes[:width]
+	if len(ranked) > width {
+		ranked = ranked[:width]
+	}
+	// Write sorted nodes back into the input slice (reuse its backing array).
+	nodes = nodes[:len(ranked)]
+	for i, rn := range ranked {
+		nodes[i] = rn.n
 	}
 	return nodes
 }

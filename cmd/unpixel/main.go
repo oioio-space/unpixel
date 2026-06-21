@@ -645,6 +645,52 @@ func resolveBlur(img image.Image, p flagParams) float64 {
 	}
 }
 
+// blurNeedsSearch reports whether the blur path should use RecoverBlurred
+// (zero-config σ-search) rather than a fixed-sigma Recover. This is true when
+// --redaction blur is forced but no explicit --blur-sigma was given, or when
+// auto-mode has decided blur is needed but the sigma is still unresolved. In
+// both cases the caller has not pinned σ, so RecoverBlurred's coarse-to-fine
+// sweep is the right tool.
+func blurNeedsSearch(p flagParams) bool {
+	return p.blurSigma <= 0 && (p.redaction == "blur" || p.redaction == "auto")
+}
+
+// runBlurRecover runs RecoverBlurred (zero-config σ-search) on img and prints
+// the result. It is called when --redaction blur (or auto) is active and no
+// explicit --blur-sigma was given. WithConfig(cfg) forwards all caller options
+// (charset, style, strategy, language prior, …); RecoverBlurred overrides
+// BlockSize and Pixelator internally, so those fields are irrelevant here.
+// When --lang is set, buildConfig has already wired cfg.LanguageModel, so the
+// language prior flows through automatically.
+func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpixel.Config, start time.Time) error {
+	if !p.quiet {
+		fmt.Fprintln(os.Stderr, "Redaction: blur (σ auto-search via RecoverBlurred)")
+	}
+
+	res, err := unpixel.RecoverBlurred(ctx, img, unpixel.WithConfig(cfg))
+	if err != nil {
+		return fmt.Errorf("RecoverBlurred: %w", err)
+	}
+
+	if !p.quiet {
+		fmt.Fprintf(os.Stderr, "Blur σ chosen: %.2f  best: %q  total: %.4f\n",
+			res.BlurSigma, res.BestGuess, res.BestTotal)
+	}
+
+	best := resultToRecovery(res, "")
+	elapsed := time.Since(start)
+	if err := reportConfidence(fidelityOf(best), p); err != nil {
+		return err
+	}
+	switch p.format {
+	case "json":
+		return printJSON(best, nil, 0, elapsed)
+	default:
+		printText(best, p.quiet || !isTTY(os.Stderr))
+	}
+	return nil
+}
+
 // runBlind runs the blind-recovery pipeline (P6.6) when --blind is set.
 // It reuses --block-size, --font-size, and --gamma from the classic path and
 // prints the recovered text to stdout.
@@ -990,7 +1036,28 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	start := time.Now()
+
 	cfg := buildConfig(p)
+
+	// Zero-config σ-search: --redaction blur (or auto-detected blur) with no
+	// explicit --blur-sigma and no user-specified font. RecoverBlurred runs its
+	// own coarse-to-fine σ sweep (parallel coarse, sequential fine) so the
+	// caller need not know σ. WithConfig(cfg) carries charset, style, strategy,
+	// and any language prior set via --language/--lang.
+	if blurNeedsSearch(p) && len(p.fontPaths) == 0 && p.fontDir == "" {
+		// Calibrate font size from image content height when the user did not pin one.
+		if p.fontSize == 0 {
+			if est := unpixel.InferFontSize(img); est >= 8 {
+				cfg.Style.FontSize = est
+				if !p.quiet {
+					fmt.Fprintf(os.Stderr, "Calibrated font size ≈ %.0f pt\n", est)
+				}
+			}
+		}
+		return runBlurRecover(ctx, img, p, cfg, start)
+	}
+
 	// Resolve the redaction operator (mosaic vs Gaussian blur). In blur mode the
 	// search reproduces a blur instead of mosaic; BlockSize=1 disables the grid.
 	if blurSigma := resolveBlur(img, p); blurSigma > 0 {
@@ -1071,7 +1138,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("create engine: %w", err)
 	}
 
-	start := time.Now()
+	start = time.Now()
 	progCh, resCh := eng.Run(ctx)
 
 	var evaluated int

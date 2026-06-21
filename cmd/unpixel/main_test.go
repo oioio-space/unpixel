@@ -770,3 +770,69 @@ func TestRunBlind_DenoiseFlag(t *testing.T) {
 		})
 	}
 }
+
+// TestBlurNeedsSearch covers the routing predicate that decides between
+// RecoverBlurred (σ-search) and fixed-sigma Recover.
+func TestBlurNeedsSearch(t *testing.T) {
+	cases := []struct {
+		name string
+		p    flagParams
+		want bool
+	}{
+		{"blur-no-sigma", flagParams{redaction: "blur", blurSigma: 0}, true},
+		{"blur-with-sigma", flagParams{redaction: "blur", blurSigma: 4}, false},
+		{"auto-no-sigma", flagParams{redaction: "auto", blurSigma: 0}, true},
+		{"auto-with-sigma", flagParams{redaction: "auto", blurSigma: 3}, false},
+		{"mosaic", flagParams{redaction: "mosaic"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := blurNeedsSearch(tc.p); got != tc.want {
+				t.Errorf("blurNeedsSearch(%+v) = %v, want %v", tc.p, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunBlurRecover_flagWiring verifies that --redaction blur without an
+// explicit --blur-sigma routes through runBlurRecover on a tiny white image
+// without panicking. The white image produces no candidates — only the control
+// flow path is tested, not recovery quality.
+func TestRunBlurRecover_flagWiring(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+
+	captureStdout(t, func() {
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet",
+			"--redaction", "blur",
+			"--charset", "a",
+			"--max-length", "1",
+			"--block-size", "1",
+			path,
+		})
+		// A white image may return no candidates; accept any non-panic outcome.
+		if err != nil {
+			t.Logf("runBlurRecover on white image: %v (acceptable — no candidates)", err)
+		}
+	})
+}
+
+// TestRunBlurRecover_langFlagWiring verifies that --redaction blur with
+// --language set wires the language prior through RecoverBlurred without error.
+func TestRunBlurRecover_langFlagWiring(t *testing.T) {
+	path := whitePNG(t, 16, 16)
+
+	captureStdout(t, func() {
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet",
+			"--redaction", "blur",
+			"--language",
+			"--charset", "a",
+			"--max-length", "1",
+			path,
+		})
+		if err != nil {
+			t.Logf("runBlurRecover+language on white image: %v (acceptable)", err)
+		}
+	})
+}

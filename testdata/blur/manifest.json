@@ -1,0 +1,114 @@
+[
+  {
+    "name": "blur_go_s2",
+    "file": "blur_go_s2.png",
+    "text": "go",
+    "charset": "go abcde",
+    "font_size": 32,
+    "sigma": 2
+  },
+  {
+    "name": "blur_go_s3",
+    "file": "blur_go_s3.png",
+    "text": "go",
+    "charset": "go abcde",
+    "font_size": 32,
+    "sigma": 3
+  },
+  {
+    "name": "blur_go_s4",
+    "file": "blur_go_s4.png",
+    "text": "go",
+    "charset": "go abcde",
+    "font_size": 32,
+    "sigma": 4
+  },
+  {
+    "name": "blur_go_s6",
+    "file": "blur_go_s6.png",
+    "text": "go",
+    "charset": "go abcde",
+    "font_size": 32,
+    "sigma": 6
+  },
+  {
+    "name": "blur_cat_s2",
+    "file": "blur_cat_s2.png",
+    "text": "cat",
+    "charset": "cat eoab",
+    "font_size": 32,
+    "sigma": 2
+  },
+  {
+    "name": "blur_cat_s3",
+    "file": "blur_cat_s3.png",
+    "text": "cat",
+    "charset": "cat eoab",
+    "font_size": 32,
+    "sigma": 3
+  },
+  {
+    "name": "blur_cat_s4",
+    "file": "blur_cat_s4.png",
+    "text": "cat",
+    "charset": "cat eoab",
+    "font_size": 32,
+    "sigma": 4
+  },
+  {
+    "name": "blur_cat_s6",
+    "file": "blur_cat_s6.png",
+    "text": "cat",
+    "charset": "cat eoab",
+    "font_size": 32,
+    "sigma": 6
+  },
+  {
+    "name": "blur_hello_s2",
+    "file": "blur_hello_s2.png",
+    "text": "hello",
+    "charset": "helo abcd",
+    "font_size": 32,
+    "sigma": 2
+  },
+  {
+    "name": "blur_hello_s3",
+    "file": "blur_hello_s3.png",
+    "text": "hello",
+    "charset": "helo abcd",
+    "font_size": 32,
+    "sigma": 3
+  },
+  {
+    "name": "blur_hello_s4",
+    "file": "blur_hello_s4.png",
+    "text": "hello",
+    "charset": "helo abcd",
+    "font_size": 32,
+    "sigma": 4
+  },
+  {
+    "name": "blur_hello_s6",
+    "file": "blur_hello_s6.png",
+    "text": "hello",
+    "charset": "helo abcd",
+    "font_size": 32,
+    "sigma": 6
+  },
+  {
+    "name": "blur_connect_s3",
+    "file": "blur_connect_s3.png",
+    "text": "connect",
+    "charset": "connect abd",
+    "font_size": 32,
+    "sigma": 3
+  },
+  {
+    "name": "blur_connect_s6",
+    "file": "blur_connect_s6.png",
+    "text": "connect",
+    "charset": "connect abd",
+    "font_size": 32,
+    "sigma": 6
+  }
+]

@@ -60,10 +60,13 @@ and what the blur / zero-config work added.
 - **Auto-detects the block size.** Leave `Config.BlockSize` unset and `New` infers the mosaic
   grid from the image (`InferBlockSize`), so callers don't have to measure it.
 - **Blur, not just mosaic.** Blur is also a deterministic function of its input, so the same
-  attack applies: `pixelate.NewGaussianBlur(σ)` / `WithPixelator` reproduce a Gaussian blur, and
-  the CLI `--redaction auto|mosaic|blur` auto-detects it and estimates σ (`InferBlurSigma`) — so a
-  blurred secret recovers zero-config, no σ or font supplied. Optional exploratory Richardson-Lucy
-  deconvolution (`--deblur`) for known-PSF cases.
+  attack applies: `pixelate.NewGaussianBlur(σ)` / `WithPixelator` reproduce a Gaussian blur. **Blur
+  recovery is now zero-config on σ:** `unpixel.RecoverBlurred(ctx, img, opts...)` auto-estimates σ
+  via `InferBlurSigma`, then searches σ adaptively as a dimension of the search (like block size in
+  mosaic), defaulting to **beam search with language prior** to recover longer words where per-character
+  image signal is weak. The CLI `--redaction blur` auto-searches σ when `--blur-sigma` is unset.
+  `Result.BlurSigma` records the recovered σ. Optional exploratory Richardson-Lucy deconvolution
+  (`--deblur`) for known-PSF cases.
 - **Zero-config font matching.** Recovery needs the redaction's typeface — so with **no `--font`,
   UnPixel sweeps a built-in set of redistributable fonts** (Liberation Sans/Serif/Mono ≈
   Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Adwaita Mono, Noto Sans Mono, Source
@@ -268,12 +271,14 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | `Recover(ctx, image.Image, ...Option) (Result, error)` | One call: search and return the best result |
 | `RecoverReader(ctx, io.Reader, ...Option)` / `RecoverFile(ctx, path, ...Option)` | Decode then `Recover` |
 | `RecoverMultiFont(ctx, image.Image, []Renderer, ...Option) ([]FontResult, error)` | Sweep candidate fonts in parallel; results ranked best-fit first by `BestTotal` |
+| `RecoverBlurred(ctx, image.Image, ...Option) (Result, error)` | **Zero-config Gaussian-blur recovery: auto-estimates σ, searches σ as a dimension (adaptive or bounded sweep), defaults to beam+language-prior for longer words** |
 | `With*` options (`WithCharset`, `WithWorkers`, `WithRenderer`, `WithStrategy`, `WithPriors`, …) | Tweak the common knobs; `WithConfig` seeds a full `Config` |
 | `New(redacted image.Image, cfg Config) (*Engine, error)` | Build an engine; zero `Config` = faithful defaults |
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
 | `OnProgress(ch <-chan Progress, fn func(Progress))` | Drain progress events into a callback (any UI) |
 | `InferBlockSize(image.Image) int` | Detect the mosaic block size |
+| `InferBlurSigma(image.Image) float64` | Estimate Gaussian blur radius σ from image contrast |
 | `InferImpulseNoise(image.Image) float64` | Detect impulse (salt-pepper) noise; returned value used by `blind.Recover` to auto-denoise |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
 | `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |

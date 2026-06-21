@@ -164,7 +164,7 @@ type Config struct {
 
 	// BeamWidth is the maximum number of candidates retained per depth level
 	// when using BeamStrategy. Values <= 0 are replaced by DefaultBeamWidth.
-	// Has no effect when Strategy is GuidedStrategy.
+	// Only BeamStrategy reads this field; other strategies ignore it.
 	BeamWidth int
 	// CacheSize is the maximum number of stageImage results held by
 	// CachingScorer. Zero disables prefix-render memoization; positive values
@@ -279,6 +279,10 @@ type Result struct {
 	// best and second-best candidates. A larger gap means the best guess is
 	// more clearly distinguished from alternatives. It is 0 when len(TopN) < 2.
 	Ambiguity float64
+	// BlurSigma is the Gaussian-blur standard deviation (in pixels) used to
+	// produce this result. It is set by RecoverBlurred and zero for all other
+	// recovery paths (block-mosaic, manual Pixelator, etc.).
+	BlurSigma float64
 }
 
 // String returns a one-line human-readable summary of the result: the best
@@ -857,6 +861,18 @@ var ErrNilImage = errors.New("redacted image must not be nil")
 // Applications that supply all component fields explicitly need not set this.
 var DefaultComponents func(cfg *Config) error
 
+// DefaultBlurStrategy is a hook that returns the default Strategy used by
+// RecoverBlurred when the caller has not supplied one via WithStrategy. It is
+// populated by importing the defaults package for its side-effect.
+//
+// The default is BeamStrategy: beam search bounds the per-level branching
+// factor to DefaultBeamWidth candidates, giving O(length × width) evaluations
+// regardless of charset size — critical for longer words (≥5 chars) behind
+// blur, where per-character image signal is too weak for guided DFS's unbounded
+// expansion to finish in reasonable time. Callers that need full recall
+// (at higher cost) can override with WithStrategy(defaults.GuidedStrategy()).
+var DefaultBlurStrategy func() Strategy
+
 // Run starts the search and returns a progress channel and a results channel.
 // The progress channel carries Progress events and is closed after EventDone is
 // delivered. The results channel receives one Result per surviving grid offset
@@ -1023,6 +1039,11 @@ func WithLanguageModel(score func(string) float64) Option {
 // WithCharsetTopK sets Config.CharsetTopK: with a LanguageModel set, evaluate
 // only the k most-likely next characters per position (k<=0 disables pruning).
 func WithCharsetTopK(k int) Option { return func(c *Config) { c.CharsetTopK = k } }
+
+// WithBeamWidth sets Config.BeamWidth (candidates retained per depth level by
+// BeamStrategy). Values ≤ 0 defer to DefaultBeamWidth. Only BeamStrategy reads
+// this field; other strategies ignore it.
+func WithBeamWidth(width int) Option { return func(c *Config) { c.BeamWidth = width } }
 
 // WithPriors composes one or more plausibility priors into Config.LanguageModel.
 // Each prior is a function from candidate string to a non-negative log-space
