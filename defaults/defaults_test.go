@@ -263,3 +263,18 @@ func edgeGap(img *image.RGBA) int {
 	}
 	return d
 }
+
+// TestConstructors_smoke covers the public component constructors that other
+// tests don't exercise, so the zero-config wiring helpers stay tested.
+func TestConstructors_smoke(t *testing.T) {
+	if defaults.MonospaceStrategy() == nil {
+		t.Error("MonospaceStrategy() = nil")
+	}
+	lm := defaults.LanguageModel()
+	if lm == nil {
+		t.Fatal("LanguageModel() = nil")
+	}
+	if lm("the") <= lm("zzqx") {
+		t.Errorf("LanguageModel: real word should outscore gibberish (the=%v zzqx=%v)", lm("the"), lm("zzqx"))
+	}
+}

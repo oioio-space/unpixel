@@ -9,6 +9,24 @@ import (
 	"github.com/oioio-space/unpixel/internal/metric"
 )
 
+// TestMetrics_emptyImage covers the total==0 / w==0 guard in every metric's
+// Compare: a zero-sized image pair must score 0 (not NaN/panic).
+func TestMetrics_emptyImage(t *testing.T) {
+	e := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	if got := metric.NewRGB().Compare(e, e); got != 0 {
+		t.Errorf("RGB.Compare(empty) = %v, want 0", got)
+	}
+	if got := metric.NewPixelmatch(0.02).Compare(e, e); got != 0 {
+		t.Errorf("Pixelmatch.Compare(empty) = %v, want 0", got)
+	}
+	if got := metric.NewPixelmatchFast(0.02).Compare(e, e); got != 0 {
+		t.Errorf("PixelmatchFast.Compare(empty) = %v, want 0", got)
+	}
+	if got := metric.NewSSIM(8).Compare(e, e); got != 0 {
+		t.Errorf("SSIM.Compare(empty) = %v, want 0", got)
+	}
+}
+
 // solid builds a w×h RGBA image filled with c.
 func solid(w, h int, c color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
