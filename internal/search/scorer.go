@@ -19,11 +19,66 @@ import (
 // hundred entries capture the reuse while keeping memory bounded.
 const renderCacheCap = 256
 
+// prevStageCacheCap bounds the H1 prevGuess partial-stage cache. One entry per
+// (prevGuess, offset) node visited by the DFS; 256 keeps memory bounded while
+// covering all realistic search depths and charset sizes.
+const prevStageCacheCap = 256
+
+// redactedCropCacheCap bounds the H2 redacted-band crop cache.
+// One entry per distinct (leftBoundary, width) pair seen during a search; 64
+// covers the real-world range without unbounded growth.
+const redactedCropCacheCap = 64
+
 // renderEntry is one cached rendering, keyed by candidate text.
+// O1: blueMargin and center are memoized alongside the render so that every
+// caller of BlueMargin on this (immutable) image pays the scan cost at most once.
+// blueMarginDone is set to true after the first computation; a zero center is
+// valid (e.g. single-pixel glyph), so it cannot serve as a sentinel.
 type renderEntry struct {
 	text      string
 	img       *image.RGBA
 	sentinelX int
+
+	// O1 — memoized BlueMargin result. Protected by the scorer's rmu until
+	// blueMarginDone is set; after that the fields are read-only.
+	blueMarginDone bool
+	blueMargin     int
+	center         int
+}
+
+// prevStageKey identifies a cached prevGuess partial pipeline result (H1).
+// The key omits blockSize and styleKey because PipelineScorer is constructed
+// with a fixed Config; those fields never change within one scorer's lifetime.
+type prevStageKey struct {
+	prevGuess string
+	ox, oy    int
+}
+
+// prevStageEntry is the cached output of the prevGuess pipeline up to LeftEdge
+// (render → BlueMargin → Crop-to-origin → PadWhite → Pixelate → LeftEdge),
+// before the per-child Crop(sr.cropY) step. The prevPixelated image is
+// read-only after creation (Crop always allocates a fresh image), so sharing
+// across children and goroutines is safe — identical discipline to renderEntry.
+//
+// key is stored in the entry so that LRU eviction can remove the correct map
+// entry without a separate key lookup (same pattern as renderEntry.text).
+type prevStageEntry struct {
+	key           prevStageKey
+	prevPixelated *image.RGBA
+	prevLE        int
+}
+
+// redactedCropKey identifies a cached crop of s.redacted (H2).
+type redactedCropKey struct {
+	leftBoundary int
+	width        int
+}
+
+// redactedCropEntry wraps a cached crop of s.redacted together with its map key
+// so that LRU eviction can remove the correct entry (same pattern as renderEntry).
+type redactedCropEntry struct {
+	key     redactedCropKey
+	cropped *image.RGBA
 }
 
 // PipelineScorer implements Scorer using the pluggable Renderer, Pixelator,
@@ -40,6 +95,25 @@ type PipelineScorer struct {
 	rmu    sync.Mutex
 	rlru   *list.List // front = most recently used; values are *renderEntry
 	rcache map[string]*list.Element
+
+	// H1 — prevGuess partial-stage cache.
+	// Keyed by prevStageKey; LRU values are *prevStageEntry (which carries its
+	// own key for O(1) eviction). Lock discipline: pmu guards plru/pcache, held
+	// only long enough to read/write the map and LRU pointer — identical to rmu.
+	// Cached prevPixelated images are read-only; only the per-child Crop(cropY)
+	// tail is computed fresh per evalFromStage call.
+	pmu    sync.Mutex
+	plru   *list.List
+	pcache map[prevStageKey]*list.Element
+
+	// H2 — redacted-band crop cache.
+	// Keyed by redactedCropKey; LRU values are *redactedCropEntry.
+	// s.redacted is fixed so the crop result is deterministic and immutable.
+	// The cached image is read-only (equalise/PadWhite allocate new images;
+	// Compare is read-only). Same lock discipline as rmu/pmu.
+	cmu    sync.Mutex
+	clru   *list.List
+	ccache map[redactedCropKey]*list.Element
 }
 
 // NewPipelineScorer returns a PipelineScorer for the given redacted image and config.
@@ -49,6 +123,10 @@ func NewPipelineScorer(redacted *image.RGBA, cfg unpixel.Config) *PipelineScorer
 		cfg:      cfg,
 		rlru:     list.New(),
 		rcache:   make(map[string]*list.Element),
+		plru:     list.New(),
+		pcache:   make(map[prevStageKey]*list.Element),
+		clru:     list.New(),
+		ccache:   make(map[redactedCropKey]*list.Element),
 	}
 }
 
@@ -88,6 +166,174 @@ func (s *PipelineScorer) render(text string) (*image.RGBA, int, error) {
 	return img, sx, nil
 }
 
+// blueMarginOf returns the (blueMargin, center) pair for the rendered entry,
+// computing and memoizing it on first call (O1).
+//
+// The caller must hold rmu on entry. rmu is released while calling
+// imutil.BlueMargin (pure, no lock needed) and re-acquired to store the result.
+// A benign duplicate computation may occur on a concurrent first call; the
+// result is always the same pure function of the immutable entry.img.
+func (s *PipelineScorer) blueMarginOf(el *list.Element) (bm, center int) {
+	e := el.Value.(*renderEntry)
+	if e.blueMarginDone {
+		return e.blueMargin, e.center
+	}
+	img := e.img
+	sx := e.sentinelX
+	s.rmu.Unlock()
+
+	computedBM, computedCenter := imutil.BlueMargin(img)
+	if computedBM == 0 {
+		computedBM = sx
+	}
+
+	s.rmu.Lock()
+	// Re-read in case another goroutine raced and filled it first.
+	e = el.Value.(*renderEntry)
+	if !e.blueMarginDone {
+		e.blueMargin = computedBM
+		e.center = computedCenter
+		e.blueMarginDone = true
+	}
+	return e.blueMargin, e.center
+}
+
+// renderWithBM returns the rendered image, blueMargin, and imageCenter for text.
+// It uses the render cache and the O1 BlueMargin memo; sentinelX is consumed
+// internally as the BlueMargin fallback and is not exposed to callers.
+func (s *PipelineScorer) renderWithBM(text string) (img *image.RGBA, bm, imageCenter int, err error) {
+	s.rmu.Lock()
+	if el, ok := s.rcache[text]; ok {
+		s.rlru.MoveToFront(el)
+		bm, imageCenter = s.blueMarginOf(el) // may drop + re-acquire rmu
+		img = el.Value.(*renderEntry).img
+		s.rmu.Unlock()
+		return img, bm, imageCenter, nil
+	}
+	s.rmu.Unlock()
+
+	// Cache miss: render outside the lock.
+	var sx int
+	img, sx, err = s.cfg.Renderer.Render(text, s.cfg.Style)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	// Compute BlueMargin outside the lock (pure function, no contention).
+	bm, imageCenter = imutil.BlueMargin(img)
+	if bm == 0 {
+		bm = sx
+	}
+
+	s.rmu.Lock()
+	defer s.rmu.Unlock()
+	if el, ok := s.rcache[text]; ok { // concurrent miss stored it first
+		s.rlru.MoveToFront(el)
+		e := el.Value.(*renderEntry)
+		// Store our freshly computed BlueMargin if the existing entry hasn't set it yet.
+		if !e.blueMarginDone {
+			e.blueMargin = bm
+			e.center = imageCenter
+			e.blueMarginDone = true
+		}
+		return e.img, e.blueMargin, e.center, nil
+	}
+	entry := &renderEntry{
+		text: text, img: img, sentinelX: sx,
+		blueMarginDone: true, blueMargin: bm, center: imageCenter,
+	}
+	s.rcache[text] = s.rlru.PushFront(entry)
+	if s.rlru.Len() > renderCacheCap {
+		if back := s.rlru.Back(); back != nil {
+			delete(s.rcache, back.Value.(*renderEntry).text)
+			s.rlru.Remove(back)
+		}
+	}
+	return img, bm, imageCenter, nil
+}
+
+// prevStage returns the H1-cached partial pipeline for prevGuess at offset:
+// render → BlueMargin → Crop-to-origin → PadWhite → Pixelate → LeftEdge.
+// The returned prevStageEntry.prevPixelated must not be mutated.
+func (s *PipelineScorer) prevStage(prevGuess string, offset unpixel.Offset) (*prevStageEntry, error) {
+	k := prevStageKey{prevGuess: prevGuess, ox: offset.X, oy: offset.Y}
+
+	s.pmu.Lock()
+	if el, ok := s.pcache[k]; ok {
+		s.plru.MoveToFront(el)
+		ent := el.Value.(*prevStageEntry)
+		s.pmu.Unlock()
+		return ent, nil
+	}
+	s.pmu.Unlock()
+
+	// Cache miss: compute the partial pipeline outside the lock.
+	img, bm, _, err := s.renderWithBM(prevGuess)
+	if err != nil {
+		return nil, err
+	}
+	ox, oy := offset.X, offset.Y
+	cropW := bm - ox
+	if cropW <= 0 {
+		return nil, errCropEmpty
+	}
+	cropped := imutil.Crop(img, ox, oy, cropW, img.Bounds().Dy()-oy)
+	bs := s.cfg.BlockSize
+	if rem := bs - (cropped.Bounds().Dx() % bs); rem < bs {
+		cropped = imutil.PadWhite(cropped, cropped.Bounds().Dx()+rem, cropped.Bounds().Dy())
+	}
+	pixelated := s.cfg.Pixelator.Pixelate(cropped, 0, 0)
+	le := imutil.LeftEdge(pixelated)
+	ent := &prevStageEntry{key: k, prevPixelated: pixelated, prevLE: le}
+
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	if el, ok := s.pcache[k]; ok { // concurrent miss stored it first
+		s.plru.MoveToFront(el)
+		return el.Value.(*prevStageEntry), nil
+	}
+	s.pcache[k] = s.plru.PushFront(ent)
+	if s.plru.Len() > prevStageCacheCap {
+		if back := s.plru.Back(); back != nil {
+			delete(s.pcache, back.Value.(*prevStageEntry).key)
+			s.plru.Remove(back)
+		}
+	}
+	return ent, nil
+}
+
+// redactedCrop returns a crop of s.redacted at (leftBoundary, 0, width, redactedH),
+// using the H2 cache. The returned image must not be mutated.
+func (s *PipelineScorer) redactedCrop(leftBoundary, width, redactedH int) *image.RGBA {
+	k := redactedCropKey{leftBoundary: leftBoundary, width: width}
+
+	s.cmu.Lock()
+	if el, ok := s.ccache[k]; ok {
+		s.clru.MoveToFront(el)
+		img := el.Value.(*redactedCropEntry).cropped
+		s.cmu.Unlock()
+		return img
+	}
+	s.cmu.Unlock()
+
+	// Compute outside the lock.
+	cropped := imutil.Crop(s.redacted, leftBoundary, 0, width, redactedH)
+
+	s.cmu.Lock()
+	defer s.cmu.Unlock()
+	if el, ok := s.ccache[k]; ok { // concurrent miss stored it first
+		s.clru.MoveToFront(el)
+		return el.Value.(*redactedCropEntry).cropped
+	}
+	s.ccache[k] = s.clru.PushFront(&redactedCropEntry{key: k, cropped: cropped})
+	if s.clru.Len() > redactedCropCacheCap {
+		if back := s.clru.Back(); back != nil {
+			delete(s.ccache, back.Value.(*redactedCropEntry).key)
+			s.clru.Remove(back)
+		}
+	}
+	return cropped
+}
+
 // RedactedImage returns the redacted image held by this scorer.
 // It is used by tests that need access to the image after construction.
 func (s *PipelineScorer) RedactedImage() *image.RGBA { return s.redacted }
@@ -119,16 +365,10 @@ func (s *PipelineScorer) stageImage(ctx context.Context, guess string, offset un
 		return stageResult{}, ctx.Err()
 	}
 
-	// Step 1: Render (cached by text; offset-independent).
-	rendered, sentinelX, err := s.render(guess)
+	// Steps 1 + 2: Render (cached) and BlueMargin (O1 memoized in renderEntry).
+	rendered, bm, imageCenter, err := s.renderWithBM(guess)
 	if err != nil {
 		return stageResult{}, err
-	}
-
-	// Step 2: BlueMargin — right edge of text + vertical center.
-	bm, imageCenter := imutil.BlueMargin(rendered)
-	if bm == 0 {
-		bm = sentinelX // fall back to measured advance if scan finds nothing
 	}
 
 	// Step 3: Crop to grid origin.
@@ -204,6 +444,11 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 // stageResult). sr.cropY is reused for the prevGuess re-render so that both
 // images are vertically aligned to the same row band — faithful to the original
 // which derived cropY once from the current guess.
+//
+// H1: the expensive prevGuess pipeline (render→BlueMargin→Crop→PadWhite→
+// Pixelate→LeftEdge) is computed once per (prevGuess, offset) and cached in
+// pcache; only the per-child Crop(sr.cropY) tail is run fresh each call.
+// H2: the crop of s.redacted is cached per (leftBoundary, width) in ccache.
 func (s *PipelineScorer) evalFromStage(
 	ctx context.Context,
 	sr stageResult,
@@ -218,28 +463,20 @@ func (s *PipelineScorer) evalFromStage(
 	bm := sr.blueMargin
 	le := sr.leftEdge
 	ox := offset.X
-	bs := s.cfg.BlockSize
 	redactedH := s.redacted.Bounds().Dy()
 
 	// Step 8: Marginal region — diff against previous guess to find changed band.
 	// faithful: main.ts uses the same cropY derived from the current guess for both renders.
-	guessImg := img // saved for totalScore
+	guessImg := img // saved for tooBig check
 	leftBoundary := 0
 	if prevGuess != "" {
-		prevRendered, prevBlue, prevErr := s.render(prevGuess)
+		// H1: fetch (or compute-and-cache) the prevGuess partial pipeline up to
+		// LeftEdge. Only the final Crop(sr.cropY) is done here per child, because
+		// cropY varies per child and is cheap relative to Pixelate.
+		ps, prevErr := s.prevStage(prevGuess, offset)
 		if prevErr == nil {
-			prevBm, _ := imutil.BlueMargin(prevRendered)
-			if prevBm == 0 {
-				prevBm = prevBlue
-			}
-			prevRendered = imutil.Crop(prevRendered, ox, offset.Y, prevBm-ox, prevRendered.Bounds().Dy()-offset.Y)
-			if rem := bs - (prevRendered.Bounds().Dx() % bs); rem < bs {
-				prevRendered = imutil.PadWhite(prevRendered, prevRendered.Bounds().Dx()+rem, prevRendered.Bounds().Dy())
-			}
-			prevRendered = s.cfg.Pixelator.Pixelate(prevRendered, 0, 0)
-			prevLE := imutil.LeftEdge(prevRendered)
-			// Reuse cropY from current guess — faithful to original behaviour.
-			prevImg := imutil.Crop(prevRendered, prevLE, sr.cropY, prevRendered.Bounds().Dx()-prevLE, redactedH)
+			prevImg := imutil.Crop(ps.prevPixelated, ps.prevLE, sr.cropY,
+				ps.prevPixelated.Bounds().Dx()-ps.prevLE, redactedH)
 
 			// Equalise widths before diffing.
 			switch {
@@ -267,7 +504,10 @@ func (s *PipelineScorer) evalFromStage(
 	adjustedBM := (bm - leftBoundary) - le - ox
 
 	imgCropped := imutil.Crop(img, leftBoundary, 0, min(img.Bounds().Dx()-leftBoundary, adjustedBM), img.Bounds().Dy())
-	redactedCropped := imutil.Crop(s.redacted, leftBoundary, 0, min(s.redacted.Bounds().Dx()-leftBoundary, adjustedBM), redactedH)
+
+	// H2: reuse the cached crop of s.redacted for this (leftBoundary, width).
+	redactedW := min(s.redacted.Bounds().Dx()-leftBoundary, adjustedBM)
+	redactedCropped := s.redactedCrop(leftBoundary, redactedW, redactedH)
 
 	imgCropped, redactedCropped = equalise(imgCropped, redactedCropped)
 

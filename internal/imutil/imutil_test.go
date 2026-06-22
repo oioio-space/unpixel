@@ -73,6 +73,84 @@ func TestPadWhite_sameSize(t *testing.T) {
 	}
 }
 
+// --- CropInto ---
+
+func TestCropInto_pixelIdenticalToCrop(t *testing.T) {
+	img := newWhite(20, 10)
+	img.SetRGBA(5, 3, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	img.SetRGBA(11, 7, color.RGBA{R: 50, G: 60, B: 70, A: 255})
+
+	want := imutil.Crop(img, 2, 1, 10, 6)
+	got := imutil.CropInto(nil, img, 2, 1, 10, 6)
+
+	if got.Bounds() != want.Bounds() {
+		t.Fatalf("CropInto bounds = %v, want %v", got.Bounds(), want.Bounds())
+	}
+	for y := range got.Bounds().Dy() {
+		for x := range got.Bounds().Dx() {
+			cg := got.RGBAAt(x, y)
+			cw := want.RGBAAt(x, y)
+			if cg != cw {
+				t.Errorf("CropInto(%d,%d) = %v, Crop = %v", x, y, cg, cw)
+			}
+		}
+	}
+}
+
+func TestCropInto_reusesBufferWhenSameSize(t *testing.T) {
+	img := newWhite(20, 10)
+	buf := imutil.CropInto(nil, img, 0, 0, 10, 5)
+	origPix := &buf.Pix[0]
+
+	// Same-size call must reuse the existing allocation.
+	buf2 := imutil.CropInto(buf, img, 0, 0, 10, 5)
+	if &buf2.Pix[0] != origPix {
+		t.Error("CropInto with matching size allocated instead of reusing")
+	}
+}
+
+func TestCropInto_clampToImage(t *testing.T) {
+	img := newWhite(10, 10)
+	got := imutil.CropInto(nil, img, 5, 5, 20, 20)
+	if got.Bounds().Dx() != 5 || got.Bounds().Dy() != 5 {
+		t.Errorf("CropInto clamped = %v, want 5×5", got.Bounds().Size())
+	}
+}
+
+// --- PadWhiteInto ---
+
+func TestPadWhiteInto_pixelIdenticalToPadWhite(t *testing.T) {
+	img := newWhite(10, 8)
+	img.SetRGBA(9, 4, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+
+	want := imutil.PadWhite(img, 16, 8)
+	got := imutil.PadWhiteInto(nil, img, 16, 8)
+
+	if got.Bounds() != want.Bounds() {
+		t.Fatalf("PadWhiteInto bounds = %v, want %v", got.Bounds(), want.Bounds())
+	}
+	for y := range got.Bounds().Dy() {
+		for x := range got.Bounds().Dx() {
+			cg := got.RGBAAt(x, y)
+			cw := want.RGBAAt(x, y)
+			if cg != cw {
+				t.Errorf("PadWhiteInto(%d,%d) = %v, PadWhite = %v", x, y, cg, cw)
+			}
+		}
+	}
+}
+
+func TestPadWhiteInto_reusesBufferWhenSameSize(t *testing.T) {
+	img := newWhite(10, 8)
+	buf := imutil.PadWhiteInto(nil, img, 16, 8)
+	origPix := &buf.Pix[0]
+
+	buf2 := imutil.PadWhiteInto(buf, img, 16, 8)
+	if &buf2.Pix[0] != origPix {
+		t.Error("PadWhiteInto with matching size allocated instead of reusing")
+	}
+}
+
 // --- Compose ---
 
 func TestCompose_pastesSrc(t *testing.T) {

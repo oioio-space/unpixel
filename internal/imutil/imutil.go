@@ -53,6 +53,51 @@ func PadWhite(src *image.RGBA, newW, newH int) *image.RGBA {
 	return dst
 }
 
+// CropInto writes the sub-rectangle of src starting at (x, y) with the given
+// width and height into dst, resizing dst in place as needed. The result is
+// clamped to src's bounds. It is the zero-allocation equivalent of Crop for
+// callers that own a reusable scratch buffer.
+func CropInto(dst *image.RGBA, src *image.RGBA, x, y, w, h int) *image.RGBA {
+	b := src.Bounds()
+	x0 := max(b.Min.X, b.Min.X+x)
+	y0 := max(b.Min.Y, b.Min.Y+y)
+	x1 := min(b.Max.X, x0+w)
+	y1 := min(b.Max.Y, y0+h)
+	dw := max(0, x1-x0)
+	dh := max(0, y1-y0)
+	dst = resizeRGBA(dst, dw, dh)
+	if dw == 0 || dh == 0 {
+		return dst
+	}
+	rowBytes := dw * 4
+	for row := range dh {
+		srcOff := src.PixOffset(x0, y0+row)
+		copy(dst.Pix[row*dst.Stride:row*dst.Stride+rowBytes], src.Pix[srcOff:srcOff+rowBytes])
+	}
+	return dst
+}
+
+// PadWhiteInto writes src composited at the top-left of a newW×newH white
+// canvas into dst, resizing dst in place as needed. It is the zero-allocation
+// equivalent of PadWhite for callers that own a reusable scratch buffer.
+func PadWhiteInto(dst *image.RGBA, src *image.RGBA, newW, newH int) *image.RGBA {
+	dst = resizeRGBA(dst, newW, newH)
+	FillWhite(dst)
+	Compose(dst, src, 0, 0)
+	return dst
+}
+
+// resizeRGBA returns dst if it already has the requested size and origin (0,0);
+// otherwise it allocates a new *image.RGBA. Callers that want in-place reuse
+// should replace their pointer: dst = resizeRGBA(dst, w, h).
+func resizeRGBA(dst *image.RGBA, w, h int) *image.RGBA {
+	want := image.Rect(0, 0, w, h)
+	if dst != nil && dst.Bounds() == want {
+		return dst
+	}
+	return image.NewRGBA(want)
+}
+
 // Compose blits src onto dst at offset (offX, offY), clipped to dst's bounds.
 // It delegates to the stdlib image/draw package which has an RGBA fast-path.
 func Compose(dst, src *image.RGBA, offX, offY int) {

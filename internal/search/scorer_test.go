@@ -181,6 +181,105 @@ func TestPipelineScorer_identicalConsecutiveGuess(t *testing.T) {
 	}
 }
 
+// TestPipelineScorer_H1BitIdentical verifies that H1 (prevGuess partial-stage
+// cache) produces bit-identical scores: the second call (cache hit) must equal
+// the first (cache miss) for every combination of guess / prevGuess.
+func TestPipelineScorer_H1BitIdentical(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	cases := []struct{ guess, prev string }{
+		{"ab", "a"},
+		{"b", "a"},
+		{"aa", "a"},
+		{"ab", "b"},
+	}
+	for _, tc := range cases {
+		// First call populates H1 cache.
+		first := scorer.Eval(t.Context(), tc.guess, tc.prev, offset)
+		// Second call must hit H1 cache and return identical result.
+		second := scorer.Eval(t.Context(), tc.guess, tc.prev, offset)
+		if first != second {
+			t.Errorf("H1 cache: Eval(%q,%q) first=%+v second=%+v — not bit-identical",
+				tc.guess, tc.prev, first, second)
+		}
+	}
+}
+
+// TestPipelineScorer_H2BitIdentical verifies that H2 (redacted-band crop cache)
+// produces bit-identical scores: varying leftBoundary across guesses must not
+// cause any divergence from the uncached path.
+func TestPipelineScorer_H2BitIdentical(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+
+	// Use two different offsets to exercise different leftBoundary values.
+	offsets := []unpixel.Offset{{X: 0, Y: 0}, {X: 4, Y: 0}}
+	guesses := []struct{ guess, prev string }{
+		{"a", ""},
+		{"b", ""},
+		{"ab", "a"},
+	}
+
+	for _, off := range offsets {
+		for _, g := range guesses {
+			// Call twice; results must be identical (cache hit == cache miss).
+			r1 := scorer.Eval(t.Context(), g.guess, g.prev, off)
+			r2 := scorer.Eval(t.Context(), g.guess, g.prev, off)
+			if r1 != r2 {
+				t.Errorf("H2 cache offset=%v guess=%q prev=%q: first=%+v second=%+v",
+					off, g.guess, g.prev, r1, r2)
+			}
+		}
+	}
+}
+
+// TestPipelineScorer_O1BitIdentical verifies that O1 (BlueMargin memoization in
+// renderEntry) produces bit-identical scores: repeated Eval on the same text must
+// return exactly the same score whether BlueMargin is computed fresh or from cache.
+func TestPipelineScorer_O1BitIdentical(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	// Eval "a" twice — second call hits the render cache and must use the memoized
+	// BlueMargin value without recomputing it.
+	r1 := scorer.Eval(t.Context(), "a", "", offset)
+	r2 := scorer.Eval(t.Context(), "a", "", offset)
+	if r1 != r2 {
+		t.Errorf("O1 memoize: Eval(%q) first=%+v second=%+v — not bit-identical", "a", r1, r2)
+	}
+
+	// Also check with prevGuess to exercise the prevGuess render-cache path.
+	r3 := scorer.Eval(t.Context(), "ab", "a", offset)
+	r4 := scorer.Eval(t.Context(), "ab", "a", offset)
+	if r3 != r4 {
+		t.Errorf("O1 memoize prevGuess: Eval(%q,%q) first=%+v second=%+v — not bit-identical",
+			"ab", "a", r3, r4)
+	}
+}
+
+// TestPipelineScorer_H1ConcurrentRace exercises the H1 cache under concurrent
+// access to catch data races. Run with go test -race.
+func TestPipelineScorer_H1ConcurrentRace(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	const goroutines = 8
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			for _, tc := range []struct{ g, p string }{
+				{"a", ""},
+				{"ab", "a"},
+				{"b", "a"},
+				{"ab", "b"},
+			} {
+				scorer.Eval(t.Context(), tc.g, tc.p, offset)
+			}
+		})
+	}
+	wg.Wait()
+}
+
 // drainAndRun calls strategy.Search then closes both channels, draining them
 // concurrently to avoid the blocking-send deadlock described in engine_test.go.
 func drainAndRun(
