@@ -84,7 +84,8 @@ func TestDecodeReference_PropFont_ExactRecovery(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, false) // sRGB
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Sans"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0), // sRGB
@@ -112,7 +113,8 @@ func TestDecodeReference_MonoFont_Linear_ExactRecovery(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, true) // linear
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(1), // linear
@@ -140,7 +142,8 @@ func TestDecodeReference_WithRefFontFile(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, false) // sRGB
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFontFile(f.Data), // supply font bytes, not a name
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0),
@@ -171,7 +174,8 @@ func TestDecodeReference_BundledSweep(t *testing.T) {
 	img := embedInWhiteRef(mosaic, block)
 
 	// No WithRefFont / WithRefFontFile → sweep all bundled fonts.
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0),
 	)
@@ -200,7 +204,8 @@ func TestDecodeReference_WrongFont(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, sansFnt.Data, fs, block, false)
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"), // WRONG font intentionally
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0),
@@ -236,7 +241,8 @@ func TestDecodeReference_Errors(t *testing.T) {
 	f := refFont(t, "Liberation Mono")
 	mosaic := syntheticRefMosaic(t, "test", f.Data, 32, 8, false)
 	img := embedInWhiteRef(mosaic, 8)
-	if _, err := mosaictext.DecodeReference(ctx, img,
+	if _, err := mosaictext.DecodeReference(
+		ctx, img,
 		mosaictext.WithRefFont("NoSuchFont XYZ"),
 	); !errors.Is(err, mosaictext.ErrNoContent) {
 		t.Errorf("unknown font: got %v, want ErrNoContent", err)
@@ -252,7 +258,8 @@ func TestDecodeReference_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // pre-cancel
 
-	_, err := mosaictext.DecodeReference(ctx, img,
+	_, err := mosaictext.DecodeReference(
+		ctx, img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 	)
@@ -274,7 +281,8 @@ func TestDecodeReference_ResultFields(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, false)
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0),
@@ -311,7 +319,8 @@ func TestDecodeReference_WithRefFontFileBold(t *testing.T) {
 
 	// Supply the same font as both regular and bold (no separate bold face
 	// for Liberation Mono; we just verify the option is accepted).
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFontFile(f.Data),
 		mosaictext.WithRefFontFileBold(f.Data),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
@@ -338,7 +347,8 @@ func TestDecodeReference_LinearSweep(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, false)
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		// WithRefLinear not set → auto sweep (default -1)
@@ -365,7 +375,8 @@ func TestWithRefLinear_SRGBOnly(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, false)
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(0), // force sRGB
@@ -393,7 +404,8 @@ func TestWithRefLinear_LinearOnly(t *testing.T) {
 	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, true)
 	img := embedInWhiteRef(mosaic, block)
 
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 		mosaictext.WithRefLinear(1), // force linear
@@ -424,7 +436,8 @@ func TestDecodeReference_DuplicateCharset(t *testing.T) {
 
 	// charset with deliberate duplicates — must not break advance measurement.
 	dupCharset := "aabbccddeeffgghhiijj"
-	res, err := mosaictext.DecodeReference(t.Context(), img,
+	res, err := mosaictext.DecodeReference(
+		t.Context(), img,
 		mosaictext.WithRefFont("Liberation Mono"),
 		mosaictext.WithRefCharset(dupCharset),
 		mosaictext.WithRefLinear(0),
@@ -457,7 +470,8 @@ func BenchmarkDecodeReference(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		res, decErr := mosaictext.DecodeReference(context.Background(), img,
+		res, decErr := mosaictext.DecodeReference(
+			context.Background(), img,
 			mosaictext.WithRefFont("Liberation Mono"),
 			mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
 			mosaictext.WithRefLinear(0),

@@ -135,7 +135,8 @@ func TestOptionSetters_plumbing(t *testing.T) {
 	}
 
 	// Recover must not panic when all option setters are applied.
-	_, _ = blind.Recover(t.Context(), img,
+	_, _ = blind.Recover(
+		t.Context(), img,
 		blind.WithOffset(2, 4),
 		blind.WithLinear(false),
 		blind.WithFonts("sans", "serif"),
@@ -144,7 +145,8 @@ func TestOptionSetters_plumbing(t *testing.T) {
 		blind.WithFontSize(32),
 	)
 	// A second call with WithLinear(true) exercises the other branch.
-	_, _ = blind.Recover(t.Context(), img,
+	_, _ = blind.Recover(
+		t.Context(), img,
 		blind.WithLinear(true),
 		blind.WithBlock(8),
 		blind.WithFontSize(32),

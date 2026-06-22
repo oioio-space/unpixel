@@ -119,7 +119,8 @@ func TestDecodeHMM_HelloWorld(t *testing.T) {
 		n     = 11
 	)
 	img := syntheticMosaic(t, text, f.Data, fs, block, true)
-	res, err := mosaictext.DecodeHMM(t.Context(), img,
+	res, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFont("Liberation Mono"),
 		mosaictext.WithFontSize(fs),
 		mosaictext.WithCharCount(n),
@@ -149,7 +150,8 @@ func TestDecodeHMM_AccessDenied(t *testing.T) {
 		n     = 13
 	)
 	img := syntheticMosaic(t, text, f.Data, fs, block, true)
-	res, err := mosaictext.DecodeHMM(t.Context(), img,
+	res, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFont("Liberation Mono"),
 		mosaictext.WithFontSize(fs),
 		mosaictext.WithCharCount(n),
@@ -179,7 +181,8 @@ func TestDecodeHMM_GreatSuccess(t *testing.T) {
 		n     = 13
 	)
 	img := syntheticMosaic(t, text, f.Data, fs, block, false) // sRGB
-	res, err := mosaictext.DecodeHMM(t.Context(), img,
+	res, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFont("Liberation Mono"),
 		mosaictext.WithFontSize(fs),
 		mosaictext.WithCharCount(n),
@@ -210,7 +213,8 @@ func TestDecodeHMM_WithFontFile(t *testing.T) {
 		n     = 11
 	)
 	img := syntheticMosaic(t, text, f.Data, fs, block, true)
-	res, err := mosaictext.DecodeHMM(t.Context(), img,
+	res, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFontFile(f.Data), // user-supplied font, not a bundled name
 		mosaictext.WithFontSize(fs),
 		mosaictext.WithCharCount(n),
@@ -241,7 +245,8 @@ func TestDecodeHMM_Errors(t *testing.T) {
 	// WithFont that does not match any bundled mono font → ErrNoContent.
 	f := monoFont(t, "Liberation Mono")
 	img := syntheticMosaic(t, "test", f.Data, 32, 4, false)
-	if _, err := mosaictext.DecodeHMM(t.Context(), img,
+	if _, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFont("NoSuchFont XYZ"),
 	); !errors.Is(err, mosaictext.ErrNoContent) {
 		t.Errorf("unknown font: got %v, want ErrNoContent", err)
@@ -261,7 +266,8 @@ func TestDecodeHMM_WithFontFileBold(t *testing.T) {
 		n     = 5
 	)
 	img := syntheticMosaic(t, text, f.Data, fs, block, true)
-	res, err := mosaictext.DecodeHMM(t.Context(), img,
+	res, err := mosaictext.DecodeHMM(
+		t.Context(), img,
 		mosaictext.WithFontFile(f.Data),
 		mosaictext.WithFontFileBold(f.Data), // same bytes for both faces
 		mosaictext.WithFontSize(fs),
@@ -294,7 +300,8 @@ func BenchmarkDecodeHMM(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		res, decErr := mosaictext.DecodeHMM(context.Background(), img,
+		res, decErr := mosaictext.DecodeHMM(
+			context.Background(), img,
 			mosaictext.WithFont("Liberation Mono"),
 			mosaictext.WithFontSize(fs),
 			mosaictext.WithCharCount(n),

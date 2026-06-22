@@ -19,6 +19,8 @@ bench-*.txt
 *.prof
 # Recovery panel: the latest run is regenerable; quality-baseline.json is committed.
 benchmarks/quality-latest.json
+# Journal: per-run JSON snapshots are regenerable; docs/JOURNAL.md is tracked.
+benchmarks/journal/*.json
 
 # mise local overrides (per-machine, not shared)
 mise.local.toml

@@ -218,7 +218,8 @@ func measureHMM(t *testing.T, imgPath string) (text, fontName string, dist float
 		return "", "", 0
 	}
 
-	res, err := mosaictext.DecodeHMM(ctx, img,
+	res, err := mosaictext.DecodeHMM(
+		ctx, img,
 		mosaictext.WithCharset(mosaictext.DefaultHMMCharset),
 	)
 	if err != nil {
