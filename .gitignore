@@ -24,5 +24,9 @@ benchmarks/quality-latest.json
 mise.local.toml
 .mise.local.toml
 
+# Wild fixtures: downloaded images are gitignored; manifest.json is tracked.
+testdata/wild/*.png
+testdata/wild/*.jpg
+
 # OS / editor
 .DS_Store

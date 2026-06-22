@@ -5,6 +5,7 @@ package search
 import (
 	"cmp"
 	"context"
+	"math"
 	"runtime"
 	"slices"
 	"sync"
@@ -429,6 +430,89 @@ func topKChars(cfg unpixel.Config, parentGuess string) []rune {
 type runeScore struct {
 	r rune
 	s float64
+}
+
+// bestSeenTracker records the single lowest-scored (guess, score) pair seen
+// across all Eval calls, regardless of whether the score passed the threshold.
+// It is safe for concurrent use: the score is stored as IEEE-754 bits in an
+// atomic.Uint64 and updated with a CAS loop; the guess is protected by mu and
+// written only when a new minimum score is confirmed.
+//
+// On the hot path (above-threshold fast path) this adds one atomic.Load plus,
+// on improvement, one CAS retry loop and one mu.Lock — negligible beside the
+// render→pixelate→metric work each Eval already performs.
+type bestSeenTracker struct {
+	scoreBits atomic.Uint64 // math.Float64bits of best score; init to +Inf bits
+	mu        sync.Mutex
+	guess     string
+}
+
+// newBestSeenTracker returns a tracker initialised to the worst possible score.
+func newBestSeenTracker() *bestSeenTracker {
+	t := &bestSeenTracker{}
+	t.scoreBits.Store(math.Float64bits(math.Inf(1)))
+	return t
+}
+
+// update records (guess, score) if it improves on the best seen so far.
+// A strictly lower score always wins. Tied scores use the lexicographically
+// smaller guess as a tie-breaker, ensuring the result is deterministic
+// regardless of goroutine scheduling. Concurrent calls are safe; the common
+// (non-improving strict) path is lock-free.
+func (t *bestSeenTracker) update(guess string, score float64) {
+	newBits := math.Float64bits(score)
+	for {
+		oldBits := t.scoreBits.Load()
+		oldScore := math.Float64frombits(oldBits)
+		if oldScore < score {
+			return // existing best is strictly better; no update
+		}
+		if oldScore == score {
+			// Equal score: serialise on mu to apply the lexicographic tie-break
+			// without a second CAS loop. This path is rare (exact float equality).
+			t.mu.Lock()
+			if math.Float64frombits(t.scoreBits.Load()) == score && guess >= t.guess {
+				t.mu.Unlock()
+				return // existing guess is ≤ new one; keep it
+			}
+			t.scoreBits.Store(newBits)
+			t.guess = guess
+			t.mu.Unlock()
+			return
+		}
+		// New score is strictly lower: claim it with a CAS.
+		if t.scoreBits.CompareAndSwap(oldBits, newBits) {
+			t.mu.Lock()
+			t.guess = guess
+			t.mu.Unlock()
+			return
+		}
+		// Another goroutine raced; re-read and retry.
+	}
+}
+
+// best returns the best (guess, score) seen so far. Returns ("", +Inf) if no
+// Eval has been called.
+func (t *bestSeenTracker) best() (string, float64) {
+	t.mu.Lock()
+	score := math.Float64frombits(t.scoreBits.Load())
+	guess := t.guess
+	t.mu.Unlock()
+	return guess, score
+}
+
+// trackingScorer wraps a Scorer and forwards every Eval result to a
+// bestSeenTracker so the search can surface the closest candidate even when
+// nothing passes the acceptance threshold.
+type trackingScorer struct {
+	Scorer
+	seen *bestSeenTracker
+}
+
+func (ts trackingScorer) Eval(ctx context.Context, guess, prevGuess string, offset unpixel.Offset) EvalResult {
+	res := ts.Scorer.Eval(ctx, guess, prevGuess, offset)
+	ts.seen.update(guess, res.Score)
+	return res
 }
 
 // DiscoverOffsets probes all blockSize² grid origins and returns those whose

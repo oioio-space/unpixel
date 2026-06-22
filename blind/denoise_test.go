@@ -72,7 +72,8 @@ func TestWithDenoise_Plumbing(t *testing.T) {
 
 	// Verify that WithDenoise(0) is a functional no-op — with pinned block the
 	// Recover call succeeds, meaning zero radius does not corrupt the pipeline.
-	_, err := blind.Recover(t.Context(), noisy,
+	_, err := blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(block),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(0),
@@ -82,7 +83,8 @@ func TestWithDenoise_Plumbing(t *testing.T) {
 	}
 
 	// Verify that WithDenoise(1) is also accepted without error.
-	_, err = blind.Recover(t.Context(), noisy,
+	_, err = blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(block),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(1),
@@ -184,7 +186,8 @@ func TestAutoDenoiseFiresOnNoisy(t *testing.T) {
 		noisy.SetRGBA(x, y, color.RGBA{255, 255, 255, 255})
 	}
 
-	result, err := blind.Recover(t.Context(), noisy,
+	result, err := blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		// No WithDenoise → auto mode (default -1).
@@ -205,7 +208,8 @@ func TestAutoDenoiseSkipsClean(t *testing.T) {
 
 	clean := syntheticBand(t, "ok", 0)
 
-	result, err := blind.Recover(t.Context(), clean,
+	result, err := blind.Recover(
+		t.Context(), clean,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		// No WithDenoise → auto mode.
@@ -225,7 +229,8 @@ func TestWithDenoise_ForceRadius(t *testing.T) {
 	t.Parallel()
 
 	clean := syntheticBand(t, "ok", 0)
-	result, err := blind.Recover(t.Context(), clean,
+	result, err := blind.Recover(
+		t.Context(), clean,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(2),
@@ -248,7 +253,8 @@ func TestWithDenoise_ZeroDisables(t *testing.T) {
 	rng := rand.New(rand.NewPCG(0xfeedface, 0xdeadbeef))
 	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
 
-	result, err := blind.Recover(t.Context(), noisy,
+	result, err := blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(0), // explicitly off
@@ -272,7 +278,8 @@ func TestDenoiseOff_sentinel(t *testing.T) {
 	rng := rand.New(rand.NewPCG(0xcafe1234, 0xbabe5678))
 	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
 
-	result, err := blind.Recover(t.Context(), noisy,
+	result, err := blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(blind.DenoiseOff),
@@ -296,7 +303,8 @@ func TestDenoiseAuto_sentinel(t *testing.T) {
 	rng := rand.New(rand.NewPCG(0x1a2b3c4d, 0x5e6f7a8b))
 	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
 
-	result, err := blind.Recover(t.Context(), noisy,
+	result, err := blind.Recover(
+		t.Context(), noisy,
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
 		blind.WithDenoise(blind.DenoiseAuto),

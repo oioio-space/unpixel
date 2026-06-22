@@ -58,7 +58,8 @@ func loadFixtureImage(t *testing.T, file string) image.Image {
 // recovers reports whether the plaintext appears among the recovered candidates.
 func recovers(t *testing.T, img image.Image, s fixture.Spec) bool {
 	t.Helper()
-	res, err := unpixel.Recover(t.Context(), img,
+	res, err := unpixel.Recover(
+		t.Context(), img,
 		unpixel.WithStyle(s.Style()),
 		unpixel.WithBlockSize(s.BlockSize),
 		unpixel.WithCharset(s.Charset),

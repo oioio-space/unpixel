@@ -283,6 +283,19 @@ type Result struct {
 	// produce this result. It is set by RecoverBlurred and zero for all other
 	// recovery paths (block-mosaic, manual Pixelator, etc.).
 	BlurSigma float64
+	// BelowThreshold is true when BestGuess was promoted from the best-seen
+	// sub-threshold candidate because no candidate actually passed the
+	// acceptance gate. When false (the normal case), BestGuess/TopN/Confidence
+	// are computed entirely from candidates that passed the gate and are
+	// byte-identical to previous behaviour.
+	//
+	// Per-offset edge case: when the global winner is above-threshold
+	// (BelowThreshold=false), a non-winning offset's per-offset TopN may still
+	// contain a sub-threshold best-seen candidate. Callers iterating all
+	// per-offset results should not treat every per-offset TopN entry as
+	// having passed the acceptance gate; check the per-offset BelowThreshold
+	// field individually.
+	BelowThreshold bool
 }
 
 // String returns a one-line human-readable summary of the result: the best
@@ -516,6 +529,280 @@ func InferBlockSize(img image.Image) int {
 		return 0
 	}
 	return g
+}
+
+// InferBlockSizeRobust detects the mosaic block size using autocorrelation of
+// the boundary signal, tolerating noisy or anti-aliased block edges caused by
+// resampling, JPEG compression, or screenshot scaling.
+//
+// It builds a binary boundary signal (1 at each column/row where the colour
+// changes appreciably, 0 elsewhere), computes its autocorrelation, and finds
+// the dominant period in the range [minRobustPeriod, maxRobustPeriod]. The
+// support score in [0, 1] reflects how consistently boundaries align with that
+// period: 1.0 means every boundary falls exactly on a grid line; values above
+// RobustSupportThreshold indicate a detectable periodic structure.
+//
+// When the exact-GCD result from InferBlockSize is available and its implied
+// autocorrelation support exceeds the autocorrelation peak, the exact result
+// wins (preserving byte-identical behaviour for clean mosaics). When the image
+// is too small, uniform, or has no detectable period, it returns (0, 0).
+func InferBlockSizeRobust(img image.Image) (blockSize int, support float64) {
+	rgba := toRGBA(img)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 2 || h < 2 {
+		return 0, 0
+	}
+
+	// Exact-GCD path uses the pixel-precise boundary detector (any difference).
+	exactColPos := detectBoundaryPositions(rgba, b, w, h, true)
+	exactRowPos := detectBoundaryPositions(rgba, b, w, h, false)
+
+	// Robust autocorrelation path uses a threshold-filtered detector that
+	// ignores gradients and JPEG noise, keeping only true block-edge transitions.
+	robustColPos := robustBoundaryPositions(rgba, b, w, h, true)
+	robustRowPos := robustBoundaryPositions(rgba, b, w, h, false)
+
+	// Try the exact-GCD path first; it wins when clean boundaries are present.
+	exact := gcdOfGaps(exactColPos, exactRowPos)
+	exactSupport := 0.0
+	if exact >= 2 {
+		exactSupport = autocorrSupport(exactColPos, w, exact) +
+			autocorrSupport(exactRowPos, h, exact)
+		n := 2
+		if len(exactColPos) == 0 {
+			n--
+		}
+		if len(exactRowPos) == 0 {
+			n--
+		}
+		if n > 0 {
+			exactSupport /= float64(n)
+		}
+	}
+
+	// Autocorrelation path: find the dominant period of the robust boundary signal.
+	acPeriod, acSupport := dominantPeriod(robustColPos, w, robustRowPos, h)
+
+	// Choose whichever gives higher support; exact-GCD wins ties.
+	switch {
+	case exact >= 2 && exactSupport >= acSupport:
+		return exact, exactSupport
+	case acPeriod >= 2 && acSupport > 0:
+		return acPeriod, acSupport
+	case exact >= 2:
+		return exact, exactSupport
+	default:
+		return 0, 0
+	}
+}
+
+// RobustSupportThreshold is the minimum autocorrelation support score (in
+// [0, 1]) that InferBlockSizeRobust considers a detectable periodic block
+// structure. A value of 0.5 means at least half of the boundary signal must
+// align with the dominant period; below this the detector reports no grid.
+const RobustSupportThreshold = 0.5
+
+// minRobustPeriod is the smallest block size the robust detector will consider.
+// Blocks smaller than 4 px are sub-pixel after moderate anti-aliasing.
+const minRobustPeriod = 4
+
+// maxRobustPeriodFrac is the upper bound on detectable period as a fraction of
+// the image dimension. Blocks covering more than half the image cannot produce
+// enough repetitions to establish a period reliably.
+const maxRobustPeriodFrac = 0.5
+
+// robustBoundaryThreshold is the minimum mean per-channel luminance delta
+// (averaged across all rows/columns of the strip pair) required for a
+// column/row transition to count as a real block boundary in the robust
+// detector. After one round of box-blur (simulating resampling), a real mosaic
+// edge of ~30 units spreads to ~10 units at the boundary column and ~5 at its
+// neighbours; JPEG noise adds ±4 units raising the floor to ~3. A threshold of
+// 5 sits between the noise floor (~3) and the blurred-edge peak (~7–10),
+// correctly separating block boundaries from both random noise and smooth
+// gradients (which produce uniform low deltas, not localised peaks).
+const robustBoundaryThreshold = 5
+
+// robustBoundaryPositions returns the positions where the mean absolute
+// per-channel colour difference between adjacent column (columns=true) or row
+// (columns=false) strips exceeds robustBoundaryThreshold. Unlike
+// detectBoundaryPositions (which fires on any 1-pixel difference), this
+// averages the difference across all rows/columns of the strip pair so that
+// sharp mosaic edges (uniform colour change) score high while smooth gradients
+// and JPEG noise score low.
+func robustBoundaryPositions(img *image.RGBA, b image.Rectangle, w, h int, columns bool) []int {
+	var positions []int
+	if columns {
+		for x := 1; x < w; x++ {
+			if columnMeanDelta(img, b, x, h) >= robustBoundaryThreshold {
+				positions = append(positions, x)
+			}
+		}
+	} else {
+		for y := 1; y < h; y++ {
+			if rowMeanDelta(img, b, y, w) >= robustBoundaryThreshold {
+				positions = append(positions, y)
+			}
+		}
+	}
+	return positions
+}
+
+// columnMeanDelta returns the mean absolute per-channel difference between
+// column x and column x-1, averaged over all rows.
+func columnMeanDelta(img *image.RGBA, b image.Rectangle, x, h int) float64 {
+	sum := 0.0
+	for y := range h {
+		ca := img.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		cb := img.RGBAAt(b.Min.X+x-1, b.Min.Y+y)
+		dr := absDiff(ca.R, cb.R)
+		dg := absDiff(ca.G, cb.G)
+		db := absDiff(ca.B, cb.B)
+		sum += float64(dr+dg+db) / 3
+	}
+	if h == 0 {
+		return 0
+	}
+	return sum / float64(h)
+}
+
+// rowMeanDelta returns the mean absolute per-channel difference between row y
+// and row y-1, averaged over all columns.
+func rowMeanDelta(img *image.RGBA, b image.Rectangle, y, w int) float64 {
+	sum := 0.0
+	for x := range w {
+		ca := img.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		cb := img.RGBAAt(b.Min.X+x, b.Min.Y+y-1)
+		dr := absDiff(ca.R, cb.R)
+		dg := absDiff(ca.G, cb.G)
+		db := absDiff(ca.B, cb.B)
+		sum += float64(dr+dg+db) / 3
+	}
+	if w == 0 {
+		return 0
+	}
+	return sum / float64(w)
+}
+
+// absDiff returns |a - b| for uint8 values without wrapping.
+func absDiff(a, b uint8) uint8 {
+	if a >= b {
+		return a - b
+	}
+	return b - a
+}
+
+// autocorrSupport returns the normalised autocorrelation value at the given
+// period for a boundary signal defined by positions in [0, dim).
+//
+// Normalisation: R[period] / (density * (dim-period)), where density is the
+// fraction of positions per unit length (R[0]/dim). This gives 1.0 when every
+// boundary position has a matching one exactly period later, regardless of how
+// many boundaries there are or how long the signal is.
+func autocorrSupport(positions []int, dim, period int) float64 {
+	if len(positions) == 0 || period <= 0 || period >= dim {
+		return 0
+	}
+	sig := make([]float64, dim)
+	for _, p := range positions {
+		if p >= 0 && p < dim {
+			sig[p] = 1
+		}
+	}
+	r0 := dotSelf(sig)
+	if r0 == 0 {
+		return 0
+	}
+	rp := dotLag(sig, period)
+	// Expected value of R[period] under uniform random placement:
+	//   E[R[period]] = (r0/dim)*(dim-period)
+	// A perfect periodic signal achieves rp = r0 (every boundary has a partner),
+	// so we normalise by r0 to get 1.0 for a perfect grid.
+	// Adjust for edge-of-signal shortfall: positions near the end have no partner.
+	norm := r0 * float64(dim-period) / float64(dim)
+	if norm == 0 {
+		return 0
+	}
+	return rp / norm
+}
+
+// dominantPeriod finds the lag in [minRobustPeriod, maxRobustPeriodFrac*dim]
+// with the highest average normalised autocorrelation across the robust column
+// and row boundary signals. Returns (0, 0) when no signal exists.
+func dominantPeriod(colPos []int, w int, rowPos []int, h int) (period int, support float64) {
+	if len(colPos) == 0 && len(rowPos) == 0 {
+		return 0, 0
+	}
+
+	colSig := boundarySignal(colPos, w)
+	rowSig := boundarySignal(rowPos, h)
+	colR0 := dotSelf(colSig)
+	rowR0 := dotSelf(rowSig)
+
+	maxLag := int(float64(max(w, h)) * maxRobustPeriodFrac)
+	bestPeriod, bestSupp := 0, 0.0
+
+	// If maxLag < minRobustPeriod the image is too small to contain repeated
+	// periods; the loop body never executes and (0, 0) is returned intentionally.
+	for lag := minRobustPeriod; lag <= maxLag; lag++ {
+		supp := 0.0
+		n := 0
+		if colR0 > 0 && lag < w {
+			norm := colR0 * float64(w-lag) / float64(w)
+			if norm > 0 {
+				supp += dotLag(colSig, lag) / norm
+				n++
+			}
+		}
+		if rowR0 > 0 && lag < h {
+			norm := rowR0 * float64(h-lag) / float64(h)
+			if norm > 0 {
+				supp += dotLag(rowSig, lag) / norm
+				n++
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		supp /= float64(n)
+		if supp > bestSupp {
+			bestSupp = supp
+			bestPeriod = lag
+		}
+	}
+	return bestPeriod, bestSupp
+}
+
+// boundarySignal returns a float64 slice of length dim with 1.0 at each
+// boundary position and 0 elsewhere.
+func boundarySignal(positions []int, dim int) []float64 {
+	sig := make([]float64, dim)
+	for _, p := range positions {
+		if p >= 0 && p < dim {
+			sig[p] = 1
+		}
+	}
+	return sig
+}
+
+// dotSelf returns the dot product of sig with itself (sum of squares).
+func dotSelf(sig []float64) float64 {
+	s := 0.0
+	for _, v := range sig {
+		s += v * v
+	}
+	return s
+}
+
+// dotLag returns the unnormalised autocorrelation of sig at the given lag:
+// Σ sig[i]*sig[i+lag] for i in [0, len(sig)-lag).
+func dotLag(sig []float64, lag int) float64 {
+	s := 0.0
+	n := len(sig) - lag
+	for i := range n {
+		s += sig[i] * sig[i+lag]
+	}
+	return s
 }
 
 // columnDiffers reports whether column x differs from column x-1 at any row.

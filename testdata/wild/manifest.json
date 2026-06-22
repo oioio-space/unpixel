@@ -1,0 +1,112 @@
+[
+  {
+    "name": "m1",
+    "file": "m1_unredacter_secret.png",
+    "gt_file": "",
+    "url": "https://raw.githubusercontent.com/BishopFox/unredacter/main/secret.png",
+    "gt_url": "",
+    "kind": "mosaic",
+    "ground_truth": "",
+    "font_hint": "",
+    "notes": "BishopFox challenge image; ground truth undisclosed"
+  },
+  {
+    "name": "m2",
+    "file": "m2_depix_testimage1_pixels.png",
+    "gt_file": "",
+    "url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/testimage1_pixels.png",
+    "gt_url": "",
+    "kind": "mosaic",
+    "ground_truth": "",
+    "font_hint": "",
+    "notes": "Depix Notepad secret, unknown ground truth"
+  },
+  {
+    "name": "m3",
+    "file": "m3_depix_testimage2_pixels.png",
+    "gt_file": "",
+    "url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/testimage2_pixels.png",
+    "gt_url": "",
+    "kind": "mosaic",
+    "ground_truth": "",
+    "font_hint": "",
+    "notes": "Depix Notepad secret, unknown ground truth"
+  },
+  {
+    "name": "m4",
+    "file": "m4_depix_testimage3_pixels.png",
+    "gt_file": "m4_gt_testimage3.png",
+    "url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/testimage3_pixels.png",
+    "gt_url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/testimage3.png",
+    "kind": "mosaic",
+    "ground_truth": "Hello from the other side",
+    "font_hint": "",
+    "notes": "Depix Notepad, known ground truth"
+  },
+  {
+    "name": "m5",
+    "file": "m5_depix_sublime_pixels.png",
+    "gt_file": "m5_gt_sublime.png",
+    "url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/sublime_screenshot_pixels_gimp.png",
+    "gt_url": "https://raw.githubusercontent.com/spipm/Depixelization_poc/main/images/testimages/sublime_screenshot.png",
+    "kind": "mosaic",
+    "ground_truth": "Hello from the other side",
+    "font_hint": "",
+    "notes": "Depix Sublime screenshot, known ground truth"
+  },
+  {
+    "name": "b1",
+    "file": "b1_deepdeblur_blurrytest1.png",
+    "gt_file": "",
+    "url": "https://raw.githubusercontent.com/meijianhan/DeepDeblur/master/TestImage/BlurryTest1.png",
+    "gt_url": "",
+    "kind": "blur",
+    "ground_truth": "",
+    "font_hint": "",
+    "notes": "DeepDeblur test image, long paragraph; ground truth not available"
+  },
+  {
+    "name": "b2",
+    "file": "b2_deepdeblur_testing1.png",
+    "gt_file": "",
+    "url": "https://raw.githubusercontent.com/meijianhan/DeepDeblur/master/TestImage/Testing_1.png",
+    "gt_url": "",
+    "kind": "blur",
+    "ground_truth": "",
+    "font_hint": "",
+    "notes": "DeepDeblur test image, long paragraph; ground truth not available"
+  },
+  {
+    "name": "b3",
+    "file": "b3_blurtext_images1.png",
+    "gt_file": "b3_gt_images1.png",
+    "url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images1.png",
+    "gt_url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images1_CLEAR_TEXT.png",
+    "kind": "blur",
+    "ground_truth": "DEBLUR",
+    "font_hint": "",
+    "notes": ""
+  },
+  {
+    "name": "b4",
+    "file": "b4_blurtext_images3.jpg",
+    "gt_file": "b4_gt_images3.png",
+    "url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images3.jpg",
+    "gt_url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images3_CLEAR_TEXT.png",
+    "kind": "blur",
+    "ground_truth": "BLUR",
+    "font_hint": "",
+    "notes": ""
+  },
+  {
+    "name": "b5",
+    "file": "b5_blurtext_images5.jpg",
+    "gt_file": "b5_gt_images5.png",
+    "url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images5.jpg",
+    "gt_url": "https://raw.githubusercontent.com/potru-sujitha/text-images-deblurring/main/images5_CLEAR_TEXT.png",
+    "kind": "blur",
+    "ground_truth": "Blur Text",
+    "font_hint": "",
+    "notes": ""
+  }
+]

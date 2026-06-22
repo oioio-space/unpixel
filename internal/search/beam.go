@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"image"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -203,13 +204,15 @@ type dfsFunc func(ctx context.Context, scorer Scorer, cfg unpixel.Config, offset
 // offsetOutcome holds the per-offset search result, produced concurrently and
 // merged deterministically after all offsets complete.
 type offsetOutcome struct {
-	candidates []unpixel.Eval
-	topN       []unpixel.Eval
-	confidence float64
-	ambiguity  float64
-	bestTotal  float64 // whole-image score of topN[0]; ranks offsets against each other
-	offset     unpixel.Offset
-	done       bool
+	candidates   []unpixel.Eval
+	topN         []unpixel.Eval
+	bestSeenEval unpixel.Eval // lowest-scored candidate ever evaluated, regardless of threshold
+	confidence   float64
+	ambiguity    float64
+	bestTotal    float64 // whole-image score of topN[0]; ranks offsets against each other
+	offset       unpixel.Offset
+	done         bool
+	belowThresh  bool // true when topN was populated from bestSeen (no candidate passed the gate)
 }
 
 // searchOffsets discovers grid offsets, runs dfs per surviving offset (fanned out
@@ -218,6 +221,14 @@ type offsetOutcome struct {
 // Results and the final best are merged deterministically in offset order,
 // independent of goroutine scheduling. Both GuidedStrategy and BeamStrategy use
 // this runner; the only difference is the scorer and the dfs passed in.
+//
+// Best-effort surfacing: the scorer is wrapped in a trackingScorer so the
+// single lowest-scored candidate ever evaluated is retained regardless of
+// whether it passed the threshold gate. When no candidate passes the gate for
+// a given offset, topN/BestGuess are populated from that best-seen candidate
+// and Result.BelowThreshold is set to true. When no offset survives discovery,
+// one Result is emitted with the best-seen discovery candidate and
+// BelowThreshold=true, so callers always get a non-empty guess to surface.
 func searchOffsets(
 	ctx context.Context,
 	scorer Scorer,
@@ -243,12 +254,35 @@ func searchOffsets(
 		}
 	}
 
-	offsets := DiscoverOffsets(ctx, scorer, cfg, emit)
+	// Wrap scorer so every Eval (discovery + DFS) is tracked for best-seen
+	// promotion. The trackingScorer adds one atomic load + occasional CAS per
+	// call — negligible beside the render→pixelate→metric work already done.
+	globalSeen := newBestSeenTracker()
+	tracked := trackingScorer{Scorer: scorer, seen: globalSeen}
+
+	offsets := DiscoverOffsets(ctx, tracked, cfg, emit)
 	offsetsTotal := len(offsets)
 
 	if ctx.Err() != nil || offsetsTotal == 0 {
 		emit(unpixel.Progress{Kind: unpixel.EventDone, Done: true})
-		results <- unpixel.Result{BestScore: 1.0, BestTotal: 1.0}
+		// Best-effort: promote the best-seen discovery candidate so the caller
+		// always gets a non-empty guess, even when no offset survived.
+		bsGuess, bsScore := globalSeen.best()
+		if bsGuess != "" && !math.IsInf(bsScore, 1) {
+			bsEval := unpixel.Eval{Guess: bsGuess, Score: bsScore}
+			conf, _ := Confidence([]unpixel.Eval{bsEval})
+			results <- unpixel.Result{
+				BestGuess:  bsGuess,
+				BestScore:  bsScore,
+				BestTotal:  1.0, // kept at 1.0: sub-threshold guess must not win inter-sigma comparisons
+				TopN:       []unpixel.Eval{bsEval},
+				Confidence: conf,
+				// Note: Confidence here is 1-bsScore (low, since bsScore > threshold).
+				BelowThreshold: true,
+			}
+		} else {
+			results <- unpixel.Result{BestScore: 1.0, BestTotal: 1.0}
+		}
 		return
 	}
 
@@ -262,8 +296,14 @@ func searchOffsets(
 	outcomes := make([]offsetOutcome, offsetsTotal)
 	forEachIndex(ctx, offsetsTotal, resolveWorkers(cfg), func(i int) {
 		offset := offsets[i]
+
+		// Per-offset tracker: captures the best-seen for this offset's DFS so
+		// we can fall back to it when no candidate passes the gate.
+		offsetSeen := newBestSeenTracker()
+		offsetTracked := trackingScorer{Scorer: tracked, seen: offsetSeen}
+
 		var candidates []unpixel.Eval
-		dfs(ctx, scorer, cfg, offset, func(e unpixel.Eval) {
+		dfs(ctx, offsetTracked, cfg, offset, func(e unpixel.Eval) {
 			candidates = append(candidates, e)
 
 			mu.Lock()
@@ -302,10 +342,14 @@ func searchOffsets(
 				})
 			}
 		})
+
 		// Rank for the final answer. With a whole-image scorer, disambiguate the
 		// candidates that tie at ~0 marginal score (correct prefixes, flukes) by
 		// total fidelity so the complete string wins; otherwise fall back to the
 		// marginal ranking. All-whitespace candidates are dropped either way.
+		//
+		// Note: scorer (not offsetTracked) is used for TotalScore so the
+		// type-assertion reaches the underlying PipelineScorer, not the wrapper.
 		var topN []unpixel.Eval
 		bestTotal := 1.0
 		if ts, ok := scorer.(TotalScorer); ok {
@@ -316,15 +360,38 @@ func searchOffsets(
 				bestTotal = topN[0].Score
 			}
 		}
+
+		// Best-effort surfacing: when no candidate passed the gate, populate topN
+		// from the offset-local best-seen so BestGuess is never silently empty.
+		// bestTotal stays at 1.0 for below-threshold results so they never win
+		// an inter-offset or inter-sigma comparison against a legitimate result
+		// (whose BestTotal comes from a real whole-image TotalScore).
+		belowThresh := false
+		if len(topN) == 0 {
+			bsGuess, bsScore := offsetSeen.best()
+			if bsGuess != "" && !math.IsInf(bsScore, 1) {
+				bsEval := unpixel.Eval{Guess: bsGuess, Score: bsScore}
+				topN = []unpixel.Eval{bsEval}
+				// bestTotal deliberately kept at 1.0 (set above): the marginal
+				// score of a sub-threshold candidate is not a reliable whole-image
+				// fidelity signal and must not displace a legitimate result.
+				belowThresh = true
+			}
+		}
+
 		conf, ambiguity := Confidence(topN)
+		bsGuess, bsScore := offsetSeen.best()
+		bsSeen := unpixel.Eval{Guess: bsGuess, Score: bsScore}
 		outcomes[i] = offsetOutcome{
-			candidates: candidates,
-			topN:       topN,
-			confidence: conf,
-			ambiguity:  ambiguity,
-			bestTotal:  bestTotal,
-			offset:     offset,
-			done:       true,
+			candidates:   candidates,
+			topN:         topN,
+			bestSeenEval: bsSeen,
+			confidence:   conf,
+			ambiguity:    ambiguity,
+			bestTotal:    bestTotal,
+			offset:       offset,
+			done:         true,
+			belowThresh:  belowThresh,
 		}
 	})
 
@@ -334,12 +401,20 @@ func searchOffsets(
 	// over a correct prefix that ties on marginal score, and picks the right grid
 	// origin over one that merely produced a low-marginal fluke. Ties break on
 	// offset then discovery order, so the result never depends on scheduling.
+	//
+	// When at least one offset has above-threshold candidates, those win the
+	// merge unconditionally; only if every offset is below-threshold does the
+	// final answer carry BelowThreshold=true.
 	finalScore := 1.0
 	var finalGuess string
 	bestTotal := 2.0 // worse than any score in [0, 1]
+	anyAbove := false
 	for _, oc := range outcomes {
 		if !oc.done || len(oc.topN) == 0 {
 			continue
+		}
+		if !oc.belowThresh {
+			anyAbove = true
 		}
 		if oc.bestTotal < bestTotal {
 			bestTotal = oc.bestTotal
@@ -354,15 +429,19 @@ func searchOffsets(
 		if !oc.done {
 			continue
 		}
+		// BelowThreshold is true for a result only when every participating
+		// offset is below-threshold (no above-threshold winner was found).
+		bt := oc.belowThresh && !anyAbove
 		results <- unpixel.Result{
-			BestGuess:  finalGuess,
-			BestScore:  finalScore,
-			BestTotal:  bestTotal,
-			Candidates: oc.candidates,
-			TopN:       oc.topN,
-			Confidence: oc.confidence,
-			Ambiguity:  oc.ambiguity,
-			Offset:     oc.offset,
+			BestGuess:      finalGuess,
+			BestScore:      finalScore,
+			BestTotal:      bestTotal,
+			Candidates:     oc.candidates,
+			TopN:           oc.topN,
+			Confidence:     oc.confidence,
+			Ambiguity:      oc.ambiguity,
+			Offset:         oc.offset,
+			BelowThreshold: bt,
 		}
 	}
 

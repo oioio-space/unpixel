@@ -15,3 +15,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | 2026-06-22 | `perf-aa-skip` | 17/17 (100%) | 1 | 1 | 919 | mosaic AA-skip metric + auto-select in Wire |
 | 2026-06-22 | `v0.8.1` | 17/17 (100%) | 1 | 1 | 929 | perf: mosaic AA-skip metric + scorer stage caches (~35% faster, bit-identical) |
 | 2026-06-22 | `v0.8.2` | 17/17 (100%) | 1 | 1 | 949 | ergonomics/perf: RecoverBlurred file/reader helpers, denoise sentinels, beam nil-LM fast path; pre-commit review gate hardening |
+| 2026-06-22 | `P-D` | 17/17 (100%) | 1 | 1 | 920 |  |

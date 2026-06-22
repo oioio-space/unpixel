@@ -76,7 +76,8 @@ and what the blur / zero-config work added.
   Code Pro & JetBrains Mono for code) **in parallel** and keeps the **best fit by whole-image score**.
   Or match it yourself with `--font`/`--font-size`/`--letter-spacing` (and sweep your own via repeated
   `--font`/`--font-dir`). Library: the `fonts` bundle + `RecoverMultiFont`; `render.NewXImageFromFonts`
-  for a custom face.
+  for a custom face. **For real-world images, supplying the exact font via `--font` or `--font-dir`
+  significantly improves recovery**, since font fidelity dominates the score.
 - **Automatic Top-K pruning for code.** When a language model is set and the charset is wide (≥40
   runes), the search automatically narrows candidates to the most-likely next characters per
   language, keeping the search tractable (~10.8× speedup for wide charsets) while maintaining full
@@ -84,7 +85,10 @@ and what the blur / zero-config work added.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
   offset (sorted by score, ties broken deterministically) plus `Confidence`/`Ambiguity` and a
   whole-image `BestTotal` distance — comparable across runs, so it can rank fonts or styles —
-  letting callers surface alternatives instead of a single best guess.
+  letting callers surface alternatives instead of a single best guess. When no candidate clears
+  the acceptance threshold, the search retains the single best-seen candidate anyway (with
+  `Result.BelowThreshold == true` and lower confidence), so you always get a best-effort guess
+  (suitable for exploratory analysis) instead of an empty result.
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
@@ -280,7 +284,8 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
 | `OnProgress(ch <-chan Progress, fn func(Progress))` | Drain progress events into a callback (any UI) |
-| `InferBlockSize(image.Image) int` | Detect the mosaic block size |
+| `InferBlockSize(image.Image) int` | Detect the mosaic block size (exact GCD of grid boundaries) |
+| `InferBlockSizeRobust(image.Image) (blockSize int, support float64)` | Detect mosaic block size robustly (handles resampled/anti-aliased/JPEG'd grids); returns support confidence |
 | `InferBlurSigma(image.Image) float64` | Estimate Gaussian blur radius σ from image contrast |
 | `InferImpulseNoise(image.Image) float64` | Detect impulse (salt-pepper) noise; returned value used by `blind.Recover` to auto-denoise |
 | `Renderer`, `Pixelator`, `Metric` (`PixelmatchFast` via `defaults.PixelmatchFastMetric()`), `Strategy` | Pluggable pipeline interfaces; `PixelmatchFast` skips anti-aliasing detection on block-average mosaic (identical results, ~35% faster), keeps faithful `Pixelmatch` on blur for cross-engine robustness |
@@ -297,7 +302,7 @@ Pass a `Config` to `unpixel.New`. Every zero value falls back to a documented de
 |-------|------|---------|---------|
 | `Charset` | `string` | `"abcdefghijklmnopqrstuvwxyz "` | Candidate characters to search |
 | `MaxLength` | `int` | `20` | Maximum plaintext length |
-| `BlockSize` | `int` | `0` → auto / `8` | Pixelation block size; `≤0` auto-detects via `InferBlockSize`, else falls back to `8` |
+| `BlockSize` | `int` | `0` → auto / `8` | Pixelation block size; `≤0` auto-detects via `InferBlockSize` (or `InferBlockSizeRobust` for resampled/anti-aliased/JPEG'd mosaics), else falls back to `8` |
 | `Threshold` | `float64` | `0.25` | Max image-distance score (0–1) to keep a candidate |
 | `SpaceThreshold` | `float64` | `0.5` | Looser threshold for extending with a space (whitespace blur) |
 | `ThresholdFor` | `func(rune) float64` | space→`SpaceThreshold`, else `Threshold` | Per-character threshold; override for new char classes |
@@ -357,6 +362,30 @@ discovery and per-offset search (`Config.Workers`, deterministic merge). **Still
 the interfaces; the faithful default stays put): edge-aware metrics and the `chromedp` fidelity
 renderer (deferred — it would require a Chrome binary at runtime/CI). Details in
 [`docs/DESIGN.md`](docs/DESIGN.md) § Phase-2.
+
+</details>
+
+<details><summary>Real-world images: known limitations and roadmap</summary>
+
+UnPixel recovers synthetic mosaics and Gaussian blurs accurately with the right font and parameters.
+Real internet images (screenshots, GIMP-rendered redactions, etc.) remain challenging. Zero-config
+recovery succeeds on images where the font is in the bundled set and the redaction matches our
+assumptions; it struggles when:
+- **Font is out of bundle:** supplying `--font` / `--font-dir` with the exact typeface dramatically
+  improves recovery (font fidelity dominates the score).
+- **Long text with sparse signal:** text shorter than ~5 glyphs or very tall/thin glyphs (monospace,
+  code) produce weak per-character image signals; generate-and-test explores an exponential space.
+  A language model prior + beam search (enabled by `--language` or `unpixel --blind`) helps.
+- **Blur vs mosaic ambiguity:** the auto-detector now correctly identifies real pixelated images
+  (`InferBlockSizeRobust`), but miscalibrated parameters or unusual encodings (JPEG compression,
+  resampling) can still confuse it.
+- **Real blur is not Gaussian:** internet JPEG blur is often motion or defocus, not clean Gaussian,
+  so the score stays above threshold and recovery returns no candidate.
+
+**Roadmap** ([`PROGRESS.md`](PROGRESS.md) § P5–P7): phased pure-Go extensions — HMM/Viterbi mosaic
+decoder (P-A), Depix-style reference-matching with self-synthesized fonts (P-B), blind deconvolution
+for real blur (P-C), and foundation work (P-D: robust auto-detect, best-effort surfacing). All
+opt-in, benchmarked, zero regressions on synthetic corpus.
 
 </details>
 

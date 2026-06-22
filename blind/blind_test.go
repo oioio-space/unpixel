@@ -125,7 +125,8 @@ func TestDefaultOptions_BlockResolve(t *testing.T) {
 	t.Parallel()
 	img := syntheticBand(t, "ok", 0)
 
-	result, err := blind.Recover(t.Context(), img,
+	result, err := blind.Recover(
+		t.Context(), img,
 		blind.WithLanguage(lang.English),
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
@@ -151,7 +152,8 @@ func TestRecover_English(t *testing.T) {
 	const phrase = "the cat"
 	img := syntheticBand(t, phrase, 0)
 
-	result, err := blind.Recover(t.Context(), img,
+	result, err := blind.Recover(
+		t.Context(), img,
 		blind.WithLanguage(lang.English),
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
@@ -176,7 +178,8 @@ func TestRecover_French(t *testing.T) {
 	const phrase = "le chat"
 	img := syntheticBand(t, phrase, 0)
 
-	result, err := blind.Recover(t.Context(), img,
+	result, err := blind.Recover(
+		t.Context(), img,
 		blind.WithLanguage(lang.French),
 		blind.WithBlock(testBlock),
 		blind.WithFontSize(testFontSize),
@@ -199,7 +202,8 @@ func BenchmarkRecover(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		var err error
-		sink, err = blind.Recover(ctx, img,
+		sink, err = blind.Recover(
+			ctx, img,
 			blind.WithLanguage(lang.English),
 			blind.WithBlock(testBlock),
 			blind.WithFontSize(testFontSize),

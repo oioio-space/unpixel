@@ -44,7 +44,8 @@ func TestRecoverBlurredReader_roundTrip(t *testing.T) {
 		sigma = 3.0
 	)
 	pngBytes := makeBlurredPNG(t, text, sigma)
-	res, err := unpixel.RecoverBlurredReader(t.Context(), bytes.NewReader(pngBytes),
+	res, err := unpixel.RecoverBlurredReader(
+		t.Context(), bytes.NewReader(pngBytes),
 		unpixel.WithCharset("go abc"),
 		unpixel.WithMaxLength(len(text)+1),
 	)
@@ -70,7 +71,8 @@ func TestRecoverBlurredFile_roundTrip(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	res, err := unpixel.RecoverBlurredFile(t.Context(), path,
+	res, err := unpixel.RecoverBlurredFile(
+		t.Context(), path,
 		unpixel.WithCharset("go abc"),
 		unpixel.WithMaxLength(len(text)+1),
 	)

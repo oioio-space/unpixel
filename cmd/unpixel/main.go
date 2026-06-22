@@ -240,14 +240,15 @@ type topEntry struct {
 
 // recoveryResult collects the aggregated output of runRecovery.
 type recoveryResult struct {
-	bestGuess  string
-	font       string // font file used for this recovery ("" = embedded default)
-	top        []unpixel.Eval
-	offset     unpixel.Offset
-	bestScore  float64
-	bestTotal  float64
-	confidence float64
-	ambiguity  float64
+	bestGuess      string
+	font           string // font file used for this recovery ("" = embedded default)
+	top            []unpixel.Eval
+	offset         unpixel.Offset
+	bestScore      float64
+	bestTotal      float64
+	confidence     float64
+	ambiguity      float64
+	belowThreshold bool // true when no candidate passed the acceptance gate
 }
 
 // runRecovery runs the unpixel engine on img with cfg and drains all channels.
@@ -287,6 +288,7 @@ func runRecovery(ctx context.Context, img image.Image, cfg unpixel.Config) (reco
 			best.confidence = r.Confidence
 			best.ambiguity = r.Ambiguity
 			best.top = r.TopN
+			best.belowThreshold = r.BelowThreshold
 		}
 	}
 
@@ -563,14 +565,15 @@ func reportConfidence(fidelity float64, p flagParams) error {
 // CLI's recoveryResult for the shared text/JSON printers.
 func resultToRecovery(r unpixel.Result, font string) recoveryResult {
 	return recoveryResult{
-		bestGuess:  r.BestGuess,
-		font:       font,
-		top:        r.TopN,
-		offset:     r.Offset,
-		bestScore:  r.BestScore,
-		bestTotal:  r.BestTotal,
-		confidence: r.Confidence,
-		ambiguity:  r.Ambiguity,
+		bestGuess:      r.BestGuess,
+		font:           font,
+		top:            r.TopN,
+		offset:         r.Offset,
+		bestScore:      r.BestScore,
+		bestTotal:      r.BestTotal,
+		confidence:     r.Confidence,
+		ambiguity:      r.Ambiguity,
+		belowThreshold: r.BelowThreshold,
 	}
 }
 
@@ -635,8 +638,16 @@ func resolveBlur(img image.Image, p flagParams) float64 {
 		if p.blurSigma > 0 {
 			return p.blurSigma
 		}
+		// Prefer mosaic when either the exact GCD detector or the robust
+		// autocorrelation detector finds a periodic block grid. The robust
+		// detector fires on noisy/JPEG-compressed images where GCD fails.
+		// Blur wins only when there is real soft-edge signal (σ ≥ 2) AND
+		// neither detector sees a block structure.
 		if unpixel.InferBlockSize(img) >= 2 {
-			return 0 // a mosaic grid is present → mosaic mode
+			return 0 // exact GCD grid detected → mosaic mode
+		}
+		if _, support := unpixel.InferBlockSizeRobust(img); support >= unpixel.RobustSupportThreshold {
+			return 0 // robust autocorrelation grid detected → mosaic mode
 		}
 		if s := unpixel.InferBlurSigma(img); s >= 2 {
 			return s // no grid and clearly blurred → blur mode
@@ -1182,6 +1193,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			best.confidence = r.Confidence
 			best.ambiguity = r.Ambiguity
 			best.top = r.TopN
+			best.belowThreshold = r.BelowThreshold
 		}
 	}
 	best.font = font
@@ -1234,8 +1246,15 @@ func printJSON(r recoveryResult, fonts []fontRankJSON, evaluated int, elapsed ti
 }
 
 // printText writes the recovery result as human-readable text.
-// The best guess goes to stdout; the Top-N table goes to stderr (unless quiet).
+// The best guess goes to stdout; the Top-N table and any caveat go to stderr
+// (unless quiet). When r.belowThreshold is true, a low-confidence warning is
+// printed before the Top-N table so the user knows no candidate passed the
+// acceptance gate and the guess is a best-effort approximation only.
 func printText(r recoveryResult, quiet bool) {
+	if r.belowThreshold && !quiet {
+		fmt.Fprintf(os.Stderr, "best-effort guess: %q  total: %.4f  (below threshold — low confidence)\n",
+			r.bestGuess, r.bestTotal)
+	}
 	fmt.Println(r.bestGuess)
 	if !quiet && len(r.top) > 0 {
 		fmt.Fprintln(os.Stderr, "\nTop candidates:")

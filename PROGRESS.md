@@ -418,6 +418,25 @@ Profiling + benchstat-proven round : **panel de récupération 1495 ms → 919 m
 
 **Dead-ends honnêtes** : widening per-pixel cache (L1 regress, métrique memory-bound) et `sync.Pool` buffer pooling (contention sous fan-out GOMAXPROCS → regress parallel paths) — tous deux revertis, mesurés/documentés.
 
+### Expérience : récupération sur 10 images réelles d'Internet
+
+Contexte : nous avons testé UnPixel sur **10 images réelles** (5 mosaïques issues de l'outil unredacter/Depix de BishopFox, 5 flou de deepblur + référentiels texte-déflou) sans configuration manuelle. **Résultat zéro-config : 0/10 récupérées** — non pas un bug, mais une révélation des **limites opérationnelles du modèle generate-and-test** pur. Diagnostic approfondi identifié quatre **causes racines** :
+
+1. **Auto-détection mosaïque vs flou** : nos détecteurs initiaux (GCD exact) et inférence σ confondaient les vraies mosaïques rééchantillonnées/compressées JPEG avec du flou, les envoyant au mauvais pipeline. ✅ **Résolu en P-D** : `InferBlockSizeRobust(img) (blockSize, support)` reconnaît les grilles rééchantillonnées/anti-aliasées, routant les vrais pixélés vers le pipeline mosaïque.
+
+2. **Explosion combinatoire sur texte long** : notre DFS incrémentale cherche *par-caractère* ; un texte de 25 glyphes (« Hello from the other side ») = ~70²⁵ candidats en l'absence de constraints — intractable. Même avec prior de langue et charset, le signal de l'image *par-caractère* est trop faible sur les mosaïques claires (cf. P5.4).
+
+3. **Fidélité de police dominant** : la police n'étant pas dans notre bundle (~70 % des captures réelles utilise une typo non-standard), le score d'image entière (render-repixelate-comparer) diverge ; la vraie réponse ne sort pas top-N.
+
+4. **Flou réel n'est pas Gaussian** : la compression JPEG + flou de mouvement/défaut optique produisent une dégradation non-gaussienne dont le score de confiance ne franchit jamais le seuil.
+
+**Plan à 4 phases pour étendre UnPixel SANS perte de qualité** (tous opt-in, pur-Go, régressés au banc) :
+
+- **P-A — HMM/Viterbi sur mosaïque** : émissions depuis notre renderer exact + prior de langue bigramme + Viterbi poly-temps → décode texte long monospace. Prototype existant sur synthétique.
+- **P-B — Dépix-style reference-matching** : synthétiser des références de police (rendre chaque glyphe dans notre arsenal de polices, stocker les vecteurs de traits), puis matcher par distance. Pas de CNN/DL, pure géométrie.
+- **P-C — Déconvolution blind L0** : préconditionner le flou réel (motion/defocus) via `L0Smooth` pur-Go avant le generate-and-test, brisant la non-Gaussianité.
+- **P-D — Fondation & gains rapides** (✅ **livré ce commit**) : auto-détection sRGB-vs-linéaire + localisation robuste ; meilleure surfacing des résultats (retourner le meilleur candidat *même en-dessous du seuil* avec `Result.BelowThreshold`, pour analyses exploratoires) ; outils de mesure réelle (`wild_test.go` derrière le build tag `wild` : 10 images réelles, ground truths quand connus, per-image BestGuess/Confidence/BelowThreshold).
+
 ### P5 — Récupération aveugle des redactions réelles (issu de l'échantillon GIMP « Hello World ! »)
 
 Contexte : `testdata/real/hello-world.png` (capture GIMP réelle) est **confirmé** par le
@@ -652,3 +671,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `5c3c925` 2026-06-22 — perf(search): cache prevGuess stage + BlueMargin + redacted crop (bit-identical) _(4 fichiers)_
 - `fe633fe` 2026-06-22 — test(coverage): cover empty-image guard + default constructors _(2 fichiers)_
 - `3d9ce35` 2026-06-22 — refactor(review): apply retro-review fixes (perf, ergonomics, docs) _(7 fichiers)_
+- `a33845d` 2026-06-22 — docs(release): v0.8.2 — blur file/reader helpers + denoise sentinels _(4 fichiers)_

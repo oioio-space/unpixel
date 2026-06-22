@@ -19,7 +19,8 @@ func TestRecover_roundTrip(t *testing.T) {
 	c := buildComponents(t, blockSize)
 	redacted := makeSyntheticRedacted(t, c, "hello", style, blockSize)
 
-	res, err := unpixel.Recover(t.Context(), redacted,
+	res, err := unpixel.Recover(
+		t.Context(), redacted,
 		unpixel.WithMaxLength(7),
 		unpixel.WithBlockSize(blockSize),
 	)
