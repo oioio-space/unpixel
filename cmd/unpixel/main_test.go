@@ -543,6 +543,7 @@ func TestValidateParams(t *testing.T) {
 		"bad strategy":  func(p *flagParams) { p.strategy = "astar" },
 		"bad metric":    func(p *flagParams) { p.metric = "psnr" },
 		"bad redaction": func(p *flagParams) { p.redaction = "scribble" },
+		"bad decoder":   func(p *flagParams) { p.decoder = "viterbi" },
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {

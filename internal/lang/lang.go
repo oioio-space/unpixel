@@ -75,6 +75,32 @@ func New(text string) *Model {
 // genuinely unseen contexts rank below merely-rare observed ones.
 func (m *Model) unseen() float64 { return math.Log(1.0/float64(m.vocab)) - 1 }
 
+// TransitionLogProb returns log P(next|prev) under the bigram model, applying
+// the same ASCII-clamp and smoothing/backoff that Score uses: the observed
+// bigram log-prob if present, the unigram log-prob minus 1 (observed character,
+// unseen context), or unseen() for a completely unseen character.
+//
+// It emits the exact per-edge factor summed by Score: for ASCII lowercase input
+// with a ' ' start context, summing TransitionLogProb(' ', s[0]),
+// TransitionLogProb(s[0], s[1]), … equals Score(s) × len(s).
+func (m *Model) TransitionLogProb(prev, next rune) float64 {
+	if prev > unicode.MaxASCII {
+		prev = ' '
+	}
+	if next > unicode.MaxASCII {
+		next = ' '
+	}
+	prev = unicode.ToLower(prev)
+	next = unicode.ToLower(next)
+	if lp, ok := m.logProb[[2]rune{prev, next}]; ok {
+		return lp
+	}
+	if lp, ok := m.unigram[next]; ok {
+		return lp - 1
+	}
+	return m.unseen()
+}
+
 // Score returns the mean per-character log-probability of s (higher = more
 // plausible text). An empty string scores the unseen floor. Case is ignored.
 func (m *Model) Score(s string) float64 {

@@ -271,6 +271,36 @@ fmt.Println("Denoise applied:", res.Denoise)  // radius used, or 0 if none
 
 The `blind` package re-exports `English`/`French` (and `ParseLanguage` for a string flag), so no internal import is needed. **Status: experimental.** Blind recovery is proven end-to-end on synthetic mosaics rendered in the bundled fonts (sans/serif/mono); it is most reliable there. Real captures in a font outside the bundle, or containing punctuation/apostrophes outside the dictionary, recover only partially. It is also compute-heavy: a large multi-line screenshot with the font sweep can take many minutes — pin `--block-size`/`--font-size` and a single language to keep it tractable.
 
+### LM-guided monospace mosaic decoder (language-prior beam search)
+
+For **long monospace text** where character-by-character image signals are weak, the `mosaictext` package offers an opt-in **LM-guided beam decoder** that breaks the exponential barrier. Instead of generate-and-test per character (charset^length candidates), it decodes left-to-right with a bigram language model fused into the objective:
+
+```go
+text, err := mosaictext.DecodeHMM(ctx, img,
+	mosaictext.WithLanguage(lang.French),  // or English
+	mosaictext.WithCharset("abcdefg…"),    // optional; defaults to ASCII letters + common punctuation
+	mosaictext.WithFont("JetBrains Mono"), // pins a bundled mono font; omit to sweep all mono fonts
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(text)
+```
+
+On the command line, use `--decoder mono-hmm` to activate it:
+
+```bash
+unpixel --decoder mono-hmm --lang fr image.png                            # auto-detect font
+unpixel --decoder mono-hmm --lang en --font "Source Code Pro" image.png   # pin the font
+unpixel --decoder mono-hmm --lang en --font Consolas.ttf image.png   # supply a custom TTF/OTF
+```
+
+**API**: `mosaictext.DecodeHMM(ctx, img, opts...)` with options `WithLanguage`, `WithCharset`, `WithEmissionTemperature`, `WithFont` (bundled mono by name), `WithFontFile`/`WithFontFileBold` (caller-supplied TTF/OTF bytes).
+
+**Why it matters:** The default generate-and-test scales as charset^(text length), so a 25-character line becomes intractable. The beam decoder is polynomial in length, scanning once left-to-right with a bounded beam (default width 8) and scoring each cell by fused image-MSE + log-probability transitions. This is the principled successor to post-hoc language reranking — the LM is now *part of the optimized objective*.
+
+**Key limitation:** Recovery quality is bounded by **font fidelity**. On synthetic mosaics in bundled fonts (Liberation, JetBrains Mono, Noto Sans Mono, etc.), the decoder recovers full-length sequences. On real captures where the exact font is not bundled, the decode is partial or incorrect. **Mitigation**: supply the exact font via `--font` (path to a TTF/OTF). When the font is known, this is expected to recover most real monospace redactions. Note: an exact global-MAP Viterbi variant was attempted and rejected — the per-cell emissions are not independent (block-boundary averaging couples adjacent cells), so the bigram lookahead overwhelms the emission signal even at tuned temperatures; the beam search avoids this by scoring each cell against the already-committed context.
+
 Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
@@ -293,6 +323,8 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | **`blind.Recover(ctx, image.Image, ...Option) (*Recovery, error)`** | **Blind bilingual recovery (FR/EN) without knowing font/block/offset; re-exports `English`/`French`/`ParseLanguage`** |
 | **`blind.With*` options (`WithLanguage`, `WithBlock`, `WithOffset`, `WithFontSize`, `WithLinear`, `WithFonts`, `WithMetric`)** | **Fine-tune blind recovery or override auto-detection** |
 | **`mosaictext.Decode(ctx, image.Image, ...Option) (string, error)`** | **Zero-config monospace mosaic decoder (auto grid inference + character recognition)** |
+| **`mosaictext.DecodeHMM(ctx, image.Image, ...Option) (string, error)`** | **LM-guided beam decoder for long monospace mosaic text; fuses bigram language model into search objective; polynomial in length, breaks charset^len barrier; font-limited on out-of-bundle typefaces** |
+| **`mosaictext.With*` options (`WithLanguage`, `WithCharset`, `WithEmissionTemperature`, `WithFont`, `WithFontFile`, `WithFontFileBold`)** | **Configure DecodeHMM font/language/charset/tuning** |
 
 ## Configuration
 

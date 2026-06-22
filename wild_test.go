@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
 	_ "image/jpeg" // register JPEG decoding for .jpg fixtures
 	_ "image/png"  // register PNG decoding
 	"os"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	_ "github.com/oioio-space/unpixel/defaults" // wire default components
+	"github.com/oioio-space/unpixel/mosaictext"
 )
 
 // wildEntry mirrors one entry in testdata/wild/manifest.json.
@@ -56,6 +58,11 @@ type wildResult struct {
 	Confidence     float64 `json:"confidence"`
 	BelowThreshold bool    `json:"below_threshold"`
 	ElapsedMs      float64 `json:"elapsed_ms"`
+	// HMMGuess and HMMExact are populated for kind=="mosaic" entries only.
+	// HMMGuess is the text returned by mosaictext.DecodeHMM (empty on error).
+	// HMMExact is true when HMMGuess matches GroundTruth case-insensitively.
+	HMMGuess string `json:"hmm_guess,omitzero"`
+	HMMExact bool   `json:"hmm_exact,omitzero"`
 }
 
 const (
@@ -88,6 +95,19 @@ func TestWild(t *testing.T) {
 			}
 
 			wr := measureEntry(t, e, imgPath)
+
+			// For mosaic entries, also run the HMM decoder and record its output.
+			// This is purely observational — never fatal on decode quality.
+			if e.Kind == "mosaic" {
+				hmmGuess, hmmFont, hmmDist := measureHMM(t, imgPath)
+				wr.HMMGuess = hmmGuess
+				if e.GroundTruth != "" && hmmGuess != "" {
+					wr.HMMExact = strings.EqualFold(hmmGuess, e.GroundTruth)
+				}
+				t.Logf("hmm_guess=%q  hmm_exact=%v  hmm_font=%s  hmm_dist=%.2f",
+					hmmGuess, wr.HMMExact, hmmFont, hmmDist)
+			}
+
 			results = append(results, wr)
 
 			t.Logf("kind=%-6s  best_guess=%q  total=%.4f  conf=%.4f  below_thresh=%v  elapsed=%.0fms",
@@ -177,6 +197,37 @@ func recoverWildFile(ctx context.Context, path string, blur bool, opts []unpixel
 	return unpixel.RecoverReader(ctx, f, opts...)
 }
 
+// measureHMM opens imgPath and runs mosaictext.DecodeHMM bounded by wildTimeout.
+// It returns the decoded text, winning font name, and distance. All errors are
+// logged (non-fatal) and result in empty text — the caller must not t.Fatal.
+func measureHMM(t *testing.T, imgPath string) (text, fontName string, dist float64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), wildTimeout)
+	defer cancel()
+
+	f, err := os.Open(imgPath) // #nosec G304 -- test harness: path comes from manifest
+	if err != nil {
+		t.Logf("hmm: open %s: %v", imgPath, err)
+		return "", "", 0
+	}
+	defer func() { _ = f.Close() }()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		t.Logf("hmm: decode image %s: %v", imgPath, err)
+		return "", "", 0
+	}
+
+	res, err := mosaictext.DecodeHMM(ctx, img,
+		mosaictext.WithCharset(mosaictext.DefaultHMMCharset),
+	)
+	if err != nil {
+		t.Logf("hmm: DecodeHMM %s: %v", imgPath, err)
+		return "", "", 0
+	}
+	return res.Text, res.Font, res.Distance
+}
+
 // loadWildManifest reads and parses testdata/wild/manifest.json, failing the
 // test if the file cannot be parsed.
 func loadWildManifest(t *testing.T) []wildEntry {
@@ -193,11 +244,12 @@ func loadWildManifest(t *testing.T) []wildEntry {
 }
 
 // formatWildTable renders results as a readable ASCII table for the test log.
+// Mosaic entries include an additional hmm_guess/hmm_exact column pair.
 func formatWildTable(results []wildResult) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%-4s  %-6s  %-32s  %-32s  %6s  %6s  %5s  %7s\n",
-		"name", "kind", "best_guess", "ground_truth", "total", "conf", "below", "ms")
-	fmt.Fprintf(&sb, "%s\n", strings.Repeat("-", 110))
+	fmt.Fprintf(&sb, "%-4s  %-6s  %-28s  %-28s  %6s  %6s  %5s  %7s  %-28s  %8s\n",
+		"name", "kind", "best_guess", "ground_truth", "total", "conf", "below", "ms", "hmm_guess", "hmm_exact")
+	fmt.Fprintf(&sb, "%s\n", strings.Repeat("-", 140))
 	for _, r := range results {
 		gt := r.GroundTruth
 		if gt == "" {
@@ -207,8 +259,13 @@ func formatWildTable(results []wildResult) string {
 		if guess == "" {
 			guess = "(none)"
 		}
-		fmt.Fprintf(&sb, "%-4s  %-6s  %-32s  %-32s  %6.4f  %6.4f  %5v  %7.0f\n",
-			r.Name, r.Kind, guess, gt, r.BestTotal, r.Confidence, r.BelowThreshold, r.ElapsedMs)
+		hmmGuess := r.HMMGuess
+		if hmmGuess == "" && r.Kind == "mosaic" {
+			hmmGuess = "(none)"
+		}
+		fmt.Fprintf(&sb, "%-4s  %-6s  %-28s  %-28s  %6.4f  %6.4f  %5v  %7.0f  %-28s  %8v\n",
+			r.Name, r.Kind, guess, gt, r.BestTotal, r.Confidence, r.BelowThreshold, r.ElapsedMs,
+			hmmGuess, r.HMMExact)
 	}
 	return sb.String()
 }

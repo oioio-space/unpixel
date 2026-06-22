@@ -37,3 +37,30 @@ func TestNew_trainsFromText(t *testing.T) {
 		t.Error("custom model did not prefer its training pattern")
 	}
 }
+
+// TestTransitionLogProb_matchesScore asserts that summing TransitionLogProb
+// over (prev,next) pairs — with ' ' as the start context — equals Score(s)×len(s),
+// i.e. TransitionLogProb emits the exact per-edge factor that Score averages.
+func TestTransitionLogProb_matchesScore(t *testing.T) {
+	m := lang.Default()
+	cases := []string{
+		"hello world",
+		"the password is",
+		"go run main",
+		"a",
+		"zq", // unusual pair
+	}
+	for _, s := range cases {
+		want := m.Score(s) * float64(len([]rune(s)))
+		var got float64
+		prev := ' '
+		for _, r := range s {
+			got += m.TransitionLogProb(prev, r)
+			prev = r
+		}
+		if diff := got - want; diff < -1e-9 || diff > 1e-9 {
+			t.Errorf("TransitionLogProb sum for %q = %.10f, Score×n = %.10f (diff %.2e)",
+				s, got, want, diff)
+		}
+	}
+}

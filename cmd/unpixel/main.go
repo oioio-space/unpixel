@@ -41,6 +41,7 @@ import (
 	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
+	"github.com/oioio-space/unpixel/mosaictext"       // analytic HMM decoder (mono-hmm)
 )
 
 // version and commit are injected by goreleaser via -ldflags -X.
@@ -93,6 +94,7 @@ type flagParams struct {
 	blind           bool
 	lang            string
 	denoise         int
+	decoder         string // "default" or "mono-hmm"
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -196,6 +198,11 @@ func validateParams(p flagParams) error {
 	case "auto", "mosaic", "blur":
 	default:
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
+	}
+	switch p.decoder {
+	case "", "default", "mono-hmm": // "" is equivalent to "default" (zero value of flagParams)
+	default:
+		return fmt.Errorf("--decoder must be %q or %q, got %q", "default", "mono-hmm", p.decoder)
 	}
 	return nil
 }
@@ -755,6 +762,118 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	return nil
 }
 
+// runHMM runs the analytic HMM decoder (mosaictext.DecodeHMM) when --decoder
+// mono-hmm is set. It reuses --lang, --font-size, --gamma (linear), --charset,
+// --quiet, --format, and --block-size from the standard flags. The result is
+// printed in the same text/JSON format as the guided path so tooling is consistent.
+func runHMM(ctx context.Context, imgPath string, p flagParams) error {
+	l, ok := lang.ParseLanguage(p.lang)
+	if !ok {
+		return fmt.Errorf("--lang: unknown language %q (supported: en, fr)", p.lang)
+	}
+
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	charset := p.charset
+	if charset == "" {
+		charset = mosaictext.DefaultHMMCharset
+	}
+
+	opts := []mosaictext.HMMOption{
+		mosaictext.WithLanguage(l),
+		mosaictext.WithCharset(charset),
+	}
+	if p.fontSize > 0 {
+		opts = append(opts, mosaictext.WithFontSize(p.fontSize))
+	}
+	// Block size is inferred by DecodeHMM from the image; when the user pins
+	// it via --block-size we have no direct HMMOption — InferBlockGrid already
+	// reads from the image, so we just let it run. A future WithBlockSize
+	// option can override if needed.
+
+	// Font selection: when --font names a file that exists on disk, read its bytes
+	// and pass WithFontFile so DecodeHMM uses that exact typeface (skipping the
+	// bundled-mono sweep). When the path does not exist on disk, treat it as a
+	// bundled font name and fall back to WithFont. --font-bold only applies
+	// alongside WithFontFile; a read error on an existing bold file is returned.
+	fontSource := "bundled mono sweep"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		switch {
+		case readErr == nil:
+			opts = append(opts, mosaictext.WithFontFile(data))
+			fontSource = "file:" + filepath.Base(fontPath)
+			if p.fontBoldPath != "" {
+				boldData, boldErr := os.ReadFile(p.fontBoldPath) // #nosec G304 -- user-supplied path
+				if boldErr != nil {
+					return fmt.Errorf("--font-bold: %w", boldErr)
+				}
+				opts = append(opts, mosaictext.WithFontFileBold(boldData))
+			}
+		case os.IsNotExist(readErr):
+			// Path does not exist on disk — interpret as a bundled font name.
+			opts = append(opts, mosaictext.WithFont(fontPath))
+			fontSource = "bundled:" + fontPath
+		default:
+			return fmt.Errorf("--font: %w", readErr)
+		}
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: mono-hmm (lang=%s charset=%d chars font=%s)\n",
+			l, len([]rune(charset)), fontSource)
+	}
+
+	res, err := mosaictext.DecodeHMM(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodeHMM: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Font: %s  linear: %v  block: %d  N: %d  dist: %.2f\n",
+			res.Font, res.Linear, res.BlockSize, res.CharCount, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess  string  `json:"best_guess"`
+			Font       string  `json:"font,omitempty"`
+			Linear     bool    `json:"linear"`
+			BlockSize  int     `json:"block_size"`
+			CharCount  int     `json:"char_count"`
+			GridPhaseX int     `json:"grid_phase_x"`
+			Distance   float64 `json:"distance"`
+		}{
+			BestGuess:  res.Text,
+			Font:       res.Font,
+			Linear:     res.Linear,
+			BlockSize:  res.BlockSize,
+			CharCount:  res.CharCount,
+			GridPhaseX: res.GridPhaseX,
+			Distance:   res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -867,6 +986,11 @@ Examples:
 				Name:  "blur-sigma",
 				Usage: "Gaussian blur radius (sigma, px) for --redaction blur; 0 = auto-estimate",
 				Value: 0,
+			},
+			&cli.StringFlag{
+				Name:  "decoder",
+				Usage: `decoder backend: "default" (guided DFS / beam) or "mono-hmm" (analytic HMM beam for monospace mosaics)`,
+				Value: "default",
 			},
 			&cli.BoolFlag{
 				Name:  "blind",
@@ -994,6 +1118,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		blind:           cmd.Bool("blind"),
 		lang:            cmd.String("lang"),
 		denoise:         cmd.Int("denoise"),
+		decoder:         cmd.String("decoder"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -1002,6 +1127,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	if p.blind {
 		return runBlind(ctx, imgPath, p)
+	}
+	if p.decoder == "mono-hmm" {
+		return runHMM(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {
