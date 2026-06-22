@@ -56,7 +56,8 @@ func PadWhite(src *image.RGBA, newW, newH int) *image.RGBA {
 // CropInto writes the sub-rectangle of src starting at (x, y) with the given
 // width and height into dst, resizing dst in place as needed. The result is
 // clamped to src's bounds. It is the zero-allocation equivalent of Crop for
-// callers that own a reusable scratch buffer.
+// callers that own a reusable scratch buffer. dst may be nil; a new image is
+// allocated in that case.
 func CropInto(dst *image.RGBA, src *image.RGBA, x, y, w, h int) *image.RGBA {
 	b := src.Bounds()
 	x0 := max(b.Min.X, b.Min.X+x)
@@ -80,6 +81,7 @@ func CropInto(dst *image.RGBA, src *image.RGBA, x, y, w, h int) *image.RGBA {
 // PadWhiteInto writes src composited at the top-left of a newW×newH white
 // canvas into dst, resizing dst in place as needed. It is the zero-allocation
 // equivalent of PadWhite for callers that own a reusable scratch buffer.
+// dst may be nil; a new image is allocated in that case.
 func PadWhiteInto(dst *image.RGBA, src *image.RGBA, newW, newH int) *image.RGBA {
 	dst = resizeRGBA(dst, newW, newH)
 	FillWhite(dst)

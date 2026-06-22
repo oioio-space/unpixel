@@ -24,8 +24,10 @@ import (
 // targets. Beam search bounds work to O(length × BeamWidth) evaluations,
 // making even 7-character recoveries finish in milliseconds.
 //
-// The default BeamWidth (DefaultBeamWidth = 16) is wider than the typical blur
-// charset, giving full per-level coverage for small alphabets. Combine with
+// The effective BeamWidth for blur recovery is 32 (set by
+// defaults.DefaultBlurStrategy); DefaultBeamWidth = 16 is only the generic
+// BeamStrategy fallback. Either value is wider than the typical blur charset,
+// giving full per-level coverage for small alphabets. Combine with
 // WithLanguageModel (e.g. WithLanguageModel(lang.PriorFor(lang.English))) for
 // disambiguation when the image signal alone does not separate candidates.
 //

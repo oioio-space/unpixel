@@ -77,8 +77,8 @@ const (
 	French  = lang.French
 )
 
-// ParseLanguage maps a string such as "en"/"english" or "fr"/"french" to a
-// Language, reporting whether it was recognised.
+// ParseLanguage accepts "en"/"english" and "fr"/"french"/"français"
+// (case-insensitive); reports false otherwise.
 func ParseLanguage(s string) (Language, bool) { return lang.ParseLanguage(s) }
 
 // Option is a functional option for Recover.
@@ -126,6 +126,17 @@ func WithMetric(m unpixel.Metric) Option {
 	return func(c *config) { c.metric = m }
 }
 
+// DenoiseAuto and DenoiseOff are sentinel values for WithDenoise.
+const (
+	// DenoiseAuto instructs Recover to sample the image for impulse noise and
+	// choose a median-filter radius automatically (0, 1, or 2). This is the
+	// default when WithDenoise is not called.
+	DenoiseAuto = -1
+	// DenoiseOff disables median pre-filtering entirely, regardless of image
+	// content. Equivalent to WithDenoise(0).
+	DenoiseOff = 0
+)
+
 // autoDenoiseThreshold is the InferImpulseNoise ratio below which Recover
 // does not apply any median filter in auto mode. Chosen conservatively at 0.3 %
 // so that clean mosaic captures (block edges have ratio ≈ 0) and typical
@@ -141,10 +152,12 @@ const heavyDenoiseThreshold = 0.05
 
 // WithDenoise controls the median pre-filter applied to the image before block-
 // size detection and decoding. Three modes:
-//   - default (no WithDenoise call): auto-detect — Recover calls
-//     unpixel.InferImpulseNoise and applies radius 1 or 2 only when the image
-//     looks noisy (ratio ≥ autoDenoiseThreshold). Clean images are unaffected.
-//   - WithDenoise(0): disable — no filtering regardless of image content.
+//   - default (no WithDenoise call) or WithDenoise(DenoiseAuto): auto-detect —
+//     Recover calls unpixel.InferImpulseNoise and applies radius 1 or 2 only
+//     when the image looks noisy (ratio ≥ autoDenoiseThreshold). Clean images
+//     are unaffected.
+//   - WithDenoise(DenoiseOff) or WithDenoise(0): disable — no filtering
+//     regardless of image content.
 //   - WithDenoise(r), r > 0: force radius r (1 = 3×3 kernel, 2 = 5×5, …).
 //
 // Useful for JPEG-compressed or noisy screen captures where salt-and-pepper

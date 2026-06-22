@@ -122,10 +122,26 @@ type rankedNode struct {
 // an optional language-model bonus) and returns at most width of them. Ties
 // within floating-point equality break on guess for determinism.
 //
-// beamRank is precomputed once per node before sorting so the comparator never
-// calls lm(guess) more than once per node (vs. O(log N) calls with a naive
+// When lm is nil (the common mosaic path) nodes are sorted in place by
+// (score, guess) with no rankedNode allocation. When lm is non-nil, beamRank
+// is precomputed once per node before sorting so the comparator never calls
+// lm(guess) more than once per node (vs. O(log N) calls with a naive
 // in-comparator evaluation).
 func topBeamLM(nodes []node, width int, lm func(string) float64) []node {
+	if lm == nil {
+		// Fast path: no language model — sort in place, no extra allocation.
+		slices.SortFunc(nodes, func(a, b node) int {
+			if c := cmp.Compare(a.result.Score, b.result.Score); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.guess, b.guess)
+		})
+		if len(nodes) > width {
+			nodes = nodes[:width]
+		}
+		return nodes
+	}
+	// Slow path: precompute composite rank once per node to avoid O(log N) lm calls.
 	ranked := make([]rankedNode, len(nodes))
 	for i, n := range nodes {
 		ranked[i] = rankedNode{n: n, rank: beamRank(n, lm)}

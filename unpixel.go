@@ -1196,6 +1196,29 @@ func RecoverFile(ctx context.Context, path string, opts ...Option) (Result, erro
 	return RecoverReader(ctx, f, opts...)
 }
 
+// RecoverBlurredReader decodes an image (PNG is registered; register other
+// formats by importing their image/<fmt> package) from r and calls
+// RecoverBlurred.
+func RecoverBlurredReader(ctx context.Context, r io.Reader, opts ...Option) (Result, error) {
+	img, _, err := image.Decode(r)
+	if err != nil {
+		return Result{}, fmt.Errorf("decode image: %w", err)
+	}
+	return RecoverBlurred(ctx, img, opts...)
+}
+
+// RecoverBlurredFile opens the image at path and calls RecoverBlurredReader.
+// Pass "-" handling at the call site if stdin support is needed;
+// RecoverBlurredFile always opens a file.
+func RecoverBlurredFile(ctx context.Context, path string, opts ...Option) (Result, error) {
+	f, err := os.Open(path) // #nosec G304 -- caller-provided image path is the operation's purpose
+	if err != nil {
+		return Result{}, fmt.Errorf("open image: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return RecoverBlurredReader(ctx, f, opts...)
+}
+
 // FontResult pairs one candidate renderer with the Result it produced, as
 // returned by RecoverMultiFont.
 type FontResult struct {

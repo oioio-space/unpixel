@@ -260,3 +260,62 @@ func TestWithDenoise_ZeroDisables(t *testing.T) {
 		t.Errorf("Result.Denoise = %d, want 0 (WithDenoise(0) should disable auto)", result.Denoise)
 	}
 }
+
+// TestDenoiseOff_sentinel verifies that WithDenoise(blind.DenoiseOff) behaves
+// identically to WithDenoise(0): no median filter is applied regardless of
+// image content, and Result.Denoise is 0.
+func TestDenoiseOff_sentinel(t *testing.T) {
+	t.Parallel()
+
+	clean := syntheticBand(t, "ok", 0)
+	cleanRGBA := toRGBAHelper(t, clean)
+	rng := rand.New(rand.NewPCG(0xcafe1234, 0xbabe5678))
+	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
+
+	result, err := blind.Recover(t.Context(), noisy,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithDenoise(blind.DenoiseOff),
+	)
+	if err != nil {
+		t.Fatalf("Recover with DenoiseOff: %v", err)
+	}
+	if result.Denoise != 0 {
+		t.Errorf("DenoiseOff: Result.Denoise = %d, want 0", result.Denoise)
+	}
+}
+
+// TestDenoiseAuto_sentinel verifies that WithDenoise(blind.DenoiseAuto) triggers
+// auto-detection on a heavily noisy image, identical to the default behaviour.
+// Result.Denoise must be >= 1 (the auto path fires).
+func TestDenoiseAuto_sentinel(t *testing.T) {
+	t.Parallel()
+
+	clean := syntheticBand(t, "ok", 0)
+	cleanRGBA := toRGBAHelper(t, clean)
+	rng := rand.New(rand.NewPCG(0x1a2b3c4d, 0x5e6f7a8b))
+	noisy := addPepperNoise(cleanRGBA, rng, 0.10)
+
+	result, err := blind.Recover(t.Context(), noisy,
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithDenoise(blind.DenoiseAuto),
+	)
+	if err != nil {
+		t.Fatalf("Recover with DenoiseAuto: %v", err)
+	}
+	if result.Denoise < 1 {
+		t.Errorf("DenoiseAuto: Result.Denoise = %d, want >= 1 on noisy image", result.Denoise)
+	}
+}
+
+// TestDenoiseConstants_values pins the numeric values of DenoiseAuto and
+// DenoiseOff so callers can rely on them staying stable.
+func TestDenoiseConstants_values(t *testing.T) {
+	if blind.DenoiseAuto != -1 {
+		t.Errorf("DenoiseAuto = %d, want -1", blind.DenoiseAuto)
+	}
+	if blind.DenoiseOff != 0 {
+		t.Errorf("DenoiseOff = %d, want 0", blind.DenoiseOff)
+	}
+}
