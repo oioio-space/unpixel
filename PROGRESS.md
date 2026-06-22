@@ -14,8 +14,10 @@ un outil qui reconstruit du texte caché derrière une pixelisation (cf.
 ## 📍 État actuel
 
 Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI livrées** ;
-**v0.6.0 publiée** sur pkg.go.dev : récupération mosaïque + flou gaussien + zéro-config auto-détection,
+**v0.8.0 publiée** sur pkg.go.dev : récupération mosaïque + flou gaussien + zéro-config auto-détection,
 **décodage aveugle bilingue FR/EN** (paquet `blind`), **décodeur monospace zéro-config** (paquet `mosaictext`),
+**récupération flou zéro-config** (`RecoverBlurred` : σ-search adaptatif + beam à prior de langue),
+**robustesse au bruit** (auto-débruitage médian) + **prior FR pondéré par fréquence**,
 et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (paramètres + ground truth).
 
 - **Mosaïque linéaire (GEGL/GIMP) + échantillon réel "Hello World !"** : la plupart des outils
@@ -498,7 +500,8 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
   optionnelle + auto Top-K + parallelisme intra-node + bundle de polices élargi),
   **v0.6.0** (décodage aveugle bilingue FR/EN + paquet `mosaictext` zéro-config + samples réels
   organisés sous `testdata/real`), **v0.7.0** (robustesse entrées : prior FR pondéré par fréquence +
-  débruitage médian auto-détecté zéro-config + flag `--denoise`)
+  débruitage médian auto-détecté zéro-config + flag `--denoise`), **v0.8.0** (récupération flou
+  zéro-config P7.3 : `RecoverBlurred` σ-search adaptatif + beam à prior de langue intégré au tri)
   publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
@@ -631,3 +634,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `7ac5d1b` 2026-06-21 — ci: restore Go cache before mise-action to fix tar 'File exists' _(1 fichiers)_
 - `de77056` 2026-06-21 — docs(progress): add P7 roadmap — input robustness (noise/blur) + weighted prior _(1 fichiers)_
 - `9188ba9` 2026-06-21 — feat(blind): zero-config auto-denoise + --denoise flag (v0.7.0) _(15 fichiers)_
+- `6778128` 2026-06-22 — feat(blur): P7.3 zero-config blur recovery — σ-search + LM-blended beam _(28 fichiers)_
