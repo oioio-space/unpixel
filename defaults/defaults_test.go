@@ -10,7 +10,40 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/defaults"
+	"github.com/oioio-space/unpixel/fonts"
 )
+
+// TestRendererFromFonts builds a renderer from bundled font bytes and renders.
+func TestRendererFromFonts(t *testing.T) {
+	all := fonts.All()
+	if len(all) == 0 {
+		t.Fatal("no bundled fonts")
+	}
+	r, err := defaults.RendererFromFonts(all[0].Data, nil)
+	if err != nil {
+		t.Fatalf("RendererFromFonts: %v", err)
+	}
+	img, sx, err := r.Render("ab", unpixel.Style{FontSize: 24})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if sx <= 0 || img.Bounds().Dx() == 0 {
+		t.Errorf("Render produced empty result (sentinelX=%d, dx=%d)", sx, img.Bounds().Dx())
+	}
+}
+
+// TestDeblur_bothBranches covers RGBA passthrough + non-RGBA conversion.
+func TestDeblur_bothBranches(t *testing.T) {
+	rgba := image.NewRGBA(image.Rect(0, 0, 12, 12))
+	draw.Draw(rgba, rgba.Bounds(), image.White, image.Point{}, draw.Src)
+	if got := defaults.Deblur(rgba, 1.0, 3); got.Bounds() != rgba.Bounds() {
+		t.Errorf("Deblur(RGBA) bounds = %v, want %v", got.Bounds(), rgba.Bounds())
+	}
+	gray := image.NewGray(image.Rect(0, 0, 12, 12)) // non-RGBA → conversion branch
+	if got := defaults.Deblur(gray, 1.0, 2); got.Bounds().Dx() != 12 {
+		t.Errorf("Deblur(Gray) dx = %d, want 12", got.Bounds().Dx())
+	}
+}
 
 // TestWire_zeroConfig verifies that Wire populates all four component fields on
 // a zero Config that has BlockSize set (required by NewBlockAverage).
