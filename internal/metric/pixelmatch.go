@@ -286,14 +286,13 @@ func rgbaIdentical(a, b *image.RGBA) bool {
 	return true
 }
 
-// CountPixels returns the number of pixels that differ perceptually between a
-// and b beyond the given threshold, using the in-repo pixelmatch counting path.
-// This is the raw integer form of Pixelmatch.Compare; callers that need the
-// fraction should use Compare directly. Both images must have equal bounds.
-//
-// The algorithm is bit-identical to github.com/orisano/pixelmatch MatchPixel
-// for the counting-only path (writeTo=nil, includeAA=false, diffMask=false).
-func CountPixels(a, b *image.RGBA, threshold float64) int {
+// countPixels is the shared core for CountPixels and CountPixelsNoAA.
+// When skipAA is false the algorithm is bit-identical to
+// github.com/orisano/pixelmatch MatchPixel (counting-only path). When skipAA
+// is true every pixel whose perceptual delta exceeds maxDelta is counted
+// unconditionally — no anti-aliasing neighbourhood scan — which is correct and
+// faster for block-constant (mosaic-pixelated) images that contain no real AA.
+func countPixels(a, b *image.RGBA, threshold float64, skipAA bool) int {
 	if !a.Bounds().Eq(b.Bounds()) {
 		return 0
 	}
@@ -306,7 +305,8 @@ func CountPixels(a, b *image.RGBA, threshold float64) int {
 	w := rect.Dx()
 
 	// Borrow a single slab for 10 row buffers (5 per image).
-	// Using one pool Get/Put per call keeps CountPixels near-zero alloc.
+	// When skipAA is true only the current row is accessed, but we still
+	// allocate the full slab so the same pool entry can serve both modes.
 	need := 10 * w
 	pslab := slabPool.Get().(*[]rgba16)
 	if cap(*pslab) < need {
@@ -330,9 +330,13 @@ func CountPixels(a, b *image.RGBA, threshold float64) int {
 		for xi := range w {
 			delta := colorDelta(rowA[xi], rowB[xi], false)
 			if math.Abs(delta) > maxDelta {
-				x := rect.Min.X + xi
-				if !isAntiAliased(&ac, &bc, x, y) && !isAntiAliased(&bc, &ac, x, y) {
+				if skipAA {
 					diff++
+				} else {
+					x := rect.Min.X + xi
+					if !isAntiAliased(&ac, &bc, x, y) && !isAntiAliased(&bc, &ac, x, y) {
+						diff++
+					}
 				}
 			}
 		}
@@ -343,4 +347,31 @@ func CountPixels(a, b *image.RGBA, threshold float64) int {
 	// the SSIM grayscalePool precedent.
 	slabPool.Put(pslab)
 	return diff
+}
+
+// CountPixels returns the number of pixels that differ perceptually between a
+// and b beyond the given threshold, using the in-repo pixelmatch counting path.
+// This is the raw integer form of Pixelmatch.Compare; callers that need the
+// fraction should use Compare directly. Both images must have equal bounds.
+//
+// The algorithm is bit-identical to github.com/orisano/pixelmatch MatchPixel
+// for the counting-only path (writeTo=nil, includeAA=false, diffMask=false).
+func CountPixels(a, b *image.RGBA, threshold float64) int {
+	return countPixels(a, b, threshold, false)
+}
+
+// CountPixelsNoAA returns the number of pixels that differ perceptually between
+// a and b beyond the given threshold, omitting the anti-aliasing neighbourhood
+// exclusion that CountPixels applies. Every pixel whose YIQ colour delta exceeds
+// the threshold is counted directly.
+//
+// This is equivalent to CountPixels for block-constant (mosaic-pixelated) images
+// where no real anti-aliasing exists — skipping the AA scan is a no-op
+// behaviourally but eliminates the 3×3 neighbourhood reads, yielding roughly 2×
+// throughput on the dense-diff path. It is NOT appropriate for images that may
+// contain sub-pixel rendering from different engines (use CountPixels there).
+//
+// CountPixelsNoAA always returns a value ≥ CountPixels for the same inputs.
+func CountPixelsNoAA(a, b *image.RGBA, threshold float64) int {
+	return countPixels(a, b, threshold, true)
 }

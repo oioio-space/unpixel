@@ -408,6 +408,16 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
       Large-charset single-offset ~1.5× plus vite ; défaut small-charset neutre ; `-race` propre.
 
+### ⚡ Accélération ~35 % — Scorer caches + mosaic AA-skip fidèle
+
+Profiling + benchstat-proven round : **panel de récupération 1495 ms → 919 ms** (17/17 exact, fidelité 1.000), zéro perte qualité, auto-sélection en `defaults.Wire`.
+
+**Caches d'étape** (internes, déjà notés) : `prevGuess` partial-stage cached per `(prevGuess, offset)` ; `BlueMargin` et bande rouge-crop memoïzed dans cache rendu → supprime ~|charset|× travail redondant per-candidat (~20,5 GB RGBA churn/run).
+
+**`PixelmatchFast` — métrique mosaic AA-skip** : la mosaïque par bloc produit des images **block-constantes** (aucune vraie anti-aliasing) → `isAntiAliased` (60% du CPU métrique) est une dépense inutile sur ce chemin. Nouveau `metric.PixelmatchFast` ; auto-sélectionné par `defaults.Wire` selon le pixelator (mosaic=fast, blur=fidèle). **Outcome-identique** : aucune divergence récupération sur corpus entier (155 matrice inchangée, panel 17/17 exact). Le chemin **blur** (cross-render robustesse) garde `Pixelmatch` fidèle.
+
+**Dead-ends honnêtes** : widening per-pixel cache (L1 regress, métrique memory-bound) et `sync.Pool` buffer pooling (contention sous fan-out GOMAXPROCS → regress parallel paths) — tous deux revertis, mesurés/documentés.
+
 ### P5 — Récupération aveugle des redactions réelles (issu de l'échantillon GIMP « Hello World ! »)
 
 Contexte : `testdata/real/hello-world.png` (capture GIMP réelle) est **confirmé** par le
@@ -635,3 +645,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `de77056` 2026-06-21 — docs(progress): add P7 roadmap — input robustness (noise/blur) + weighted prior _(1 fichiers)_
 - `9188ba9` 2026-06-21 — feat(blind): zero-config auto-denoise + --denoise flag (v0.7.0) _(15 fichiers)_
 - `6778128` 2026-06-22 — feat(blur): P7.3 zero-config blur recovery — σ-search + LM-blended beam _(28 fichiers)_
+- `5c3c925` 2026-06-22 — perf(search): cache prevGuess stage + BlueMargin + redacted crop (bit-identical) _(4 fichiers)_

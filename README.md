@@ -148,7 +148,7 @@ Key flags (`unpixel --help` for the full list):
 | `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
 | `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
-| `--metric` | `pixelmatch` | `pixelmatch` (faithful) or `ssim` (structural) |
+| `--metric` | `pixelmatch` | `pixelmatch` (faithful; auto `pixelmatch-fast` on block-average mosaic for identical results, zero-config) or `ssim` (structural) |
 | `--language` | off | Break ties between equal-image candidates toward plausible text (char-bigram prior) |
 | `--secrets` | off | Boost plausibility of structured formats (UUID, API token, Luhn checksums, common passwords) and dictionary words |
 | `--workers` | `0` (all CPUs) | Grid offsets searched concurrently; also the sweep's core budget |
@@ -281,7 +281,7 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | `InferBlockSize(image.Image) int` | Detect the mosaic block size |
 | `InferBlurSigma(image.Image) float64` | Estimate Gaussian blur radius σ from image contrast |
 | `InferImpulseNoise(image.Image) float64` | Detect impulse (salt-pepper) noise; returned value used by `blind.Recover` to auto-denoise |
-| `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces |
+| `Renderer`, `Pixelator`, `Metric` (`PixelmatchFast` via `defaults.PixelmatchFastMetric()`), `Strategy` | Pluggable pipeline interfaces; `PixelmatchFast` skips anti-aliasing detection on block-average mosaic (identical results, ~35% faster), keeps faithful `Pixelmatch` on blur for cross-engine robustness |
 | `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
 | **`blind.Recover(ctx, image.Image, ...Option) (*Recovery, error)`** | **Blind bilingual recovery (FR/EN) without knowing font/block/offset; re-exports `English`/`French`/`ParseLanguage`** |
 | **`blind.With*` options (`WithLanguage`, `WithBlock`, `WithOffset`, `WithFontSize`, `WithLinear`, `WithFonts`, `WithMetric`)** | **Fine-tune blind recovery or override auto-detection** |

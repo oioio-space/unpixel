@@ -72,6 +72,37 @@ func (m Pixelmatch) Compare(a, b *image.RGBA) float64 {
 	return float64(CountPixels(a, b, m.threshold)) / float64(total)
 }
 
+// PixelmatchFast implements unpixel.Metric using the no-AA counting path
+// ([CountPixelsNoAA]). It omits the anti-aliasing neighbourhood exclusion that
+// [Pixelmatch] applies, which is equivalent for block-constant (mosaic-pixelated)
+// images where no real anti-aliasing exists — and roughly 2× faster on the
+// dense-diff path. It is NOT appropriate for cross-rendering-engine comparisons
+// (use [Pixelmatch] or [SSIM] there).
+//
+// Wire in [github.com/oioio-space/unpixel/defaults] selects this metric
+// automatically when the configured pixelator is a block-average mosaic operator.
+type PixelmatchFast struct {
+	// threshold is the per-pixel colour-difference tolerance passed to CountPixelsNoAA.
+	threshold float64
+}
+
+// NewPixelmatchFast returns a PixelmatchFast metric with the given threshold.
+// threshold=0.02 matches the original Jimp.diff default.
+func NewPixelmatchFast(threshold float64) PixelmatchFast {
+	return PixelmatchFast{threshold: threshold}
+}
+
+// Compare returns the fraction of pixels that differ beyond the YIQ threshold,
+// without anti-aliasing exclusion. Images must have the same bounds.
+func (m PixelmatchFast) Compare(a, b *image.RGBA) float64 {
+	bounds := a.Bounds()
+	total := bounds.Dx() * bounds.Dy()
+	if total == 0 {
+		return 0
+	}
+	return float64(CountPixelsNoAA(a, b, m.threshold)) / float64(total)
+}
+
 // DefaultSSIMWindow is the side length, in pixels, of each SSIM comparison
 // window when NewSSIM is called with a non-positive size.
 const DefaultSSIMWindow = 8

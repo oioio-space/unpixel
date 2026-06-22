@@ -2,6 +2,7 @@ package defaults_test
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -88,10 +89,94 @@ func TestMetricConstructors(t *testing.T) {
 	if defaults.PixelmatchMetric() == nil {
 		t.Error("PixelmatchMetric() = nil, want non-nil")
 	}
+	if defaults.PixelmatchFastMetric() == nil {
+		t.Error("PixelmatchFastMetric() = nil, want non-nil")
+	}
 	for _, window := range []int{0, 4, 8} {
 		if defaults.SSIMMetric(window) == nil {
 			t.Errorf("SSIMMetric(%d) = nil, want non-nil", window)
 		}
+	}
+}
+
+// TestWire_metricAutoSelection verifies that Wire auto-selects PixelmatchFast
+// for BlockAverage/LinearBlockAverage pixelators and faithful Pixelmatch for
+// GaussianBlur/FastBlur pixelators. This is the zero-config, no-quality-loss
+// AA-skip optimisation.
+func TestWire_metricAutoSelection(t *testing.T) {
+	wantFast := defaults.PixelmatchFastMetric()
+	wantFaithful := defaults.PixelmatchMetric()
+
+	cases := []struct {
+		name      string
+		pixelator unpixel.Pixelator
+		wantType  unpixel.Metric
+	}{
+		{
+			name:      "BlockAverage gets PixelmatchFast",
+			pixelator: defaults.BlockAverage(8),
+			wantType:  wantFast,
+		},
+		{
+			name:      "LinearBlockAverage gets PixelmatchFast",
+			pixelator: defaults.LinearBlockAverage(8),
+			wantType:  wantFast,
+		},
+		{
+			name:      "GaussianBlur gets faithful Pixelmatch",
+			pixelator: defaults.GaussianBlur(3),
+			wantType:  wantFaithful,
+		},
+		{
+			name:      "FastBlur gets faithful Pixelmatch",
+			pixelator: defaults.FastBlur(3),
+			wantType:  wantFaithful,
+		},
+		{
+			name:      "unknown pixelator gets faithful Pixelmatch",
+			pixelator: stubComponent{},
+			wantType:  wantFaithful,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &unpixel.Config{
+				BlockSize: 8,
+				Pixelator: tc.pixelator,
+			}
+			if err := defaults.Wire(cfg); err != nil {
+				t.Fatalf("Wire: %v", err)
+			}
+			// Compare dynamic types: both wantFast and wantFaithful are concrete
+			// structs, so a same-type check is sufficient.
+			gotType := fmt.Sprintf("%T", cfg.Metric)
+			wantType := fmt.Sprintf("%T", tc.wantType)
+			if gotType != wantType {
+				t.Errorf("Wire metric type = %s, want %s", gotType, wantType)
+			}
+		})
+	}
+}
+
+// TestWire_blurKeepsFaithfulMetric verifies that a blur config (GaussianBlur
+// pixelator) never receives PixelmatchFast, preserving AA-exclusion robustness.
+func TestWire_blurKeepsFaithfulMetric(t *testing.T) {
+	cfg := &unpixel.Config{
+		BlockSize: 1,
+		Pixelator: defaults.GaussianBlur(6),
+	}
+	if err := defaults.Wire(cfg); err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	wantType := fmt.Sprintf("%T", defaults.PixelmatchMetric())
+	gotType := fmt.Sprintf("%T", cfg.Metric)
+	if gotType != wantType {
+		t.Errorf("blur Wire metric = %s, want faithful %s", gotType, wantType)
+	}
+	fastType := fmt.Sprintf("%T", defaults.PixelmatchFastMetric())
+	if gotType == fastType {
+		t.Errorf("blur Wire incorrectly got PixelmatchFast; want faithful Pixelmatch")
 	}
 }
 

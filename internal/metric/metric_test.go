@@ -38,6 +38,122 @@ func invert(img *image.RGBA) *image.RGBA {
 	return out
 }
 
+// --- CountPixelsNoAA ---
+
+// TestCountPixelsNoAA_supersetOfCountPixels verifies that CountPixelsNoAA always
+// returns a value ≥ CountPixels for the same inputs (it counts a superset: no AA
+// pixels are excluded).
+func TestCountPixelsNoAA_supersetOfCountPixels(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b *image.RGBA
+	}{
+		{
+			name: "identical solid",
+			a:    solid(8, 8, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+			b:    solid(8, 8, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+		},
+		{
+			name: "black vs white",
+			a:    solid(8, 8, color.RGBA{R: 0, G: 0, B: 0, A: 255}),
+			b:    solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		},
+		{
+			name: "one pixel diff",
+			a: func() *image.RGBA {
+				img := solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+				img.SetRGBA(3, 3, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+				return img
+			}(),
+			b: solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		},
+	}
+	const threshold = 0.02
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			faithful := metric.CountPixels(tc.a, tc.b, threshold)
+			fast := metric.CountPixelsNoAA(tc.a, tc.b, threshold)
+			if fast < faithful {
+				t.Errorf("CountPixelsNoAA=%d < CountPixels=%d; want ≥", fast, faithful)
+			}
+		})
+	}
+}
+
+// TestCountPixelsNoAA_blockConstant verifies that on block-constant (solid)
+// image pairs — the mosaic recovery regime — CountPixelsNoAA matches CountPixels
+// exactly (no AA pixels to exclude).
+func TestCountPixelsNoAA_blockConstant(t *testing.T) {
+	// Solid images contain no edges, so the AA neighbourhood check in CountPixels
+	// never excludes any pixel. Both functions must agree.
+	a := solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255})
+	b := solid(16, 16, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+	const threshold = 0.02
+	faithful := metric.CountPixels(a, b, threshold)
+	fast := metric.CountPixelsNoAA(a, b, threshold)
+	if fast != faithful {
+		t.Errorf("block-constant: CountPixelsNoAA=%d, CountPixels=%d; want equal", fast, faithful)
+	}
+}
+
+// TestPixelmatchFast_identical verifies zero distance on equal images.
+func TestPixelmatchFast_identical(t *testing.T) {
+	a := solid(8, 8, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	b := solid(8, 8, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	got := metric.NewPixelmatchFast(0.02).Compare(a, b)
+	if got != 0 {
+		t.Errorf("PixelmatchFast identical = %v, want 0", got)
+	}
+}
+
+// TestPixelmatchFast_returnsZeroToOne verifies the result is in [0, 1].
+func TestPixelmatchFast_returnsZeroToOne(t *testing.T) {
+	a := solid(8, 8, color.RGBA{R: 100, G: 150, B: 200, A: 255})
+	b := invert(a)
+	got := metric.NewPixelmatchFast(0.02).Compare(a, b)
+	if got < 0 || got > 1 {
+		t.Errorf("PixelmatchFast result %v out of [0,1]", got)
+	}
+}
+
+// TestPixelmatchFast_blockConstantMatchesFaithful verifies that on block-constant
+// (mosaic) image pairs — where no anti-aliasing exists — PixelmatchFast and
+// Pixelmatch produce identical scores. This is the no-quality-loss guarantee.
+func TestPixelmatchFast_blockConstantMatchesFaithful(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b *image.RGBA
+	}{
+		{
+			name: "identical solid",
+			a:    solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+			b:    solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+		},
+		{
+			name: "different solids",
+			a:    solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+			b:    solid(16, 16, color.RGBA{R: 100, G: 100, B: 100, A: 255}),
+		},
+		{
+			name: "white vs black",
+			a:    solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+			b:    solid(8, 8, color.RGBA{R: 0, G: 0, B: 0, A: 255}),
+		},
+	}
+	const threshold = 0.02
+	fast := metric.NewPixelmatchFast(threshold)
+	faithful := metric.NewPixelmatch(threshold)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fast.Compare(tc.a, tc.b)
+			want := faithful.Compare(tc.a, tc.b)
+			if got != want {
+				t.Errorf("PixelmatchFast=%v, Pixelmatch=%v; want equal on block-constant input", got, want)
+			}
+		})
+	}
+}
+
 // --- RGB metric ---
 
 func TestRGB_identical(t *testing.T) {

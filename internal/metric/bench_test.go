@@ -83,6 +83,48 @@ func BenchmarkPixelmatch_Distance(b *testing.B) {
 	})
 }
 
+// BenchmarkPixelmatchFast_Distance benchmarks PixelmatchFast.Compare on two
+// 200×40 images — the same shapes as BenchmarkPixelmatch_Distance so results
+// are directly comparable with benchstat.
+func BenchmarkPixelmatchFast_Distance(b *testing.B) {
+	const w, h = 200, 40
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	a := makeSolidRGBA(w, h, white)
+	bSame := makeSolidRGBA(w, h, white)
+	bDiff := makePartialDiffRGBA(a)
+
+	m := metric.NewPixelmatchFast(0.1)
+
+	g := makeGradient(w, h)
+	gShift := makeGradient(w, h)
+	for i := range gShift.Pix {
+		if gShift.Pix[i] > 10 {
+			gShift.Pix[i] -= 10
+		}
+	}
+
+	b.Run("identical", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(a, bSame)
+		}
+	})
+
+	b.Run("10pct_different", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(a, bDiff)
+		}
+	})
+
+	b.Run("gradient", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			sinkFloat = m.Compare(g, gShift)
+		}
+	})
+}
+
 // BenchmarkSSIM_Distance benchmarks SSIM.Compare on two 200×40 images.
 // Sub-benchmarks cover identical vs ~10%-different inputs.
 func BenchmarkSSIM_Distance(b *testing.B) {
