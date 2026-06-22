@@ -4,13 +4,16 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.9.0** published — mosaic and Gaussian-blur recovery, zero-config
-> auto-detection (block size / blur σ / region / font), **blind bilingual (FR/EN) text recovery**,
-> **zero-config blur recovery** (`RecoverBlurred`: auto σ-search + language-prior beam),
-> **noise-robust recovery (auto median denoise) and a frequency-weighted French language prior**,
-> **monospace mosaic decoder** (`mosaictext`), **~35% faster mosaic recovery** (mosaic AA-skip
-> metric + scorer stage caches, bit-identical results), and real GIMP sample corpus; ~85% test
-> coverage, all gates green.
+> **Status:** **v0.9.0** published — pure-Go mosaic and Gaussian-blur recovery with four new decoders
+> and input normalization for real captures.
+> - **Core:** zero-config auto-detection (block size / blur σ / font / language), bilingual
+>   blind recovery (FR/EN), **87% test coverage**, all gates green.
+> - **New (P-A/P-B/P-C/P-D):** LM-guided monospace decoder (`--decoder mono-hmm`), Depix-style reference-matching
+>   decoder for arbitrary content + proportional fonts (`--decoder ref-match`), input normalization for real blur
+>   captures (`--normalize`), multi-format input decoding (JPEG/GIF/WebP/BMP/TIFF), robust mosaic-vs-blur auto-detect
+>   with best-effort surfacing (`Result.BelowThreshold`), and **~35% faster mosaic recovery** (AA-skip metric + caches, bit-identical).
+> - **Honesty:** new decoders extend the operating envelope and recover known-font cases exactly; real-world recovery
+>   remains font-fidelity-bounded — supply the exact font via `--font` or `--font-dir` for real captures.
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
 > delta vs the original Bishop Fox unredacter.
 
@@ -78,6 +81,24 @@ and what the blur / zero-config work added.
   `--font`/`--font-dir`). Library: the `fonts` bundle + `RecoverMultiFont`; `render.NewXImageFromFonts`
   for a custom face. **For real-world images, supplying the exact font via `--font` or `--font-dir`
   significantly improves recovery**, since font fidelity dominates the score.
+- **LM-guided monospace mosaic decoder** (`--decoder mono-hmm`): fuses a bigram language model
+  with per-character image signal via left-to-right beam search, avoiding the charset^length
+  exponential barrier. Recovers long monospace text (10–50+ characters) when character-by-character
+  signals are weak. Options: `--lang en|fr`, `--font <bundled-or-path>`, `--charset`. Limitation:
+  font fidelity dominates — exact font via `--font` is strongly recommended for real captures.
+- **Reference-matching mosaic decoder** (`--decoder ref-match`): Depix-style per-glyph reference
+  matching that recovers **arbitrary content** (passwords, code, random strings) and works on
+  **proportional fonts** (not just monospace). Renders candidate glyphs, matches columns left-to-right
+  with zero language assumption. Options: `--font <bundled-or-path>`, `--charset`. Limitation:
+  works when font is known; bundled sweep is exploratory, exact font required for real reliability.
+- **Input normalization for real-world captures** (`--normalize`): morphological background
+  estimation and removal (additive/multiplicative), dark-theme auto-inversion, and optional JPEG
+  deblocking. Extends blur recovery to textured/vignette/dark-background scenarios. Multi-format
+  input decoding: PNG/JPEG/GIF/WebP/BMP/TIFF.
+- **Robust mosaic-vs-blur auto-detection** (`InferBlockSizeRobust`): detects pixelated grids even
+  when resampled, anti-aliased, or JPEG-compressed. Routes true pixelizations to mosaic pipeline
+  and ambiguous cases to blur. Best-effort result surfacing (`Result.BelowThreshold`) returns the
+  best candidate even when it falls below the acceptance threshold, suitable for exploratory analysis.
 - **Automatic Top-K pruning for code.** When a language model is set and the charset is wide (≥40
   runes), the search automatically narrows candidates to the most-likely next characters per
   language, keeping the search tractable (~10.8× speedup for wide charsets) while maintaining full
@@ -85,14 +106,11 @@ and what the blur / zero-config work added.
 - **Ranked results, not just one guess.** Each `Result` carries the top-N candidates per grid
   offset (sorted by score, ties broken deterministically) plus `Confidence`/`Ambiguity` and a
   whole-image `BestTotal` distance — comparable across runs, so it can rank fonts or styles —
-  letting callers surface alternatives instead of a single best guess. When no candidate clears
-  the acceptance threshold, the search retains the single best-seen candidate anyway (with
-  `Result.BelowThreshold == true` and lower confidence), so you always get a best-effort guess
-  (suitable for exploratory analysis) instead of an empty result.
+  letting callers surface alternatives instead of a single best guess.
 - **Self-consistent correctness.** Fidelity is judged by a redaction round-trip (redact a known
   plaintext, then recover it). Matching a *Chromium*-rendered redaction is a documented Phase-2
   goal (needs a `chromedp` renderer).
-- **~89% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
+- **87% test coverage** across rendering, pixelation, metrics, search, CLI, and end-to-end.
 
 ## Install
 
@@ -134,6 +152,12 @@ unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.p
 # Sweep your own candidate fonts (or a whole directory) instead of the built-ins:
 unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
 unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
+
+# New decoders (v0.9.0):
+unpixel --decoder mono-hmm --lang en image.png                              # LM-guided monospace decoder
+unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long-text.png  # with specific font
+unpixel --decoder ref-match --font "Liberation Sans" passwords.png          # reference-matching for arbitrary content
+unpixel --normalize --redaction blur real-blur.jpg                          # normalize input + blur recovery on JPEG
 ```
 
 Key flags (`unpixel --help` for the full list):
@@ -152,6 +176,7 @@ Key flags (`unpixel --help` for the full list):
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
 | `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
 | `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
+| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), or `ref-match` (reference-matching for known fonts) |
 | `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful; auto `pixelmatch-fast` on block-average mosaic for identical results, zero-config) or `ssim` (structural) |
@@ -159,6 +184,9 @@ Key flags (`unpixel --help` for the full list):
 | `--secrets` | off | Boost plausibility of structured formats (UUID, API token, Luhn checksums, common passwords) and dictionary words |
 | `--workers` | `0` (all CPUs) | Grid offsets searched concurrently; also the sweep's core budget |
 | `--top`, `-n` | `5` | Ranked candidates to report |
+| `--normalize` | off | Enable input normalization for blur recovery: morphological background removal + dark-theme inversion |
+| `--normalize-bg` | `divide` | Background removal mode: `divide` (multiplicative), `subtract` (additive), or `none` |
+| `--deblock` | `0` (off) | Median deblocking radius for JPEG (0 = off, N = force (2N+1)×(2N+1) kernel) |
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
 | `--timeout` | `0` (none) | Max recovery time |
 

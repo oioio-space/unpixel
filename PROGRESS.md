@@ -680,3 +680,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `0aaf67c` 2026-06-22 — feat(real-world): P-A — LM-guided beam decoder for long monospace mosaic text _(11 fichiers)_
 - `3bd4368` 2026-06-22 — feat(real-world): P-C — input normalization front-end for blur recovery + multi-format decode _(14 fichiers)_
 - `97cd460` 2026-06-22 — feat(real-world): P-B — Depix-style reference-matching mosaic decoder (font-supply contract) _(10 fichiers)_
+- `30ff9ab` 2026-06-22 — docs(release): v0.9.0 — real-world initiative (P-A/P-B/P-C/P-D) + coverage margin _(15 fichiers)_
