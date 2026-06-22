@@ -32,3 +32,7 @@ printf -- '- `%s` %s — %s _(%s fichiers)_\n' "$short" "$date" "$subject" "$fil
 # Stage the appended line so it is committed with the next commit, even one that
 # stages only specific files. Best-effort: never fail the (already-made) commit.
 git add -- "$progress" 2>/dev/null || true
+
+# Re-arm the pre-commit review gate: clear the approval marker so the NEXT commit
+# must re-run the full review (defence-in-depth on top of the staged-diff-hash key).
+rm -f "$(git rev-parse --git-dir)/claude-simplify-ok" 2>/dev/null || true
