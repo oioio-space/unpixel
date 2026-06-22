@@ -134,6 +134,22 @@ func TestDict_All(t *testing.T) {
 	}
 }
 
+// TestDict_All_earlyExit verifies that All() respects early termination: when
+// yield returns false (the caller breaks from the range loop), the iterator
+// stops without delivering additional words.
+func TestDict_All_earlyExit(t *testing.T) {
+	t.Parallel()
+	d := lang.FrenchDictionary()
+	var got int
+	for range d.All() {
+		got++
+		break // yield returns false after the first word
+	}
+	if got != 1 {
+		t.Errorf("All() early-exit: got %d words, want 1", got)
+	}
+}
+
 // TestDict_ByRuneLen checks that ByRuneLen returns only words of the correct
 // rune length and that the result is non-empty for common lengths.
 func TestDict_ByRuneLen(t *testing.T) {

@@ -40,6 +40,20 @@ func TestNewXImageFromFonts_rendersWithSuppliedFont(t *testing.T) {
 	}
 }
 
+// TestNewXImageFromFonts_invalidTTFErrors verifies that supplying unparseable
+// font data returns an error (exercises the parseFace error branch).
+func TestNewXImageFromFonts_invalidTTFErrors(t *testing.T) {
+	garbage := []byte("this is definitely not a valid TrueType font binary")
+	if _, err := render.NewXImageFromFonts(garbage, nil); err == nil {
+		t.Error("NewXImageFromFonts(garbage TTF): expected parse error, got nil")
+	}
+	// Valid regular + invalid bold should also fail.
+	valid := embeddedRegular(t)
+	if _, err := render.NewXImageFromFonts(valid, garbage); err == nil {
+		t.Error("NewXImageFromFonts(valid, garbage bold): expected parse error, got nil")
+	}
+}
+
 func TestRender_letterSpacingWidensAndTightens(t *testing.T) {
 	r, err := render.NewXImage()
 	if err != nil {

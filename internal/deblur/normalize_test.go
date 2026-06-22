@@ -246,3 +246,154 @@ func TestNormalize_emptyImage(t *testing.T) {
 		t.Errorf("Normalize(empty): bounds = %v, want empty", b)
 	}
 }
+
+// TestNormalize_bgSubtract verifies that BgSubtract reduces vignette variation
+// similarly to BgDivide: the output standard deviation must be smaller than the
+// input when a flat bright background field is present.
+func TestNormalize_bgSubtract(t *testing.T) {
+	w, h := 32, 32
+	// Gradient: left edge bright (220), right edge dim (80) — simulates a
+	// lateral vignette. All pixels are identical in the vertical direction so
+	// Dilate picks the exact bright estimate for each column.
+	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			v := uint8(80 + 140*(w-1-x)/(w-1))
+			src.SetRGBA(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+
+	stdDev := func(img *image.RGBA) float64 {
+		m := meanLum(img)
+		b := img.Bounds()
+		var acc float64
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				d := float64(img.RGBAAt(x, y).R) - m
+				acc += d * d
+			}
+		}
+		return math.Sqrt(acc / float64(b.Dx()*b.Dy()))
+	}
+
+	none := Normalize(src, Options{Bg: BgNone, Invert: InvertOff})
+	sub := Normalize(src, Options{Bg: BgSubtract, Invert: InvertOff})
+
+	if stdDev(sub) >= stdDev(none) {
+		t.Errorf("BgSubtract: stddev should decrease; without=%.2f with=%.2f",
+			stdDev(none), stdDev(sub))
+	}
+}
+
+// TestNormalize_bgNonePreservesLuminance checks that BgNone with InvertOff
+// keeps a bright image bright (no inversion, no background removal).
+func TestNormalize_bgNonePreservesLuminance(t *testing.T) {
+	src := makeGrey(16, 16, 200)
+	got := Normalize(src, Options{Bg: BgNone, Invert: InvertOff})
+	m := meanLum(got)
+	// BgNone passes through; rounding may shift by ≤1.
+	if math.Abs(m-200) > 1.5 {
+		t.Errorf("BgNone InvertOff on grey-200: mean = %.1f, want ≈200", m)
+	}
+}
+
+// TestNormalize_invertForce_brightImage ensures InvertForce darkens an already-
+// bright image (inverts even when mean >= 127).
+func TestNormalize_invertForce_brightensDarkAndDarkensBright(t *testing.T) {
+	// Bright image (mean ~200): InvertForce must darken it to ~55.
+	bright := makeGrey(16, 16, 200)
+	got := Normalize(bright, Options{Bg: BgNone, Invert: InvertForce})
+	m := meanLum(got)
+	if math.Abs(m-55) > 2.0 {
+		t.Errorf("InvertForce on bright image: mean = %.1f, want ≈55", m)
+	}
+}
+
+// TestNormalize_deblock verifies that a positive Deblock radius exercises the
+// readLumFromRGBA path (no panic, output still greyscale and opaque).
+func TestNormalize_deblock(t *testing.T) {
+	w, h := 12, 12
+	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			v := uint8(100 + (x+y)%30)
+			src.SetRGBA(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+
+	got := Normalize(src, Options{Bg: BgNone, Invert: InvertOff, Deblock: 1})
+	b := got.Bounds()
+	if b.Dx() != w || b.Dy() != h {
+		t.Errorf("Deblock output size %dx%d, want %dx%d", b.Dx(), b.Dy(), w, h)
+	}
+	// All output pixels must be greyscale-on-white (R==G==B, A==255).
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			c := got.RGBAAt(x, y)
+			if c.A != 255 {
+				t.Errorf("pixel (%d,%d) A=%d, want 255", x, y, c.A)
+			}
+			if c.R != c.G || c.R != c.B {
+				t.Errorf("pixel (%d,%d) not grey: %v", x, y, c)
+			}
+		}
+	}
+}
+
+// TestNormalize_deblockAuto verifies that Deblock=-1 (auto) also exercises the
+// readLumFromRGBA path without panicking.
+func TestNormalize_deblockAuto(t *testing.T) {
+	src := makeGrey(8, 8, 150)
+	got := Normalize(src, Options{Bg: BgNone, Invert: InvertOff, Deblock: -1})
+	if got == nil {
+		t.Fatal("Deblock=-1 returned nil")
+	}
+}
+
+// TestSortFloat64_LargeSlice verifies that sortFloat64 falls back to the
+// heapsort/quicksort path for slices longer than 64 elements and that the
+// result is correctly sorted.
+func TestSortFloat64_LargeSlice(t *testing.T) {
+	// Build a 128-element descending slice so the sort has real work to do.
+	n := 128
+	s := make([]float64, n)
+	for i := range n {
+		s[i] = float64(n - i)
+	}
+	sortFloat64(s)
+	for i := 1; i < n; i++ {
+		if s[i] < s[i-1] {
+			t.Fatalf("sortFloat64(large): not sorted at index %d: s[%d]=%.0f > s[%d]=%.0f",
+				i, i-1, s[i-1], i, s[i])
+		}
+	}
+}
+
+// TestSortFloat64_SmallSlice verifies the insertion-sort path (≤64 elements).
+func TestSortFloat64_SmallSlice(t *testing.T) {
+	s := []float64{9, 3, 7, 1, 5, 2, 8, 4, 6}
+	sortFloat64(s)
+	for i := 1; i < len(s); i++ {
+		if s[i] < s[i-1] {
+			t.Fatalf("sortFloat64(small): not sorted at index %d: %.0f > %.0f", i, s[i-1], s[i])
+		}
+	}
+	// Empty and single-element slices must not panic.
+	sortFloat64(nil)
+	sortFloat64([]float64{42})
+}
+
+// TestNormalize_openRadiusExplicit verifies that an explicit OpenRadius value
+// is respected (non-zero path in the auto-radius branch). We use a tiny image
+// so radius=1 stays small but still exercises the explicit branch.
+func TestNormalize_openRadiusExplicit(t *testing.T) {
+	src := makeGrey(8, 8, 180)
+	// Set OpenRadius=1 explicitly — triggers the "r = o.OpenRadius" path.
+	got := Normalize(src, Options{Bg: BgDivide, Invert: InvertOff, OpenRadius: 1})
+	if got == nil {
+		t.Fatal("explicit OpenRadius returned nil")
+	}
+	if got.Bounds().Dx() != 8 || got.Bounds().Dy() != 8 {
+		t.Errorf("explicit OpenRadius: wrong output size %v", got.Bounds())
+	}
+}

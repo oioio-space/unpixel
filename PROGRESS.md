@@ -534,7 +534,11 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
   **v0.8.1** (perf : ~35 % plus rapide — métrique mosaic AA-skip auto-sélectionnée + caches d'étape
   du scorer, résultats bit-identiques, zéro perte de qualité), **v0.8.2** (ergonomie/perf :
   `RecoverBlurredFile`/`RecoverBlurredReader`, sentinelles `blind.DenoiseAuto/Off`, beam nil-LM
-  fast-path ; + durcissement du gate de revue pre-commit)
+  fast-path ; + durcissement du gate de revue pre-commit), **v0.9.0** (initiative « images réelles
+  d'Internet » : les quatre phases P-A/P-B/P-C/P-D — décodeur beam LM monospace `--decoder mono-hmm`,
+  reference-matching Depix `--decoder ref-match` avec contrat de police utilisateur, normalisation
+  d'entrée `--normalize` + décodage multi-formats JPEG/WebP/…, auto-détection mosaïque robuste +
+  best-effort ; toutes opt-in, pur-Go, panel 17/17 inchangé, couverture 87 %)
   publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
@@ -675,3 +679,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `63c0085` 2026-06-22 — feat(real-world): P-D foundation — robust mosaic auto-detect + best-effort surfacing _(19 fichiers)_
 - `0aaf67c` 2026-06-22 — feat(real-world): P-A — LM-guided beam decoder for long monospace mosaic text _(11 fichiers)_
 - `3bd4368` 2026-06-22 — feat(real-world): P-C — input normalization front-end for blur recovery + multi-format decode _(14 fichiers)_
+- `97cd460` 2026-06-22 — feat(real-world): P-B — Depix-style reference-matching mosaic decoder (font-supply contract) _(10 fichiers)_

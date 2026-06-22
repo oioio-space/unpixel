@@ -38,6 +38,34 @@ func TestNew_trainsFromText(t *testing.T) {
 	}
 }
 
+// TestTransitionLogProb_nonASCIIClamped verifies that non-ASCII runes in both
+// the prev and next positions are clamped to ' ' without panicking, and that
+// the result is a finite negative number (the space-transition floor).
+func TestTransitionLogProb_nonASCIIClamped(t *testing.T) {
+	m := lang.Default()
+	// '€' (U+20AC) > unicode.MaxASCII → both prev and next paths clamp to ' '.
+	got := m.TransitionLogProb('€', '€')
+	if got != got { // NaN check
+		t.Error("TransitionLogProb(non-ASCII, non-ASCII) = NaN")
+	}
+	// Must equal TransitionLogProb(' ', ' ') since both clamp to space.
+	want := m.TransitionLogProb(' ', ' ')
+	if got != want {
+		t.Errorf("TransitionLogProb(non-ASCII, non-ASCII) = %v, want %v (same as space/space)", got, want)
+	}
+
+	// Clamped prev with ASCII next must also produce a finite result.
+	ascii := m.TransitionLogProb('é', 'a')
+	if ascii != ascii {
+		t.Error("TransitionLogProb(non-ASCII prev, 'a') = NaN")
+	}
+	// Clamped next with ASCII prev.
+	ascii2 := m.TransitionLogProb('a', 'é')
+	if ascii2 != ascii2 {
+		t.Error("TransitionLogProb('a', non-ASCII next) = NaN")
+	}
+}
+
 // TestTransitionLogProb_matchesScore asserts that summing TransitionLogProb
 // over (prev,next) pairs — with ' ' as the start context — equals Score(s)×len(s),
 // i.e. TransitionLogProb emits the exact per-edge factor that Score averages.

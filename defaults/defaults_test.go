@@ -11,6 +11,7 @@ import (
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/fonts"
+	"github.com/oioio-space/unpixel/internal/deblur"
 )
 
 // TestRendererFromFonts builds a renderer from bundled font bytes and renders.
@@ -295,6 +296,50 @@ func edgeGap(img *image.RGBA) int {
 		d = -d
 	}
 	return d
+}
+
+// TestNormalize_rgbaPassthrough verifies that defaults.Normalize accepts a
+// *image.RGBA input directly (no conversion) and returns a same-sized image.
+func TestNormalize_rgbaPassthrough(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range len(src.Pix) / 4 {
+		src.Pix[i*4] = 180
+		src.Pix[i*4+1] = 180
+		src.Pix[i*4+2] = 180
+		src.Pix[i*4+3] = 255
+	}
+	got := defaults.Normalize(src, deblur.DefaultOptions())
+	if got == nil {
+		t.Fatal("Normalize returned nil for *image.RGBA input")
+	}
+	if got.Bounds().Dx() != 16 || got.Bounds().Dy() != 16 {
+		t.Errorf("Normalize(RGBA): bounds = %v, want 16×16", got.Bounds())
+	}
+}
+
+// TestNormalize_nonRGBAConversion verifies that defaults.Normalize converts a
+// non-*image.RGBA image (e.g. *image.Gray) to RGBA before processing.
+func TestNormalize_nonRGBAConversion(t *testing.T) {
+	src := image.NewGray(image.Rect(0, 0, 12, 8))
+	for i := range src.Pix {
+		src.Pix[i] = 200
+	}
+	got := defaults.Normalize(src, deblur.DefaultOptions())
+	if got == nil {
+		t.Fatal("Normalize returned nil for non-RGBA input")
+	}
+	if got.Bounds().Dx() != 12 || got.Bounds().Dy() != 8 {
+		t.Errorf("Normalize(Gray): bounds = %v, want 12×8", got.Bounds())
+	}
+	// Output must be opaque.
+	b := got.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if a := got.RGBAAt(x, y).A; a != 255 {
+				t.Fatalf("pixel (%d,%d) alpha = %d, want 255", x, y, a)
+			}
+		}
+	}
 }
 
 // TestConstructors_smoke covers the public component constructors that other

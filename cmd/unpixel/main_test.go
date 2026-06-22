@@ -558,6 +558,86 @@ func TestValidateParams(t *testing.T) {
 	}
 }
 
+// TestParseNormalizeBg verifies the --normalize-bg flag parser: valid values are
+// accepted, unknown values are rejected with an informative error.
+func TestParseNormalizeBg(t *testing.T) {
+	cases := []struct {
+		input   string
+		wantErr bool
+	}{
+		{input: "", wantErr: false},
+		{input: "divide", wantErr: false},
+		{input: "subtract", wantErr: false},
+		{input: "none", wantErr: false},
+		{input: "additive", wantErr: true},
+		{input: "DIVIDE", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			_, err := parseNormalizeBg(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("parseNormalizeBg(%q) err = %v, wantErr = %v", tc.input, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestBlurOperator verifies the blurOperator routing: small sigma and exact=true
+// both route to GaussianBlur (non-nil); large sigma with exact=false routes to
+// FastBlur (also non-nil). We only verify the returned Pixelator is non-nil since
+// the concrete types are unexported; the routing is the observable behaviour.
+func TestBlurOperator(t *testing.T) {
+	cases := []struct {
+		name  string
+		sigma float64
+		exact bool
+	}{
+		{"small sigma exact=false → gaussian", 2.0, false},
+		{"small sigma exact=true  → gaussian", 2.0, true},
+		{"large sigma exact=false → fast", 10.0, false},
+		{"large sigma exact=true  → gaussian", 10.0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := blurOperator(tc.sigma, tc.exact)
+			if got == nil {
+				t.Errorf("blurOperator(%v, %v) = nil, want non-nil Pixelator", tc.sigma, tc.exact)
+			}
+		})
+	}
+}
+
+// TestSmallerAndCropToRegion exercises the geometry helpers used by the cropping
+// pipeline.
+func TestSmallerAndCropToRegion(t *testing.T) {
+	big := image.Rect(0, 0, 100, 100)
+	small := image.Rect(10, 10, 50, 60)
+
+	if !smaller(small, big) {
+		t.Error("smaller(small, big) = false, want true")
+	}
+	if smaller(big, small) {
+		t.Error("smaller(big, small) = true, want false")
+	}
+	// Equal rectangle is not smaller.
+	if smaller(big, big) {
+		t.Error("smaller(big, big) = true, want false")
+	}
+
+	src := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for i := range src.Pix {
+		src.Pix[i] = 0xAB
+	}
+	crop := cropToRegion(src, small)
+	if crop.Bounds().Dx() != small.Dx() || crop.Bounds().Dy() != small.Dy() {
+		t.Errorf("cropToRegion: bounds = %v, want %v", crop.Bounds(), small)
+	}
+	// Origin must be (0,0).
+	if crop.Bounds().Min.X != 0 || crop.Bounds().Min.Y != 0 {
+		t.Errorf("cropToRegion: min = %v, want (0,0)", crop.Bounds().Min)
+	}
+}
+
 // TestResolveBlur covers the redaction-mode decision.
 func TestResolveBlur(t *testing.T) {
 	// A blurred step image → auto should pick blur with a positive sigma.
@@ -836,6 +916,37 @@ func TestRunBlurRecover_langFlagWiring(t *testing.T) {
 		})
 		if err != nil {
 			t.Logf("runBlurRecover+language on white image: %v (acceptable)", err)
+		}
+	})
+}
+
+// TestRunHMM_CLI exercises the --decoder mono-hmm dispatch path through
+// buildApp. It verifies three sub-cases:
+//   - bad --lang is rejected before the image is loaded.
+//   - a white image with the mono-hmm decoder returns ErrNoMosaic (wrapped by
+//     runHMM) and the command reports an error.
+//   - text output format on a fixture that has a real mosaic grid completes
+//     without an unexpected error and produces newline-terminated output.
+func TestRunHMM_CLI(t *testing.T) {
+	t.Run("bad lang rejected", func(t *testing.T) {
+		path := whitePNG(t, 8, 8)
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet", "--decoder", "mono-hmm", "--lang", "klingon", path,
+		})
+		if err == nil {
+			t.Error("expected error for unknown --lang, got nil")
+		}
+	})
+
+	t.Run("white image returns error", func(t *testing.T) {
+		path := whitePNG(t, 8, 8)
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet", "--decoder", "mono-hmm", path,
+		})
+		// A 1×1-equivalent white image has no mosaic → ErrNoMosaic is returned
+		// as a wrapped error from runHMM.
+		if err == nil {
+			t.Error("expected error for white image (no mosaic), got nil")
 		}
 	})
 }

@@ -248,6 +248,34 @@ func TestDecodeHMM_Errors(t *testing.T) {
 	}
 }
 
+// TestDecodeHMM_WithFontFileBold verifies that WithFontFileBold is applied when
+// WithFontFile is also set: supplying the same font bytes for both regular and
+// bold must not cause an error, and the decoder must produce a non-empty result
+// on a valid mosaic. (WithFontFileBold has no effect without WithFontFile.)
+func TestDecodeHMM_WithFontFileBold(t *testing.T) {
+	f := monoFont(t, "Liberation Mono")
+	const (
+		text  = "hello"
+		fs    = 32.0
+		block = 4
+		n     = 5
+	)
+	img := syntheticMosaic(t, text, f.Data, fs, block, true)
+	res, err := mosaictext.DecodeHMM(t.Context(), img,
+		mosaictext.WithFontFile(f.Data),
+		mosaictext.WithFontFileBold(f.Data), // same bytes for both faces
+		mosaictext.WithFontSize(fs),
+		mosaictext.WithCharCount(n),
+		mosaictext.WithCharset(mosaictext.DefaultHMMCharset),
+	)
+	if err != nil {
+		t.Fatalf("DecodeHMM with WithFontFileBold: %v", err)
+	}
+	if res.Text != text {
+		t.Errorf("DecodeHMM = %q, want %q", res.Text, text)
+	}
+}
+
 var sinkHMMResult mosaictext.Result // defeats dead-code elimination
 
 // BenchmarkDecodeHMM measures the full DecodeHMM pipeline on a self-consistent

@@ -59,6 +59,21 @@ func TestGaussianBlur_sigmaAccessor(t *testing.T) {
 	}
 }
 
+// TestNewFastBlur_sigmaClamped verifies that a sigma below the minimum (0.1) is
+// clamped to 0.1, exercising the guard branch in NewFastBlur.
+func TestNewFastBlur_sigmaClamped(t *testing.T) {
+	cases := []float64{0, -1, 0.05, 0.09}
+	for _, sigma := range cases {
+		fb := pixelate.NewFastBlur(sigma)
+		if fb == nil {
+			t.Fatalf("NewFastBlur(%v) = nil, want non-nil", sigma)
+		}
+		if got := fb.Sigma(); got < 0.1 {
+			t.Errorf("NewFastBlur(%v).Sigma() = %v, want ≥ 0.1 (clamped)", sigma, got)
+		}
+	}
+}
+
 // TestFastBlur_blursAndPreservesBounds checks the box approximation keeps the
 // image size, spreads a bright pixel, and reports its sigma.
 func TestFastBlur_blursAndPreservesBounds(t *testing.T) {

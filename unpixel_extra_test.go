@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/deblur"
 )
 
 // TestOnProgress_deliversAllEvents verifies that OnProgress calls fn for every
@@ -246,4 +247,90 @@ func (s *spyStrategy) Search(
 	s.cfg = &cfg
 	s.mu.Unlock()
 	out <- unpixel.Progress{Kind: unpixel.EventDone, Done: true}
+}
+
+// stubMetric is a no-op Metric for option-wiring tests.
+type stubMetric struct{}
+
+func (stubMetric) Compare(_, _ *image.RGBA) float64 { return 0 }
+
+// TestWithMetric verifies that WithMetric sets Config.Metric.
+func TestWithMetric(t *testing.T) {
+	var cfg unpixel.Config
+	m := stubMetric{}
+	unpixel.WithMetric(m)(&cfg)
+	if cfg.Metric == nil {
+		t.Fatal("WithMetric: Config.Metric is nil, want non-nil")
+	}
+}
+
+// TestWithCharsetTopK verifies that WithCharsetTopK sets Config.CharsetTopK.
+func TestWithCharsetTopK(t *testing.T) {
+	cases := []struct {
+		k    int
+		want int
+	}{
+		{k: 5, want: 5},
+		{k: 0, want: 0},
+		{k: -1, want: -1},
+	}
+	for _, tc := range cases {
+		var cfg unpixel.Config
+		unpixel.WithCharsetTopK(tc.k)(&cfg)
+		if cfg.CharsetTopK != tc.want {
+			t.Errorf("WithCharsetTopK(%d): CharsetTopK = %d, want %d", tc.k, cfg.CharsetTopK, tc.want)
+		}
+	}
+}
+
+// TestWithBeamWidth verifies that WithBeamWidth sets Config.BeamWidth.
+func TestWithBeamWidth(t *testing.T) {
+	cases := []struct {
+		width int
+		want  int
+	}{
+		{width: 8, want: 8},
+		{width: 0, want: 0},
+		{width: 32, want: 32},
+	}
+	for _, tc := range cases {
+		var cfg unpixel.Config
+		unpixel.WithBeamWidth(tc.width)(&cfg)
+		if cfg.BeamWidth != tc.want {
+			t.Errorf("WithBeamWidth(%d): BeamWidth = %d, want %d", tc.width, cfg.BeamWidth, tc.want)
+		}
+	}
+}
+
+// TestWithNormalize_noArgsPanicsNot verifies that WithNormalize() with no
+// arguments applies without panicking and that successive calls compose
+// (each call re-applies defaults, last write wins). The normalize field is
+// unexported, so the observable effect is that RecoverBlurred sets
+// Result.Normalized; here we only verify the option chain runs without error.
+func TestWithNormalize_noArgsPanicsNot(t *testing.T) {
+	var cfg unpixel.Config
+	// Two back-to-back calls must not panic.
+	unpixel.WithNormalize()(&cfg)
+	unpixel.WithNormalize()(&cfg)
+}
+
+// TestWithNormalize_customFnApplied verifies that the mutator functions passed
+// to WithNormalize are invoked. We confirm this by observing that a nil-fn
+// value in the variadic list is a non-crash (deblur.DefaultOptions is called
+// first, then the fns are applied in order). The unexported field is not
+// directly inspectable from an external test; we instead verify that applying
+// a mutator that references deblur.BgSubtract does not panic.
+func TestWithNormalize_customFnApplied(t *testing.T) {
+	mutatorCalled := false
+	var cfg unpixel.Config
+	unpixel.WithNormalize(
+		func(o *deblur.Options) {
+			o.Bg = deblur.BgSubtract
+			mutatorCalled = true
+		},
+		func(o *deblur.Options) { o.Stretch = true },
+	)(&cfg)
+	if !mutatorCalled {
+		t.Error("WithNormalize: mutator function was not called")
+	}
 }

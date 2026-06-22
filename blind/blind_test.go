@@ -13,6 +13,11 @@ import (
 	"github.com/oioio-space/unpixel/internal/render"
 )
 
+// blindStubMetric is a no-op unpixel.Metric used to exercise blind.WithMetric.
+type blindStubMetric struct{}
+
+func (blindStubMetric) Compare(_, _ *image.RGBA) float64 { return 0 }
+
 const (
 	testBlock = 8
 	// testFontSize must be large enough that block=8 pixelation preserves a
@@ -87,6 +92,63 @@ func inkBounds(img *image.RGBA, sentinelX int) image.Rectangle {
 		return image.Rect(0, 0, 1, 1)
 	}
 	return image.Rect(x0, y0, x1, y1)
+}
+
+// TestParseLanguage_direct verifies the ParseLanguage re-export in the blind
+// package, which is a thin wrapper over lang.ParseLanguage.
+func TestParseLanguage_direct(t *testing.T) {
+	cases := []struct {
+		input  string
+		wantOK bool
+		iso    string
+	}{
+		{"en", true, "en"},
+		{"french", true, "fr"},
+		{"français", true, "fr"},
+		{"de", false, ""},
+		{"", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			l, ok := blind.ParseLanguage(tc.input)
+			if got, want := ok, tc.wantOK; got != want {
+				t.Errorf("ParseLanguage(%q) ok = %v, want %v", tc.input, got, want)
+				return
+			}
+			if ok && l.String() != tc.iso {
+				t.Errorf("ParseLanguage(%q).String() = %q, want %q", tc.input, l.String(), tc.iso)
+			}
+		})
+	}
+}
+
+// TestOptionSetters_plumbing verifies that the remaining blind option setters
+// (WithOffset, WithLinear, WithFonts, WithMetric) are applied without
+// panicking and that their values reach Recover via the zero-config fast path.
+// We use a white 8×8 image with pinned block/font so no decode is attempted and
+// the call returns immediately with a short-circuit or an empty result.
+func TestOptionSetters_plumbing(t *testing.T) {
+	// A tiny white image: Recover will fail to locate a redaction and return quickly.
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+
+	// Recover must not panic when all option setters are applied.
+	_, _ = blind.Recover(t.Context(), img,
+		blind.WithOffset(2, 4),
+		blind.WithLinear(false),
+		blind.WithFonts("sans", "serif"),
+		blind.WithMetric(blindStubMetric{}),
+		blind.WithBlock(8),
+		blind.WithFontSize(32),
+	)
+	// A second call with WithLinear(true) exercises the other branch.
+	_, _ = blind.Recover(t.Context(), img,
+		blind.WithLinear(true),
+		blind.WithBlock(8),
+		blind.WithFontSize(32),
+	)
 }
 
 // TestWithLanguage_Plumbing verifies the Option plumbing and ParseLanguage

@@ -47,6 +47,23 @@ func TestRedact_deterministic(t *testing.T) {
 	}
 }
 
+// TestFile_returnsPNGName verifies that File() appends ".png" to the spec Name.
+func TestFile_returnsPNGName(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"block08_go", "block08_go.png"},
+		{"bold_go", "bold_go.png"},
+	}
+	for _, tc := range cases {
+		s := Spec{Name: tc.name}
+		if got := s.File(); got != tc.want {
+			t.Errorf("Spec{Name:%q}.File() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestRedact_allSpecsProduceImages confirms every spec renders a non-empty image.
 func TestRedact_allSpecsProduceImages(t *testing.T) {
 	for _, s := range Matrix() {
