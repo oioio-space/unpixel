@@ -13,3 +13,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | 2026-06-21 | `v0.7.0` | 17/17 (100%) | 1 | 1 | 1505 | P7 input robustness: frequency-weighted FR prior + auto median denoise |
 | 2026-06-22 | `v0.8.0` | 17/17 (100%) | 1 | 1 | 1495 | P7.3 zero-config blur recovery (RecoverBlurred: adaptive σ-search + LM-blended beam) |
 | 2026-06-22 | `perf-aa-skip` | 17/17 (100%) | 1 | 1 | 919 | mosaic AA-skip metric + auto-select in Wire |
+| 2026-06-22 | `v0.8.1` | 17/17 (100%) | 1 | 1 | 929 | perf: mosaic AA-skip metric + scorer stage caches (~35% faster, bit-identical) |

@@ -4,11 +4,13 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.8.0** published — mosaic and Gaussian-blur recovery, zero-config
+> **Status:** **v0.8.1** published — mosaic and Gaussian-blur recovery, zero-config
 > auto-detection (block size / blur σ / region / font), **blind bilingual (FR/EN) text recovery**,
 > **zero-config blur recovery** (`RecoverBlurred`: auto σ-search + language-prior beam),
 > **noise-robust recovery (auto median denoise) and a frequency-weighted French language prior**,
-> **monospace mosaic decoder** (`mosaictext`), and real GIMP sample corpus; ~86% test coverage, all gates green.
+> **monospace mosaic decoder** (`mosaictext`), **~35% faster mosaic recovery** (mosaic AA-skip
+> metric + scorer stage caches, bit-identical results), and real GIMP sample corpus; ~85% test
+> coverage, all gates green.
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
 > delta vs the original Bishop Fox unredacter.
 

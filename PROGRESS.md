@@ -511,7 +511,9 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
   **v0.6.0** (décodage aveugle bilingue FR/EN + paquet `mosaictext` zéro-config + samples réels
   organisés sous `testdata/real`), **v0.7.0** (robustesse entrées : prior FR pondéré par fréquence +
   débruitage médian auto-détecté zéro-config + flag `--denoise`), **v0.8.0** (récupération flou
-  zéro-config P7.3 : `RecoverBlurred` σ-search adaptatif + beam à prior de langue intégré au tri)
+  zéro-config P7.3 : `RecoverBlurred` σ-search adaptatif + beam à prior de langue intégré au tri),
+  **v0.8.1** (perf : ~35 % plus rapide — métrique mosaic AA-skip auto-sélectionnée + caches d'étape
+  du scorer, résultats bit-identiques, zéro perte de qualité)
   publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
@@ -646,3 +648,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `9188ba9` 2026-06-21 — feat(blind): zero-config auto-denoise + --denoise flag (v0.7.0) _(15 fichiers)_
 - `6778128` 2026-06-22 — feat(blur): P7.3 zero-config blur recovery — σ-search + LM-blended beam _(28 fichiers)_
 - `5c3c925` 2026-06-22 — perf(search): cache prevGuess stage + BlueMargin + redacted crop (bit-identical) _(4 fichiers)_
+- `fe633fe` 2026-06-22 — test(coverage): cover empty-image guard + default constructors _(2 fichiers)_
