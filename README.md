@@ -301,6 +301,38 @@ unpixel --decoder mono-hmm --lang en --font Consolas.ttf image.png   # supply a 
 
 **Key limitation:** Recovery quality is bounded by **font fidelity**. On synthetic mosaics in bundled fonts (Liberation, JetBrains Mono, Noto Sans Mono, etc.), the decoder recovers full-length sequences. On real captures where the exact font is not bundled, the decode is partial or incorrect. **Mitigation**: supply the exact font via `--font` (path to a TTF/OTF). When the font is known, this is expected to recover most real monospace redactions. Note: an exact global-MAP Viterbi variant was attempted and rejected — the per-cell emissions are not independent (block-boundary averaging couples adjacent cells), so the bigram lookahead overwhelms the emission signal even at tuned temperatures; the beam search avoids this by scoring each cell against the already-committed context.
 
+### Reference-matching mosaic decoder (arbitrary content + proportional fonts)
+
+For **arbitrary text** (passwords, source code, random strings) and **proportional-width fonts**, the `mosaictext` package offers a **Depix-style reference-matching decoder** that does not assume language structure. It renders per-glyph references in candidate fonts, pixelates them with the target's block grid, and greedily matches block columns left-to-right:
+
+```go
+text, err := mosaictext.DecodeReference(ctx, img,
+	mosaictext.WithRefCharset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"),
+	mosaictext.WithRefFont("Liberation Sans"), // pins a bundled font; omit to sweep all bundled fonts
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(text)
+```
+
+On the command line, use `--decoder ref-match` to activate it:
+
+```bash
+unpixel --decoder ref-match image.png                                  # auto-detect font
+unpixel --decoder ref-match --font "Liberation Sans" image.png         # pin the font
+unpixel --decoder ref-match --font Arial.ttf image.png                 # supply a custom TTF/OTF
+unpixel --decoder ref-match --charset "0-9A-Z" image.png               # narrow the charset
+```
+
+**API**: `mosaictext.DecodeReference(ctx, img, opts...)` with options `WithRefCharset` (default: all printable ASCII), `WithRefFont` (bundled font by name), `WithRefFontFile`/`WithRefFontFileBold` (caller-supplied TTF/OTF bytes), `WithRefLinear` (tri-state: auto/sRGB/linear-light block averaging).
+
+**Why it matters:** Unlike the LM-guided decoder (which assumes character bigrams), reference-matching makes no language assumption, so it recovers **arbitrary secrets** (passwords, codes, random strings) exactly when the font is known. It also works on **proportional fonts** (not just monospace), expanding beyond code-like content. On self-consistent synthetic fixtures (e.g., "Pa55w0rd!" in Liberation Sans proportional, "X7kQ2mR9" in Liberation Mono), the decoder recovers the text exactly (distance near-zero).
+
+**Font contract:** When you supply a font via `--font` (path to TTF/OTF) or `WithRefFontFile`, that font is used exclusively and the bundled sweep is skipped — this is the **primary mitigation** for real-world images. When no font is specified, the decoder sweeps all bundled fonts (Liberation, Carlito, Caladea, Source Code Pro, etc.) in both sRGB and linear-light modes, keeping the result with the lowest whole-image block distance.
+
+**Key limitation:** Like all generate-and-test approaches, recovery is bounded by **font fidelity**. On real images where the exact font is not bundled (e.g., Notepad/Sublime screenshots), the bundled-sweep decode is incorrect. The exact-font path (`--font yourfont.ttf` or `WithRefFontFile`) is the technique's strength and is expected to recover redactions when the font is known.
+
 Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
@@ -325,6 +357,8 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | **`mosaictext.Decode(ctx, image.Image, ...Option) (string, error)`** | **Zero-config monospace mosaic decoder (auto grid inference + character recognition)** |
 | **`mosaictext.DecodeHMM(ctx, image.Image, ...Option) (string, error)`** | **LM-guided beam decoder for long monospace mosaic text; fuses bigram language model into search objective; polynomial in length, breaks charset^len barrier; font-limited on out-of-bundle typefaces** |
 | **`mosaictext.With*` options (`WithLanguage`, `WithCharset`, `WithEmissionTemperature`, `WithFont`, `WithFontFile`, `WithFontFileBold`)** | **Configure DecodeHMM font/language/charset/tuning** |
+| **`mosaictext.DecodeReference(ctx, image.Image, ...RefOption) (Result, error)`** | **Reference-matching decoder: recovers arbitrary content (passwords, code, random strings) from mosaics via per-glyph reference matching; no language assumption; exact on self-consistent fixtures when font is known; works on proportional fonts** |
+| **`mosaictext.WithRef*` options (`WithRefCharset`, `WithRefFont`, `WithRefFontFile`, `WithRefFontFileBold`, `WithRefLinear`)** | **Configure DecodeReference font/charset/color-space selection** |
 
 ## Configuration
 

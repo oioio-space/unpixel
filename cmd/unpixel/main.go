@@ -210,9 +210,9 @@ func validateParams(p flagParams) error {
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	switch p.decoder {
-	case "", "default", "mono-hmm": // "" is equivalent to "default" (zero value of flagParams)
+	case "", "default", "mono-hmm", "ref-match": // "" is equivalent to "default"
 	default:
-		return fmt.Errorf("--decoder must be %q or %q, got %q", "default", "mono-hmm", p.decoder)
+		return fmt.Errorf("--decoder must be %q, %q, or %q, got %q", "default", "mono-hmm", "ref-match", p.decoder)
 	}
 	return nil
 }
@@ -915,6 +915,100 @@ func runHMM(ctx context.Context, imgPath string, p flagParams) error {
 	return nil
 }
 
+// runRefMatch runs the reference-matching decoder (mosaictext.DecodeReference)
+// when --decoder ref-match is set. It reuses --charset, --font, --font-bold,
+// --quiet, and --format from the standard flags. Block size is auto-inferred
+// by DecodeReference from the image.
+func runRefMatch(ctx context.Context, imgPath string, p flagParams) error {
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	charset := p.charset
+	if charset == "" {
+		charset = mosaictext.DefaultRefCharset
+	}
+
+	opts := []mosaictext.RefOption{
+		mosaictext.WithRefCharset(charset),
+	}
+
+	// Font selection: path on disk → WithRefFontFile; bundled name → WithRefFont.
+	fontSource := "bundled sweep"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		switch {
+		case readErr == nil:
+			opts = append(opts, mosaictext.WithRefFontFile(data))
+			fontSource = "file:" + filepath.Base(fontPath)
+			if p.fontBoldPath != "" {
+				boldData, boldErr := os.ReadFile(p.fontBoldPath) // #nosec G304 -- user-supplied path
+				if boldErr != nil {
+					return fmt.Errorf("--font-bold: %w", boldErr)
+				}
+				opts = append(opts, mosaictext.WithRefFontFileBold(boldData))
+			}
+		case os.IsNotExist(readErr):
+			opts = append(opts, mosaictext.WithRefFont(fontPath))
+			fontSource = "bundled:" + fontPath
+		default:
+			return fmt.Errorf("--font: %w", readErr)
+		}
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: ref-match (charset=%d chars font=%s)\n",
+			len([]rune(charset)), fontSource)
+	}
+
+	res, err := mosaictext.DecodeReference(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodeReference: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Font: %s  linear: %v  block: %d  N: %d  dist: %.4f\n",
+			res.Font, res.Linear, res.BlockSize, res.CharCount, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess  string  `json:"best_guess"`
+			Font       string  `json:"font,omitempty"`
+			Linear     bool    `json:"linear"`
+			BlockSize  int     `json:"block_size"`
+			CharCount  int     `json:"char_count"`
+			GridPhaseX int     `json:"grid_phase_x"`
+			Distance   float64 `json:"distance"`
+		}{
+			BestGuess:  res.Text,
+			Font:       res.Font,
+			Linear:     res.Linear,
+			BlockSize:  res.BlockSize,
+			CharCount:  res.CharCount,
+			GridPhaseX: res.GridPhaseX,
+			Distance:   res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -1030,7 +1124,7 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "decoder",
-				Usage: `decoder backend: "default" (guided DFS / beam) or "mono-hmm" (analytic HMM beam for monospace mosaics)`,
+				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace mosaics), or "ref-match" (pixel-exact reference matching for known fonts)`,
 				Value: "default",
 			},
 			&cli.BoolFlag{
@@ -1191,8 +1285,11 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if p.blind {
 		return runBlind(ctx, imgPath, p)
 	}
-	if p.decoder == "mono-hmm" {
+	switch p.decoder {
+	case "mono-hmm":
 		return runHMM(ctx, imgPath, p)
+	case "ref-match":
+		return runRefMatch(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {

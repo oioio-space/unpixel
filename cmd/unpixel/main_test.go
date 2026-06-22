@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/mosaictext"
 )
 
 // TestBuildConfig verifies that buildConfig maps flag values to unpixel.Config
@@ -834,6 +836,63 @@ func TestRunBlurRecover_langFlagWiring(t *testing.T) {
 		})
 		if err != nil {
 			t.Logf("runBlurRecover+language on white image: %v (acceptable)", err)
+		}
+	})
+}
+
+// TestRunRefMatch_CLI exercises the --decoder ref-match dispatch path through
+// buildApp, including charset defaulting, font-name wiring, and both text and
+// JSON output formats. It uses the bundled block08_go.png fixture so no render
+// dependency is needed; the exact decoded text is not asserted — the test only
+// verifies the command completes without an unexpected error and produces output.
+func TestRunRefMatch_CLI(t *testing.T) {
+	// Use a fixture that has a real block-8 mosaic grid so DecodeReference can
+	// infer the block size and return a result (rather than ErrNoMosaic).
+	fixture := filepath.Join("..", "..", "testdata", "fixtures", "block08_go.png")
+	if _, statErr := os.Stat(fixture); statErr != nil {
+		t.Skipf("fixture not found: %v", statErr)
+	}
+
+	t.Run("text output", func(t *testing.T) {
+		out := captureStdout(t, func() {
+			err := buildApp().Run(t.Context(), []string{
+				"unpixel", "--quiet",
+				"--decoder", "ref-match",
+				"--charset", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+				"--font", "Liberation Mono",
+				fixture,
+			})
+			// ErrNoContent is acceptable (font mismatch); anything else is a bug.
+			if err != nil && !errors.Is(err, mosaictext.ErrNoContent) {
+				t.Errorf("runRefMatch text: unexpected error: %v", err)
+			}
+		})
+		// Output must end with a newline when text is recovered.
+		if len(out) > 0 && out[len(out)-1] != '\n' {
+			t.Errorf("text output should end with newline, got %q", out)
+		}
+	})
+
+	t.Run("json output", func(t *testing.T) {
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = buildApp().Run(t.Context(), []string{
+				"unpixel", "--quiet",
+				"--decoder", "ref-match",
+				"--format", "json",
+				"--charset", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+				"--font", "Liberation Mono",
+				fixture,
+			})
+		})
+		if runErr != nil {
+			t.Logf("runRefMatch json: %v (acceptable)", runErr)
+			return
+		}
+		// If no error, output must be valid JSON.
+		var v map[string]any
+		if jsonErr := json.Unmarshal([]byte(out), &v); jsonErr != nil {
+			t.Errorf("json output is not valid JSON: %v\nout=%q", jsonErr, out)
 		}
 	})
 }
