@@ -397,7 +397,7 @@ renderer (deferred — it would require a Chrome binary at runtime/CI). Details 
 
 </details>
 
-<details><summary>Real-world images: known limitations and roadmap</summary>
+<details><summary>Real-world images: input normalization, known limitations and roadmap</summary>
 
 UnPixel recovers synthetic mosaics and Gaussian blurs accurately with the right font and parameters.
 Real internet images (screenshots, GIMP-rendered redactions, etc.) remain challenging. Zero-config
@@ -413,11 +413,25 @@ assumptions; it struggles when:
   resampling) can still confuse it.
 - **Real blur is not Gaussian:** internet JPEG blur is often motion or defocus, not clean Gaussian,
   so the score stays above threshold and recovery returns no candidate.
+- **Textured / vignette / dark backgrounds:** real captures often have a non-white background or
+  dark-theme rendering that breaks the σ-search's clean-Gaussian-on-flat-white assumption. **Input
+  normalization** (opt-in `--normalize` or `unpixel.WithNormalize(...)`) preprocesses the image via
+  grayscale morphological background estimation, removing additive/multiplicative background and
+  auto-inverting dark themes, so the redaction matches the model assumptions. Validated on synthetic
+  fixtures with textured/vignette/dark/JPEG blocking; on real images it restores the assumption
+  but **does not by itself recover the text** — font fidelity (P-B / `--font`) and deblurring (P-C)
+  remain the blocking factors. **Design insight:** normalization is the lever, not deconvolution —
+  sharpening the input (Wiener/blind L0 deconvolution) fights the generate-and-test loop, so P-C
+  normalizes the input and feeds the existing σ-search unchanged. Wiener/blind L0 are deferred for
+  future investigation.
+
+**Multi-format input support:** the CLI now decodes JPEG, GIF, WebP, BMP, and TIFF in addition to
+PNG (via `image` package registration), so real-world `.jpg`/`.jpeg`/`.webp` captures load cleanly.
 
 **Roadmap** ([`PROGRESS.md`](PROGRESS.md) § P5–P7): phased pure-Go extensions — HMM/Viterbi mosaic
-decoder (P-A), Depix-style reference-matching with self-synthesized fonts (P-B), blind deconvolution
-for real blur (P-C), and foundation work (P-D: robust auto-detect, best-effort surfacing). All
-opt-in, benchmarked, zero regressions on synthetic corpus.
+decoder (P-A, delivered), Depix-style reference-matching with self-synthesized fonts (P-B),
+input normalization for blur recovery (P-C, delivered), and foundation work (P-D: robust auto-detect,
+best-effort surfacing). All opt-in, benchmarked, zero regressions on synthetic corpus.
 
 </details>
 

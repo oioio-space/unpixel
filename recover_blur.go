@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/oioio-space/unpixel/internal/deblur"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
@@ -95,6 +96,22 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	// leave cfg.Strategy nil after application, no override was given.
 	opts = blurWithBeamDefault(opts)
 
+	// Input normalisation (opt-in via WithNormalize). Probe the opts to check
+	// whether the caller passed WithNormalize; if so, apply it to the image
+	// before σ estimation and the search. This does NOT affect the default path:
+	// a nil normalize field leaves img untouched and Result.Normalized = false.
+	var normalized bool
+	{
+		var probe Config
+		for _, o := range opts {
+			o(&probe)
+		}
+		if probe.normalize != nil {
+			img = deblur.Normalize(toRGBA(img), *probe.normalize)
+			normalized = true
+		}
+	}
+
 	σ0 := InferBlurSigma(img)
 
 	// Fast path: try σ₀ first with full parallelism.
@@ -106,6 +123,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 		} else if ctx.Err() == nil && res.BestGuess != "" && res.BestTotal < blurAcceptThreshold {
 			// Early-accept: σ₀ is good — no sweep needed.
 			res.BlurSigma = σ0
+			res.Normalized = normalized
 			return res, nil
 		}
 	}
@@ -119,6 +137,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	}
 	if ctx.Err() != nil {
 		bestResult.BlurSigma = bestSigma
+		bestResult.Normalized = normalized
 		return bestResult, nil
 	}
 
@@ -137,6 +156,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	}
 
 	bestResult.BlurSigma = bestSigma
+	bestResult.Normalized = normalized
 	return bestResult, nil
 }
 

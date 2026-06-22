@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
+	_ "image/gif"  // register GIF decoding for animated/static .gif inputs
+	_ "image/jpeg" // register JPEG decoding for .jpg/.jpeg inputs (common for real captures)
 	_ "image/png"
 	"io"
 	"os"
@@ -33,12 +35,16 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v3"
+	_ "golang.org/x/image/bmp"  // register BMP decoding
+	_ "golang.org/x/image/tiff" // register TIFF decoding
+	_ "golang.org/x/image/webp" // register WebP decoding
 	"golang.org/x/term"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/blind"            // blind recovery API (P6.6)
 	"github.com/oioio-space/unpixel/defaults"         // named: strategy/metric constructors; init() still wires defaults
 	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
+	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
 	"github.com/oioio-space/unpixel/mosaictext"       // analytic HMM decoder (mono-hmm)
@@ -95,6 +101,10 @@ type flagParams struct {
 	lang            string
 	denoise         int
 	decoder         string // "default" or "mono-hmm"
+	normalize       bool
+	normalizeBg     string // "divide", "subtract", "none"
+	normalizeBin    bool
+	deblock         int
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -685,14 +695,31 @@ func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpi
 		fmt.Fprintln(os.Stderr, "Redaction: blur (σ auto-search via RecoverBlurred)")
 	}
 
-	res, err := unpixel.RecoverBlurred(ctx, img, unpixel.WithConfig(cfg))
+	blurOpts := []unpixel.Option{unpixel.WithConfig(cfg)}
+	if p.normalize {
+		bg, err := parseNormalizeBg(p.normalizeBg)
+		if err != nil {
+			return err
+		}
+		blurOpts = append(blurOpts, unpixel.WithNormalize(func(o *deblur.Options) {
+			o.Bg = bg
+			o.Binarize = p.normalizeBin
+			o.Deblock = p.deblock
+		}))
+		if !p.quiet {
+			fmt.Fprintf(os.Stderr, "Normalising input (bg=%s deblock=%d binarize=%v)\n",
+				p.normalizeBg, p.deblock, p.normalizeBin)
+		}
+	}
+
+	res, err := unpixel.RecoverBlurred(ctx, img, blurOpts...)
 	if err != nil {
 		return fmt.Errorf("RecoverBlurred: %w", err)
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "Blur σ chosen: %.2f  best: %q  total: %.4f\n",
-			res.BlurSigma, res.BestGuess, res.BestTotal)
+		fmt.Fprintf(os.Stderr, "Blur σ chosen: %.2f  best: %q  total: %.4f  normalized: %v\n",
+			res.BlurSigma, res.BestGuess, res.BestTotal, res.Normalized)
 	}
 
 	best := resultToRecovery(res, "")
@@ -707,6 +734,20 @@ func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpi
 		printText(best, p.quiet || !isTTY(os.Stderr))
 	}
 	return nil
+}
+
+// parseNormalizeBg converts the --normalize-bg flag string to a deblur.BgModel.
+func parseNormalizeBg(s string) (deblur.BgModel, error) {
+	switch s {
+	case "", "divide":
+		return deblur.BgDivide, nil
+	case "subtract":
+		return deblur.BgSubtract, nil
+	case "none":
+		return deblur.BgNone, nil
+	default:
+		return deblur.BgDivide, fmt.Errorf("--normalize-bg: unknown model %q (valid: divide, subtract, none)", s)
+	}
 }
 
 // runBlind runs the blind-recovery pipeline (P6.6) when --blind is set.
@@ -1020,6 +1061,24 @@ Examples:
 				Value: 0,
 			},
 			&cli.BoolFlag{
+				Name:  "normalize",
+				Usage: "apply input normalisation before blur recovery (recommended for real captures with textured/vignette backgrounds, dark themes, or JPEG blocking)",
+			},
+			&cli.StringFlag{
+				Name:  "normalize-bg",
+				Usage: `background-removal model for --normalize: "divide" (multiplicative vignette, default), "subtract" (additive offset), or "none" (skip)`,
+				Value: "divide",
+			},
+			&cli.BoolFlag{
+				Name:  "normalize-binarize",
+				Usage: "binarise the normalised image (threshold at mean luminance); useful for very noisy captures",
+			},
+			&cli.IntFlag{
+				Name:  "deblock",
+				Usage: "median-filter radius applied during --normalize to suppress JPEG blocking (0 = off, -1 = auto, positive = forced radius)",
+				Value: -1,
+			},
+			&cli.BoolFlag{
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
 			},
@@ -1119,6 +1178,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		lang:            cmd.String("lang"),
 		denoise:         cmd.Int("denoise"),
 		decoder:         cmd.String("decoder"),
+		normalize:       cmd.Bool("normalize"),
+		normalizeBg:     cmd.String("normalize-bg"),
+		normalizeBin:    cmd.Bool("normalize-binarize"),
+		deblock:         cmd.Int("deblock"),
 	}
 
 	if err := validateParams(p); err != nil {

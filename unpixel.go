@@ -44,6 +44,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/oioio-space/unpixel/internal/deblur"
 )
 
 // Renderer renders candidate text to an RGBA image, placing a blue sentinel
@@ -176,6 +178,11 @@ type Config struct {
 	// fully sequential execution. Results are merged deterministically regardless
 	// of Workers, so this affects throughput only, never the output.
 	Workers int
+
+	// normalize, when non-nil, enables input normalisation before blur recovery.
+	// Set via WithNormalize; never set directly (unexported so external struct
+	// literals cannot accidentally include it, keeping the zero Config clean).
+	normalize *deblur.Options
 }
 
 // Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
@@ -296,6 +303,11 @@ type Result struct {
 	// having passed the acceptance gate; check the per-offset BelowThreshold
 	// field individually.
 	BelowThreshold bool
+	// Normalized is true when RecoverBlurred applied input normalisation
+	// (via WithNormalize) before the σ-search. It is always false for other
+	// recovery paths (Recover, mosaic, etc.) and when WithNormalize was not
+	// passed. Use it to confirm the normalisation step was active.
+	Normalized bool
 }
 
 // String returns a one-line human-readable summary of the result: the best
@@ -1331,6 +1343,33 @@ func WithCharsetTopK(k int) Option { return func(c *Config) { c.CharsetTopK = k 
 // BeamStrategy). Values ≤ 0 defer to DefaultBeamWidth. Only BeamStrategy reads
 // this field; other strategies ignore it.
 func WithBeamWidth(width int) Option { return func(c *Config) { c.BeamWidth = width } }
+
+// WithNormalize enables input normalisation before blur recovery. It is opt-in
+// and only affects RecoverBlurred; Recover and the mosaic path are unchanged.
+//
+// When called with no arguments, sensible defaults are used:
+//   - BgDivide: divide out a multiplicative illumination estimate (vignette).
+//   - InvertAuto: invert when the image is predominantly dark (dark-theme support).
+//   - Stretch: false — enable a 1st/99th-percentile contrast stretch with
+//     o.Stretch = true.
+//   - Deblock: 0 (off) — set to -1 (auto) or a positive radius to median-filter
+//     JPEG blocking.
+//   - Binarize: false.
+//
+// Pass [deblur.Options] values to customise individual steps, e.g.:
+//
+//	unpixel.WithNormalize(func(o *deblur.Options) { o.Deblock = 2 })
+//
+// Result.Normalized is set to true when normalisation was applied.
+func WithNormalize(fns ...func(*deblur.Options)) Option {
+	return func(c *Config) {
+		opts := deblur.DefaultOptions()
+		for _, fn := range fns {
+			fn(&opts)
+		}
+		c.normalize = &opts
+	}
+}
 
 // WithPriors composes one or more plausibility priors into Config.LanguageModel.
 // Each prior is a function from candidate string to a non-negative log-space

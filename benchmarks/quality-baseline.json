@@ -8,7 +8,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 129,
-      "elapsed_ms": 68.641
+      "elapsed_ms": 63.166
     },
     {
       "name": "block08_go",
@@ -18,7 +18,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 30,
-      "elapsed_ms": 40.178
+      "elapsed_ms": 37.71
     },
     {
       "name": "block16_go",
@@ -28,7 +28,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 13,
-      "elapsed_ms": 55.15
+      "elapsed_ms": 52.381
     },
     {
       "name": "size24_go",
@@ -38,7 +38,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 16,
-      "elapsed_ms": 21.487
+      "elapsed_ms": 19.163
     },
     {
       "name": "size40_go",
@@ -48,7 +48,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 39,
-      "elapsed_ms": 53.569
+      "elapsed_ms": 52.232
     },
     {
       "name": "bold_go",
@@ -58,7 +58,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 13,
-      "elapsed_ms": 30.817
+      "elapsed_ms": 30.74
     },
     {
       "name": "alnum_Go2",
@@ -68,7 +68,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 28,
-      "elapsed_ms": 21.642
+      "elapsed_ms": 21.84
     },
     {
       "name": "symbols_x_eq_1",
@@ -78,7 +78,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 138,
-      "elapsed_ms": 52.813
+      "elapsed_ms": 51.149
     },
     {
       "name": "pad_04_04_go",
@@ -88,7 +88,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 28,
-      "elapsed_ms": 35.061
+      "elapsed_ms": 31.62
     },
     {
       "name": "pad_12_12_go",
@@ -98,7 +98,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 174,
-      "elapsed_ms": 89.08
+      "elapsed_ms": 85.447
     },
     {
       "name": "text_single_x",
@@ -108,7 +108,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 3,
-      "elapsed_ms": 28.262
+      "elapsed_ms": 27.733
     },
     {
       "name": "text_cat",
@@ -118,7 +118,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 79,
-      "elapsed_ms": 68.06
+      "elapsed_ms": 64.54
     },
     {
       "name": "text_with_space",
@@ -128,7 +128,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 40,
-      "elapsed_ms": 13.733
+      "elapsed_ms": 13.049
     },
     {
       "name": "text_hello",
@@ -138,7 +138,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 264,
-      "elapsed_ms": 117.933
+      "elapsed_ms": 115.997
     },
     {
       "name": "secret_admin",
@@ -148,7 +148,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 374,
-      "elapsed_ms": 123.304
+      "elapsed_ms": 121.229
     },
     {
       "name": "secret_azerty",
@@ -158,7 +158,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 302,
-      "elapsed_ms": 111.501
+      "elapsed_ms": 118.311
     },
     {
       "name": "secret_pin1234",
@@ -168,7 +168,7 @@
       "fidelity": 1,
       "confidence": 1,
       "candidates": 13,
-      "elapsed_ms": 18.412
+      "elapsed_ms": 17.041
     }
   ],
   "summary": {
@@ -177,6 +177,6 @@
     "exact_rate": 1,
     "mean_char_accuracy": 1,
     "mean_fidelity": 1,
-    "total_elapsed_ms": 949.6429999999999
+    "total_elapsed_ms": 923.3480000000001
   }
 }

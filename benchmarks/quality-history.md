@@ -17,3 +17,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | 2026-06-22 | `v0.8.2`       | 17/17 (100%) | 1       | 1        | 949      | ergonomics/perf: RecoverBlurred file/reader helpers, denoise sentinels, beam nil-LM fast path; pre-commit review gate hardening |
 | 2026-06-22 | `P-D`          | 17/17 (100%) | 1       | 1        | 920      |                                                                                                                                 |
 | 2026-06-22 | `P-A` | 17/17 (100%) | 1 | 1 | 950 |  |
+| 2026-06-22 | `P-C` | 17/17 (100%) | 1 | 1 | 923 |  |
