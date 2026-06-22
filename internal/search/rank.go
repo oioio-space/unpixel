@@ -52,6 +52,32 @@ func compareEval(a, b unpixel.Eval) int {
 	return cmp.Compare(a.Guess, b.Guess)
 }
 
+// TrimEdgeSpaces removes leading and trailing ASCII space characters (' ') from
+// s. It preserves interior spaces so that multi-word results such as "a b" are
+// returned unchanged. All-whitespace strings (e.g. " ") are left as-is; they
+// are never promoted to BestGuess because Substantive rejects them.
+//
+// Redaction grids sometimes over-count the text region by one cell, causing the
+// search to append a phantom leading or trailing space that is not part of the
+// original text. TrimEdgeSpaces removes that artifact at the finalization
+// boundary — after ranking and before the result is returned — so no hot-path
+// cost is incurred.
+func TrimEdgeSpaces(s string) string {
+	if s == "" || !Substantive(s) {
+		return s
+	}
+	return strings.Trim(s, " ")
+}
+
+// trimEvals applies TrimEdgeSpaces to the Guess field of each eval in place,
+// returning the same slice. It is called once per result at finalization.
+func trimEvals(evals []unpixel.Eval) []unpixel.Eval {
+	for i := range evals {
+		evals[i].Guess = TrimEdgeSpaces(evals[i].Guess)
+	}
+	return evals
+}
+
 // Substantive reports whether guess contains at least one non-whitespace rune.
 //
 // An all-whitespace guess renders to a blank image, which the metric scores at
@@ -76,7 +102,9 @@ func substantiveOnly(cands []unpixel.Eval) []unpixel.Eval {
 
 // RankTopN returns the n candidates with the lowest Score from cands, sorted
 // ascending by (Score, Guess) so results are deterministic when scores tie.
-// The original cands slice is never mutated.
+// The original cands slice is never mutated. Phantom leading/trailing spaces
+// are stripped from each returned Guess by TrimEdgeSpaces (once per result,
+// not on the per-candidate hot path).
 //
 // If n <= 0 or cands is empty, RankTopN returns nil.
 // If n >= len(cands), all candidates are returned (sorted).
@@ -87,7 +115,7 @@ func RankTopN(cands []unpixel.Eval, n int) []unpixel.Eval {
 	// Clone so the caller's slice is not mutated.
 	sorted := slices.Clone(cands)
 	slices.SortStableFunc(sorted, compareEval)
-	return sorted[:min(n, len(sorted))]
+	return trimEvals(sorted[:min(n, len(sorted))])
 }
 
 // RankFinal ranks cands for the final answer at one offset, returning the top n
@@ -150,9 +178,12 @@ func RankFinal(ctx context.Context, ts TotalScorer, cands []unpixel.Eval, offset
 	})
 
 	top = make([]unpixel.Eval, 0, min(n, len(ranked)))
-	for i := 0; i < len(ranked) && i < n; i++ {
+	for i := range min(n, len(ranked)) {
 		top = append(top, ranked[i].e)
 	}
+	// Strip phantom edge spaces produced by over-counted redaction grids.
+	// Runs once per offset at finalization — not on the per-candidate hot path.
+	trimEvals(top)
 	return top, ranked[0].total
 }
 

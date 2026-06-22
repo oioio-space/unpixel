@@ -682,3 +682,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `97cd460` 2026-06-22 — feat(real-world): P-B — Depix-style reference-matching mosaic decoder (font-supply contract) _(10 fichiers)_
 - `30ff9ab` 2026-06-22 — docs(release): v0.9.0 — real-world initiative (P-A/P-B/P-C/P-D) + coverage margin _(15 fichiers)_
 - `366aac6` 2026-06-22 — docs(readme): refresh for v0.9.0 — real-world decoders, normalization, honest envelope _(2 fichiers)_
+- `3d0374b` 2026-06-23 — feat(journal): evolving test journal over all corpora (zero-config vs best-config) _(10 fichiers)_

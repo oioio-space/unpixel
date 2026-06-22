@@ -268,6 +268,7 @@ func searchOffsets(
 		// Best-effort: promote the best-seen discovery candidate so the caller
 		// always gets a non-empty guess, even when no offset survived.
 		bsGuess, bsScore := globalSeen.best()
+		bsGuess = TrimEdgeSpaces(bsGuess)
 		if bsGuess != "" && !math.IsInf(bsScore, 1) {
 			bsEval := unpixel.Eval{Guess: bsGuess, Score: bsScore}
 			conf, _ := Confidence([]unpixel.Eval{bsEval})
@@ -369,6 +370,7 @@ func searchOffsets(
 		belowThresh := false
 		if len(topN) == 0 {
 			bsGuess, bsScore := offsetSeen.best()
+			bsGuess = TrimEdgeSpaces(bsGuess)
 			if bsGuess != "" && !math.IsInf(bsScore, 1) {
 				bsEval := unpixel.Eval{Guess: bsGuess, Score: bsScore}
 				topN = []unpixel.Eval{bsEval}

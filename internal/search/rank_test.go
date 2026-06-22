@@ -109,3 +109,48 @@ func TestConfidence_TwoCandidates(t *testing.T) {
 		t.Errorf("ambiguity: got %v, want %v", ambiguity, wantAmb)
 	}
 }
+
+// TestTrimEdgeSpaces verifies that phantom leading/trailing spaces produced by
+// over-counted redaction grids are removed from finalized guesses, while
+// interior spaces (e.g. "a b") are left intact.
+func TestTrimEdgeSpaces(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "go ", want: "go"},
+		{in: " x", want: "x"},
+		{in: "  hello  ", want: "hello"},
+		{in: "a b", want: "a b"},
+		{in: "go run", want: "go run"},
+		{in: "go", want: "go"},
+		{in: " ", want: " "}, // all-space: leave as-is (Substantive filters these)
+		{in: "", want: ""},
+	}
+	for _, tc := range tests {
+		got := search.TrimEdgeSpaces(tc.in)
+		if got != tc.want {
+			t.Errorf("TrimEdgeSpaces(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestRankTopN_TrimsEdgeSpaces verifies that RankTopN strips phantom leading/
+// trailing spaces from each returned candidate's Guess.
+func TestRankTopN_TrimsEdgeSpaces(t *testing.T) {
+	cands := []unpixel.Eval{
+		{Guess: "go ", Score: 0.05},
+		{Guess: " x", Score: 0.10},
+		{Guess: "a b", Score: 0.15},
+	}
+	got := search.RankTopN(cands, 3)
+	wantGuesses := []string{"go", "x", "a b"}
+	if len(got) != len(wantGuesses) {
+		t.Fatalf("RankTopN: got %d results, want %d", len(got), len(wantGuesses))
+	}
+	for i, want := range wantGuesses {
+		if got[i].Guess != want {
+			t.Errorf("RankTopN[%d].Guess: got %q, want %q", i, got[i].Guess, want)
+		}
+	}
+}
