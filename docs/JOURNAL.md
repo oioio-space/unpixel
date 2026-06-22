@@ -9,6 +9,76 @@ this file over time to watch decode quality evolve.
 | Date (UTC) | Commit | fix zero | fix best | blur zero | blur best | real zero | real best | wild zero | wild best | Total | Dur (s) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-06-22 | 366aac6 | 8/17 | 17/17 | 12/14 | 11/14 | 0/3 | 0/3 | 0/5 | 0/5 | 44 | 1135 |
+| 2026-06-22 | 15a0c4c | 8/17 | 17/17 | 13/14 | 12/14 | 0/3 | 0/3 | 0/5 | 0/5 | 44 | 1134 |
+
+
+## Run 2026-06-22T23:13:49Z — 15a0c4c
+
+**Environment:** Go go1.26.4 · linux/amd64 · total 1133.7 s
+
+### fixtures
+
+| image | gt | zero: status/guess/conf/ms | best: status/guess/conf/ms | why |
+|---|---|---|---|---|
+| `block04_go` | `go` | ok `go` conf=1.00 ms=249 | ok `go` conf=1.00 ms=60 | — |
+| `block08_go` | `go` | ok `go` conf=1.00 ms=41 | ok `go` conf=1.00 ms=39 | — |
+| `block16_go` | `go` | fail `c` conf=0.56 ms=80 | ok `go` conf=1.00 ms=53 | below-threshold / no confident candidate |
+| `size24_go` | `go` | fail `u` conf=0.69 ms=16 | ok `go` conf=1.00 ms=20 | below-threshold / no confident candidate |
+| `size40_go` | `go` | fail `a` conf=0.45 ms=20 | ok `go` conf=1.00 ms=53 | below-threshold / no confident candidate |
+| `bold_go` | `go` | fail `a` conf=0.62 ms=19 | ok `go` conf=1.00 ms=32 | below-threshold / no confident candidate |
+| `alnum_Go2` | `Go2` | fail `t` conf=0.74 ms=20 | ok `Go2` conf=1.00 ms=21 | below-threshold / no confident candidate |
+| `symbols_x_eq_1` | `x=1` | fail `x` conf=1.00 ms=3097 | ok `x=1` conf=1.00 ms=49 | wrong length (got 1 want 3) |
+| `pad_04_04_go` | `go` | ok `go` conf=1.00 ms=35 | ok `go` conf=1.00 ms=29 | — |
+| `pad_12_12_go` | `go` | fail `q` conf=0.67 ms=21 | ok `go` conf=1.00 ms=87 | below-threshold / no confident candidate |
+| `text_single_x` | `x` | ok `x` conf=1.00 ms=57 | ok `x` conf=1.00 ms=27 | — |
+| `text_cat` | `cat` | ok `cat` conf=1.00 ms=5504 | ok `cat` conf=1.00 ms=70 | — |
+| `text_with_space` | `a b` | ok `a b` conf=1.00 ms=901 | ok `a b` conf=1.00 ms=13 | — |
+| `text_hello` | `hello` | ok `hello` conf=1.00 ms=2722 | ok `hello` conf=1.00 ms=110 | — |
+| `secret_admin` | `admin` | ok `admin` conf=1.00 ms=28096 | ok `admin` conf=1.00 ms=129 | — |
+| `secret_azerty` | `azerty` | fail `azert` conf=1.00 ms=6308 | ok `azerty` conf=1.00 ms=122 | wrong length (got 5 want 6) |
+| `secret_pin1234` | `1234` | fail `y` conf=0.72 ms=22 | ok `1234` conf=1.00 ms=20 | below-threshold / no confident candidate |
+
+### blur
+
+| image | gt | zero: status/guess/conf/ms | best: status/guess/conf/ms | why |
+|---|---|---|---|---|
+| `blur_go_s2` | `go` | ok `go` conf=0.96 ms=903 | ok `go` conf=0.96 ms=40 | — |
+| `blur_go_s3` | `go` | ok `go` conf=1.00 ms=1359 | ok `go` conf=1.00 ms=64 | — |
+| `blur_go_s4` | `go` | ok `go` conf=1.00 ms=1588 | ok `go` conf=1.00 ms=79 | — |
+| `blur_go_s6` | `go` | ok `go` conf=1.00 ms=825 | ok `go` conf=1.00 ms=51 | — |
+| `blur_cat_s2` | `cat` | ok `cat` conf=1.00 ms=6398 | ok `cat` conf=1.00 ms=430 | — |
+| `blur_cat_s3` | `cat` | ok `cat` conf=1.00 ms=2005 | ok `cat` conf=1.00 ms=178 | — |
+| `blur_cat_s4` | `cat` | ok `cat` conf=0.99 ms=2127 | ok `cat` conf=0.99 ms=123 | — |
+| `blur_cat_s6` | `cat` | ok `cat` conf=0.89 ms=2693 | ok `cat` conf=0.89 ms=201 | — |
+| `blur_hello_s2` | `hello` | ok `hello` conf=1.00 ms=7944 | ok `hello` conf=1.00 ms=1089 | — |
+| `blur_hello_s3` | `hello` | ok `hello` conf=1.00 ms=14859 | ok `hello` conf=1.00 ms=2729 | — |
+| `blur_hello_s4` | `hello` | ok `hello` conf=0.99 ms=4073 | ok `hello` conf=0.99 ms=515 | — |
+| `blur_hello_s6` | `hello` | ok `hello` conf=1.00 ms=2413 | ok `hello` conf=1.00 ms=211 | — |
+| `blur_connect_s3` | `connect` | ok `connect` conf=1.00 ms=30003 | fail `cennect` conf=1.00 ms=5439 | wrong glyphs (font fidelity / params) |
+| `blur_connect_s6` | `connect` | fail `connict` conf=0.84 ms=30003 | fail `nonnect` conf=0.92 ms=1342 | wrong glyphs (font fidelity / params) |
+
+### real
+
+| image | gt | zero: status/guess/conf/ms | best: status/guess/conf/ms | why |
+|---|---|---|---|---|
+| `hello-world` | `Hello World !` | fail `a          va` conf=1.00 ms=30014 | fail `a        '''` conf=1.00 ms=90006 | wrong glyphs (font fidelity / params) |
+| `hello-world-noisy` | `Hello World !` | fail `a           aa` conf=1.00 ms=30093 | fail `'a       ''''` conf=1.00 ms=90009 | wrong length (got 14 want 13) |
+| `marx` | `Celui qui ne connaît pas…` | fail `a                  …` conf=1.00 ms=30034 | fail `a                  …` conf=1.00 ms=90112 | wrong length (got 63 want 62) |
+
+### wild
+
+| image | gt | zero: status/guess/conf/ms | best: status/guess/conf/ms | why |
+|---|---|---|---|---|
+| `m1` | `—` | unknown `wow s            ,,…` conf=1.00 ms=30006 | unknown `w                  …` conf=1.00 ms=90018 | — |
+| `m2` | `—` | unknown `-` conf=0.35 ms=24 | unknown `-` conf=0.35 ms=25 | — |
+| `m3` | `—` | unknown `F` conf=0.23 ms=21 | unknown `F` conf=0.23 ms=20 | — |
+| `m4` | `Hello from the other side` | fail `!` conf=0.27 ms=21 | fail `!` conf=0.27 ms=23 | below-threshold / no confident candidate |
+| `m5` | `Hello from the other side` | fail `(` conf=0.36 ms=23 | fail `(` conf=0.36 ms=22 | below-threshold / no confident candidate |
+| `b1` | `—` | unknown `(none)` conf=0.00 ms=30010 | unknown `!"` conf=1.00 ms=90006 | — |
+| `b2` | `—` | unknown `(none)` conf=0.00 ms=30001 | unknown `!"` conf=1.00 ms=90019 | — |
+| `b3` | `DEBLUR` | fail `,,` conf=1.00 ms=30001 | fail `,,` conf=1.00 ms=75642 | wrong length (got 2 want 6) |
+| `b4` | `BLUR` | fail `@` conf=0.00 ms=9809 | fail `@` conf=0.00 ms=9832 | below-threshold / no confident candidate |
+| `b5` | `Blur Text` | fail `,,` conf=1.00 ms=30006 | fail `__` conf=1.00 ms=90011 | wrong length (got 2 want 9) |
 
 
 ## Run 2026-06-22T22:42:11Z — 366aac6
