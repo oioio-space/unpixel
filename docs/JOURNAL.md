@@ -13,37 +13,125 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 | 2026-06-22 | v0.10.0-dev | 366aac6 | 8/17/—/— | 17/17/—/— | 12/14/—/— | 11/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1135 |
 | 2026-06-22 | v0.10.0-dev | 15a0c4c | 8/17/—/— | 17/17/—/— | 13/14/—/— | 12/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1134 |
 | 2026-06-23 | v0.10.0 | b20ab1d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/17% | 0/10/0/20% | 54 | 1865 |
+| 2026-06-23 | v0.11.0-dev | dd6990d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/10% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/17% | 0/10/0/20% | 54 | 1863 |
 
 
 ## Analyse de tendance
 
 _À rafraîchir à chaque run du journal — la table évolue, ce texte doit suivre._
 
-**Verdict : ça va dans le bon sens là où le moteur peut bouger ; les murs connus sont
-stables et désormais tracés plutôt que cachés.**
+**Verdict : aucune régression sur le chemin cœur ; les améliorations v0.11.0 (Q1/Q2/Q4/Q5)
+portent sur le chemin `blind` que ce journal ne mesure PAS encore — elles sont prouvées
+par les tests unitaires, pas par ces corpus.**
 
-- **fixtures (best 17/17 → 17/17 → 17/17)** — parfait, maintenu sur 3 runs, **aucune
-  régression**. Le zero-config reste 8/17 : marge connue (sans réglage de grille, les
-  petits/gros blocs tombent sous le seuil de confiance). ✅ stable.
-- **blur (best 11 → 12 → 13 / 14)** — **tendance nette à la hausse, +2 sur le cycle**,
-  tirée par le trim des espaces de bord (`15a0c4c`) puis la correction d'erreur blur
-  (`b20ab1d`). Le seul échec restant (`blur_connect`) bascule entre zero/best :
-  ambiguïté glyphe à gros bloc, pas un mur de géométrie. ✅ progresse.
-- **real (0/3) · wild (0/5)** — **plats**. Attendu : ce sont les murs honnêtes
-  — fidélité de police (fontes non embarquées des captures internet) et ambiguïté
-  bloc-grossier sur phrases proportionnelles. Le moteur trouve la bonne longueur/offset
-  mais pas les glyphes. ⚠ non résolu, pas une régression.
-- **sick (0/10, mean 20% best, nouveau en `b20ab1d`)** — corpus parité Hill-2016
-  (phrases proportionnelles). Baseline posée : longueur souvent correcte, glyphes non.
-  ⚠ non résolu, mais **désormais suivi** run-après-run.
-- **Durée 1134 → 1865 s** — hausse due à l'**ajout du corpus sick** (10 images à
-  timeouts 30–90 s), pas à un ralentissement du moteur. Coût de couverture, pas une
-  régression perf.
+- **fixtures (best 17/17 sur 4 runs)** — parfait, **aucune régression** malgré
+  l'élargissement du dictionnaire à 10 000 mots et les nouveaux décodeurs. ✅ stable.
+- **blur (best 13/14, stable)** — maintenu (`b20ab1d` → `dd6990d`). Seul échec restant
+  `blur_connect` (ambiguïté glyphe à gros bloc). ✅ stable.
+- **real (0/3) · wild (0/5) · sick (0/10)** — **plats vs v0.10.0**. ⚠ Attendu, et voici
+  le point honnête : **ce journal exécute le chemin cœur `unpixel.RecoverFile` (recherche
+  guidée par charset), pas le paquet `blind`** où vivent Q1/Q2/Q4/Q5. Les quick wins
+  améliorent la récupération de **phrases courtes à police embarquée** (« the cat »/« le
+  chat » récupérés, calibrage gamma + letter-spacing, prior ×10) — vérifié en tests
+  unitaires — mais ne déplacent pas ces corpus, qui butent sur deux murs de recherche :
+  - **scoring par mot** (mélange de pixels inter-mots) → phrases longues (sick, marx) :
+    un beam préfixe a été essayé puis **rejeté** (rapide mais faux) ; le vrai correctif
+    est un scoreur appris (émissions HMM Hill-2016, *big bet B4*). Cf.
+    [[blind-sentence-scoring-wall]].
+  - **fidélité de police** (fontes non embarquées) → images réelles : *big bet B1*
+    (ajustement de fonte variable continue).
+- **Durée ~1863 s** — stable (pas de régression perf ; les quick wins sont opt-in et
+  hors du chemin mesuré ici).
 
-**Conclusion :** frontière résoluble en hausse (blur +2, fixtures à 100 % tenu),
-frontière difficile (real/wild/sick) à plat et explicitement tracée. La prochaine
-aiguille à déplacer : fidélité de police + désambiguïsation glyphe à gros bloc
+**Conclusion :** v0.11.0 consolide le socle (prior ×10, recall de pool adaptatif,
+auto-gamma, calibrage letter-spacing — tous opt-in, panel 17/17 tenu). Le tableau de bord
+real/wild/sick ne bougera qu'avec les *big bets* B4 (émissions apprises, phrases) et B1
+(ajustement de police, images réelles). Prochaine aiguille : B4 puis B1
 (cf. [[real-world-images-operating-envelope]], [[hill2016-redaction-paper]]).
+
+
+## Run 2026-06-23T17:38:07Z — dd6990d
+
+**Environment:** Go go1.26.4 · linux/amd64 · total 1862.6 s
+
+### fixtures
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `block04_go` | `go` | ok/`go`/100%/conf=1.00/ms=243 | ok/`go`/100%/conf=1.00/ms=61 | — |
+| `block08_go` | `go` | ok/`go`/100%/conf=1.00/ms=42 | ok/`go`/100%/conf=1.00/ms=40 | — |
+| `block16_go` | `go` | fail/`c`/0%/conf=0.56/ms=82 | ok/`go`/100%/conf=1.00/ms=53 | below-threshold / no confident candidate |
+| `size24_go` | `go` | fail/`u`/0%/conf=0.69/ms=15 | ok/`go`/100%/conf=1.00/ms=19 | below-threshold / no confident candidate |
+| `size40_go` | `go` | fail/`a`/0%/conf=0.45/ms=19 | ok/`go`/100%/conf=1.00/ms=56 | below-threshold / no confident candidate |
+| `bold_go` | `go` | fail/`a`/0%/conf=0.62/ms=19 | ok/`go`/100%/conf=1.00/ms=32 | below-threshold / no confident candidate |
+| `alnum_Go2` | `Go2` | fail/`t`/0%/conf=0.74/ms=18 | ok/`Go2`/100%/conf=1.00/ms=20 | below-threshold / no confident candidate |
+| `symbols_x_eq_1` | `x=1` | fail/`x`/33%/conf=1.00/ms=3092 | ok/`x=1`/100%/conf=1.00/ms=56 | wrong length (got 1 want 3) |
+| `pad_04_04_go` | `go` | ok/`go`/100%/conf=1.00/ms=39 | ok/`go`/100%/conf=1.00/ms=33 | — |
+| `pad_12_12_go` | `go` | fail/`q`/0%/conf=0.67/ms=19 | ok/`go`/100%/conf=1.00/ms=89 | below-threshold / no confident candidate |
+| `text_single_x` | `x` | ok/`x`/100%/conf=1.00/ms=54 | ok/`x`/100%/conf=1.00/ms=28 | — |
+| `text_cat` | `cat` | ok/`cat`/100%/conf=1.00/ms=5517 | ok/`cat`/100%/conf=1.00/ms=71 | — |
+| `text_with_space` | `a b` | ok/`a b`/100%/conf=1.00/ms=917 | ok/`a b`/100%/conf=1.00/ms=14 | — |
+| `text_hello` | `hello` | ok/`hello`/100%/conf=1.00/ms=2723 | ok/`hello`/100%/conf=1.00/ms=110 | — |
+| `secret_admin` | `admin` | ok/`admin`/100%/conf=1.00/ms=27996 | ok/`admin`/100%/conf=1.00/ms=146 | — |
+| `secret_azerty` | `azerty` | fail/`azert`/83%/conf=1.00/ms=6422 | ok/`azerty`/100%/conf=1.00/ms=126 | wrong length (got 5 want 6) |
+| `secret_pin1234` | `1234` | fail/`y`/0%/conf=0.72/ms=22 | ok/`1234`/100%/conf=1.00/ms=18 | below-threshold / no confident candidate |
+
+### blur
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `blur_go_s2` | `go` | ok/`go`/100%/conf=1.00/ms=900 | ok/`go`/100%/conf=1.00/ms=53 | — |
+| `blur_go_s3` | `go` | ok/`go`/100%/conf=1.00/ms=1376 | ok/`go`/100%/conf=1.00/ms=66 | — |
+| `blur_go_s4` | `go` | ok/`go`/100%/conf=1.00/ms=1691 | ok/`go`/100%/conf=1.00/ms=71 | — |
+| `blur_go_s6` | `go` | ok/`go`/100%/conf=0.91/ms=249 | ok/`go`/100%/conf=0.91/ms=31 | — |
+| `blur_cat_s2` | `cat` | ok/`cat`/100%/conf=1.00/ms=7184 | ok/`cat`/100%/conf=1.00/ms=374 | — |
+| `blur_cat_s3` | `cat` | ok/`cat`/100%/conf=1.00/ms=2030 | ok/`cat`/100%/conf=1.00/ms=181 | — |
+| `blur_cat_s4` | `cat` | ok/`cat`/100%/conf=1.00/ms=2357 | ok/`cat`/100%/conf=1.00/ms=186 | — |
+| `blur_cat_s6` | `cat` | ok/`cat`/100%/conf=0.89/ms=2729 | ok/`cat`/100%/conf=0.89/ms=200 | — |
+| `blur_hello_s2` | `hello` | ok/`hello`/100%/conf=0.96/ms=8144 | ok/`hello`/100%/conf=0.96/ms=1294 | — |
+| `blur_hello_s3` | `hello` | ok/`hello`/100%/conf=1.00/ms=15346 | ok/`hello`/100%/conf=1.00/ms=2812 | — |
+| `blur_hello_s4` | `hello` | ok/`hello`/100%/conf=0.99/ms=4188 | ok/`hello`/100%/conf=0.99/ms=526 | — |
+| `blur_hello_s6` | `hello` | ok/`hello`/100%/conf=1.00/ms=2477 | ok/`hello`/100%/conf=1.00/ms=213 | — |
+| `blur_connect_s3` | `connect` | ok/`connect`/100%/conf=1.00/ms=30001 | fail/`cennect`/86%/conf=1.00/ms=5638 | wrong glyphs (font fidelity / params) |
+| `blur_connect_s6` | `connect` | fail/`connevi`/71%/conf=0.94/ms=30004 | ok/`connect`/100%/conf=1.00/ms=9031 | wrong glyphs (font fidelity / params) |
+
+### real
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `hello-world` | `Hello World !` | fail/`a          va`/8%/conf=1.00/ms=30013 | fail/`a        '''`/8%/conf=1.00/ms=90007 | wrong glyphs (font fidelity / params) |
+| `hello-world-noisy` | `Hello World !` | fail/`a           aa`/8%/conf=1.00/ms=30090 | fail/`'a       ''''`/8%/conf=1.00/ms=90010 | wrong length (got 14 want 13) |
+| `marx` | `Celui qui ne connaît pas…` | fail/`a                  …`/15%/conf=1.00/ms=30041 | fail/`a                  …`/16%/conf=1.00/ms=90128 | wrong length (got 63 want 62) |
+
+### wild
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `m1` | `—` | unknown/`wow s            ,,…`/NA/conf=1.00/ms=30004 | unknown/`w                  …`/NA/conf=1.00/ms=90018 | — |
+| `m2` | `—` | unknown/`-`/NA/conf=0.35/ms=28 | unknown/`-`/NA/conf=0.35/ms=22 | — |
+| `m3` | `—` | unknown/`F`/NA/conf=0.23/ms=21 | unknown/`F`/NA/conf=0.23/ms=19 | — |
+| `m4` | `Hello from the other side` | fail/`!`/0%/conf=0.27/ms=24 | fail/`!`/0%/conf=0.27/ms=22 | below-threshold / no confident candidate |
+| `m5` | `Hello from the other side` | fail/`(`/0%/conf=0.36/ms=23 | fail/`(`/0%/conf=0.36/ms=25 | below-threshold / no confident candidate |
+| `b1` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30001 | unknown/`!"`/NA/conf=1.00/ms=90018 | — |
+| `b2` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30002 | unknown/`!"`/NA/conf=1.00/ms=90012 | — |
+| `b3` | `DEBLUR` | fail/`',`/0%/conf=1.00/ms=30008 | fail/`',`/0%/conf=1.00/ms=66418 | wrong length (got 2 want 6) |
+| `b4` | `BLUR` | fail/`@`/0%/conf=0.00/ms=10070 | fail/`@`/0%/conf=0.00/ms=10053 | below-threshold / no confident candidate |
+| `b5` | `Blur Text` | fail/`,,`/0%/conf=1.00/ms=30006 | fail/`__`/0%/conf=1.00/ms=90007 | wrong length (got 2 want 9) |
+
+### sick
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `sick_wrestling` | `two dogs are wrestling a…` | fail/`two       s        …`/24%/conf=1.00/ms=30009 | fail/`two       s   re wr…`/38%/conf=1.00/ms=90022 | wrong length (got 32 want 34) |
+| `sick_boys_outdoors` | `the young boys are playi…` | fail/`ifu   a b`/17%/conf=1.00/ms=30004 | fail/`ifu`/6%/conf=1.00/ms=90015 | wrong length (got 9 want 35) |
+| `sick_water_safety` | `nobody is practicing wat…` | fail/`lreoz    r    s`/21%/conf=1.00/ms=30007 | fail/`lreoz`/6%/conf=1.00/ms=90014 | wrong length (got 15 want 33) |
+| `sick_man_playing` | `a man is playing a guitar` | fail/`a man is pl  y  ig …`/64%/conf=1.00/ms=30006 | fail/`a man is piay  ig a…`/64%/conf=1.00/ms=90020 | wrong length (got 24 want 25) |
+| `sick_children_playing` | `two children are playing…` | fail/`t     vh l be    um…`/22%/conf=1.00/ms=30006 | fail/`t e  vh l be`/22%/conf=1.00/ms=90012 | wrong length (got 23 want 36) |
+| `sick_woman_singing` | `a woman is singing a song` | fail/`a  w  ncu`/20%/conf=1.00/ms=30005 | fail/`a  wevacr`/16%/conf=1.00/ms=90017 | wrong length (got 9 want 25) |
+| `digits_7d_1234567` | `1234567` | fail/`ij`/0%/conf=1.00/ms=1672 | fail/`12`/29%/conf=0.86/ms=10 | wrong length (got 2 want 7) |
+| `digits_8d_98765432` | `98765432` | fail/`q`/0%/conf=1.00/ms=35 | fail/`1`/0%/conf=0.71/ms=10 | wrong length (got 1 want 8) |
+| `digits_9d_012345678` | `012345678` | fail/`d`/0%/conf=1.00/ms=81 | fail/`1`/11%/conf=0.81/ms=12 | wrong length (got 1 want 9) |
+| `digits_10d_1029384756` | `1029384756` | fail/`ru`/0%/conf=1.00/ms=5948 | fail/`2`/10%/conf=0.77/ms=12 | wrong length (got 2 want 10) |
 
 
 ## Run 2026-06-23T14:18:20Z — b20ab1d

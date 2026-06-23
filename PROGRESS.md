@@ -716,3 +716,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `0501f26` 2026-06-23 — feat(journal): add trend-analysis section + Version column to evolution table _(3 fichiers)_
 - `2b51ff2` 2026-06-23 — feat(blind): Q1 auto gamma selection (sRGB vs linear, keep best) _(4 fichiers)_
 - `d3d6bcf` 2026-06-23 — feat(lang,blind): Q4 stronger prior + Q2 adaptive pool recall _(16 fichiers)_
+- `dd6990d` 2026-06-23 — feat(blind): Q5 letter-spacing auto-calibration (opt-in) _(7 fichiers)_
