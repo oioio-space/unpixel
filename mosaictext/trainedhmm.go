@@ -26,9 +26,11 @@ package mosaictext
 //  7. Sweep fonts × {sRGB, linear}, pick the winner by whole-image MSE (mseRGB).
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"math"
 	"math/rand/v2"
 
@@ -38,6 +40,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/fonts"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/windowhmm"
 )
@@ -48,15 +51,17 @@ const DefaultTHMMCharset = "0123456789"
 
 // trainedHMMConfig holds DecodeTrainedHMM option state.
 type trainedHMMConfig struct {
-	charset  string
-	fontName string // empty → sweep all bundled fonts
-	fontData []byte // non-nil → use this TTF/OTF exclusively
-	fontBold []byte // non-nil → bold face alongside fontData
-	linear   int    // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
-	k        int    // KMeans clusters; 0 → auto (128)
-	w        int    // window width in block columns; 0 → auto
-	corpus   int    // training corpus size; 0 → auto (2000)
-	seed     uint64 // PRNG seed for corpus generation and KMeans
+	charset     string
+	fontName    string         // empty → sweep all bundled fonts
+	fontData    []byte         // non-nil → use this TTF/OTF exclusively
+	fontBold    []byte         // non-nil → bold face alongside fontData
+	linear      int            // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
+	k           int            // KMeans clusters; 0 → auto (128)
+	w           int            // window width in block columns; 0 → auto
+	corpus      int            // training corpus size; 0 → auto (2000)
+	seed        uint64         // PRNG seed for corpus generation and KMeans
+	language    *lang.Language // non-nil → draw training strings from word-list corpus
+	jpegQuality int            // > 0 → JPEG-roundtrip rendered training images before pixelation
 }
 
 func defaultTrainedHMMConfig() trainedHMMConfig {
@@ -147,6 +152,42 @@ func WithTHMMCorpus(n int) THMMOption {
 // Identical seeds produce identical training results.
 func WithTHMMSeed(seed uint64) THMMOption {
 	return func(c *trainedHMMConfig) { c.seed = seed }
+}
+
+// WithTHMMLanguage enables language-structured corpus generation (B4.1).
+// When set, training strings are drawn by sampling random words from the
+// embedded word list for l and joining them with spaces, so the learned
+// HMM transition matrix reflects real letter n-gram statistics for that
+// language rather than the flat distribution of uniform-random sampling.
+// Only words whose runes are all present in the active charset are kept;
+// out-of-charset words are skipped during sampling.
+//
+// When this option is NOT set the default uniform-random sampling is used
+// and the output is byte-identical to previous versions (given the same seed).
+func WithTHMMLanguage(l lang.Language) THMMOption {
+	return func(c *trainedHMMConfig) { c.language = new(l) }
+}
+
+// WithTHMMJPEG enables JPEG-augmented emission training (B4.2). When quality
+// is > 0, each rendered training image is JPEG-roundtripped (encoded at the
+// given quality with [image/jpeg], then decoded back) before pixelation, so
+// the KMeans emission clusters absorb JPEG compression artefacts.  This
+// improves decoding accuracy when the target image was captured as a JPEG.
+//
+// quality must be in [1, 100]; values outside that range are clamped.
+// quality 0 (or unset) disables JPEG augmentation — the default is off and
+// the output is byte-identical to previous versions.
+//
+// Mix strategy: every training sample is JPEG-roundtripped when this option
+// is active, keeping the augmentation deterministic given the seed.  A 50/50
+// mix would require twice the corpus to achieve the same emission coverage, so
+// full augmentation is preferred for noisy/JPEG targets.
+func WithTHMMJPEG(quality int) THMMOption {
+	return func(c *trainedHMMConfig) {
+		if quality > 0 {
+			c.jpegQuality = min(100, quality)
+		}
+	}
 }
 
 // DecodeTrainedHMM recovers text from a mosaic-pixelated image using a
@@ -354,7 +395,8 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 			// Train the HMM on a corpus of rendered strings.
 			model, err := trainHMM(
 				ctx, fe.r, pix, charRunes, charStrs, advances,
-				fs, block, windowW, numClusters, tgtRows, corpusSize, tcfg.seed,
+				fs, block, windowW, numClusters, tgtRows, corpusSize,
+				tcfg.seed, tcfg.language, tcfg.jpegQuality,
 			)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -434,6 +476,8 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 //   - tgtRows: number of ink block rows in the target (controls vector dimension).
 //   - corpusSize: number of random strings to generate.
 //   - seed: PRNG seed for corpus generation and KMeans.
+//   - language: non-nil enables language-structured corpus sampling (B4.1).
+//   - jpegQuality: > 0 enables JPEG-roundtrip augmentation (B4.2).
 func trainHMM(
 	ctx context.Context,
 	r unpixel.Renderer,
@@ -444,8 +488,108 @@ func trainHMM(
 	fs float64,
 	block, windowW, numClusters, tgtRows, corpusSize int,
 	seed uint64,
+	language *lang.Language,
+	jpegQuality int,
 ) (*windowhmm.Model, error) {
 	rng := rand.New(rand.NewPCG(seed, seed^0xfeedface_deadbeef)) // #nosec G404 -- deterministic seed, not security
+
+	// Build the language-corpus sampler if requested (B4.1).
+	// wordPool is the pre-filtered subset of the dictionary that consists only
+	// of words whose runes are all in the active charset.  Sampling joins random
+	// words with spaces until the target length is reached, giving the transition
+	// matrix real letter-pair statistics.  When language is nil (default) the
+	// wordPool is empty and uniform-random sampling is used unchanged.
+	var wordPool []string
+	if language != nil {
+		dict := lang.DictionaryFor(*language)
+		charSet := make(map[rune]bool, len(charRunes))
+		for _, r := range charRunes {
+			charSet[r] = true
+		}
+		// Space must be in the charset for word-join to make sense; if it is
+		// not, fall back to concatenation without separators.
+		spaceInCharset := charSet[' ']
+		for w := range dict.All() {
+			ok := true
+			for _, r := range w {
+				if !charSet[r] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				// Ensure joining words with space is valid when space is in charset.
+				if !spaceInCharset {
+					// Drop words with embedded spaces (none expected in word lists).
+					hasSpace := false
+					for _, r := range w {
+						if r == ' ' {
+							hasSpace = true
+							break
+						}
+					}
+					if hasSpace {
+						continue
+					}
+				}
+				wordPool = append(wordPool, w)
+			}
+		}
+	}
+
+	// sampleText returns a random training string of length n.
+	// With wordPool: join random words (separated by space when space is in charset)
+	// until at least n runes are accumulated, then truncate.
+	// Without wordPool: uniform-random from charRunes (default unchanged path).
+	sampleText := func(n int) string {
+		if len(wordPool) == 0 {
+			// Default: uniform-random from charset.
+			runes := make([]rune, n)
+			for i := range n {
+				runes[i] = charRunes[rng.IntN(len(charRunes))]
+			}
+			return string(runes)
+		}
+		// Language-structured: pick random words and join.
+		spaceInCharset := false
+		for _, r := range charRunes {
+			if r == ' ' {
+				spaceInCharset = true
+				break
+			}
+		}
+		sep := ""
+		if spaceInCharset {
+			sep = " "
+		}
+		var buf []rune
+		for len(buf) < n {
+			w := wordPool[rng.IntN(len(wordPool))]
+			if len(buf) > 0 && sep != "" {
+				buf = append(buf, ' ')
+			}
+			buf = append(buf, []rune(w)...)
+		}
+		return string(buf[:n])
+	}
+
+	// jpegRoundtrip applies JPEG compression+decompression to img when
+	// jpegQuality > 0 (B4.2), returning an *image.RGBA ready for Pixelate.
+	// Returns img unchanged (already *image.RGBA) when disabled.
+	jpegRoundtrip := func(img *image.RGBA) *image.RGBA {
+		if jpegQuality <= 0 {
+			return img
+		}
+		var buf bytes.Buffer
+		if encErr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); encErr != nil {
+			return img // best-effort: skip augmentation on encode failure
+		}
+		decoded, decErr := jpeg.Decode(bytes.NewReader(buf.Bytes()))
+		if decErr != nil {
+			return img
+		}
+		return toRGBA(decoded)
+	}
 
 	// Intern state tuples.
 	stateIDMap := make(map[string]int)
@@ -483,20 +627,19 @@ func trainHMM(
 			return nil, ctx.Err()
 		}
 
-		// Random string from charset.
+		// Sample a training string: language-structured (B4.1) when wordPool is
+		// non-empty, otherwise uniform-random from the charset (default path).
 		n := minLen + rng.IntN(maxLen-minLen+1)
-		runes := make([]rune, n)
-		for i := range n {
-			runes[i] = charRunes[rng.IntN(len(charRunes))]
-		}
-		text := string(runes)
+		text := sampleText(n)
+		runes := []rune(text)
+		n = len(runes) // sampleText may produce a different length for language path
 
-		// Render → pixelate → extract block grid.
-		img, _, err := r.Render(text, unpixel.Style{FontSize: fs})
+		// Render → (optional JPEG roundtrip, B4.2) → pixelate → extract block grid.
+		rawImg, _, err := r.Render(text, unpixel.Style{FontSize: fs})
 		if err != nil {
 			continue
 		}
-		pixImg := pix.Pixelate(img, 0, 0)
+		pixImg := pix.Pixelate(jpegRoundtrip(toRGBA(rawImg)), 0, 0)
 		grid := whPixToBlockGrid(pixImg, block)
 		grid = whStripBlockRows(grid)
 		grid = whStripBlockCols(grid)
@@ -605,34 +748,25 @@ func trainHMM(
 	// Each contiguous run within a string has a "first" sample (start of string)
 	// and consecutive samples (transitions). We reconstruct this by replaying
 	// the corpus string lengths.
+	// Second pass: replay the corpus with rng2 (same seed as rng) to reconstruct
+	// per-string boundaries and accumulate start/transition counts.  Every choice
+	// that affects the rendered pixel grid — string content, JPEG roundtrip —
+	// must be reproduced identically so sampleIdx advances in lock-step with the
+	// allSamples slice built in the first pass.
 	rng2 := rand.New(rand.NewPCG(seed, seed^0xfeedface_deadbeef)) // #nosec G404 -- deterministic seed, not security
 
 	sampleIdx := 0
 	for range corpusSize {
 		n := minLen + rng2.IntN(maxLen-minLen+1)
-		// Re-generate the string length so we can compute the per-string
-		// sample count (we only need the rune count, not the runes themselves,
-		// since the sample count is determined by the grid column count).
-		// But we stored samples sequentially, so we advance through allSamples
-		// tracking whether each sample is the first in its string.
-		//
-		// Actually we stored per-string contiguous windows. To know where one
-		// string ends we stored samples without a sentinel. Instead, count
-		// samples per string during a replay.
-		//
-		// Simplest approach: replay the corpus completely with the same rng,
-		// track samples per string, and label first vs. subsequent.
-		runes := make([]rune, n)
-		for i := range n {
-			runes[i] = charRunes[rng2.IntN(len(charRunes))]
-		}
-		text := string(runes)
+		text := sampleText(n) // must mirror first-pass sampleText(n) call
+		runes := []rune(text)
+		n = len(runes)
 
-		img, _, err := r.Render(text, unpixel.Style{FontSize: fs})
+		rawImg, _, err := r.Render(text, unpixel.Style{FontSize: fs})
 		if err != nil {
 			continue
 		}
-		pixImg := pix.Pixelate(img, 0, 0)
+		pixImg := pix.Pixelate(jpegRoundtrip(toRGBA(rawImg)), 0, 0)
 		g := whPixToBlockGrid(pixImg, block)
 		g = whStripBlockRows(g)
 		g = whStripBlockCols(g)

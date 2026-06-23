@@ -105,10 +105,12 @@ type flagParams struct {
 	normalizeBg         string // "divide", "subtract", "none"
 	normalizeBin        bool
 	deblock             int
-	remosaic            bool // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
-	remosaicGrid        int  // --remosaic-grid N: pin block grid (0 = auto)
-	remosaicLinear      bool // --remosaic-linear: linear-light block average (GEGL/GIMP)
-	letterSpacingSearch bool // --letter-spacing-search: sweep DefaultLetterSpacings
+	remosaic            bool   // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
+	remosaicGrid        int    // --remosaic-grid N: pin block grid (0 = auto)
+	remosaicLinear      bool   // --remosaic-linear: linear-light block average (GEGL/GIMP)
+	letterSpacingSearch bool   // --letter-spacing-search: sweep DefaultLetterSpacings
+	thmmLang            string // --thmm-lang: language-structured corpus for trained-hmm (B4.1)
+	thmmJPEG            int    // --thmm-jpeg: JPEG quality for emission augmentation (B4.2); 0 = off
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -1222,9 +1224,26 @@ func runTrainedHMM(ctx context.Context, imgPath string, p flagParams) error {
 		}
 	}
 
+	// B4.1: language-structured corpus via --thmm-lang.
+	// Does NOT fall back to --lang (that flag belongs to the blind decoder and
+	// defaults to "en", so inheriting it here would silently enable the language
+	// sampler for every trained-hmm invocation, changing the default path).
+	if p.thmmLang != "" {
+		l, ok := lang.ParseLanguage(p.thmmLang)
+		if !ok {
+			return fmt.Errorf("--thmm-lang: unknown language %q (supported: en, fr)", p.thmmLang)
+		}
+		opts = append(opts, mosaictext.WithTHMMLanguage(l))
+	}
+
+	// B4.2: JPEG-augmented emission training via --thmm-jpeg.
+	if p.thmmJPEG > 0 {
+		opts = append(opts, mosaictext.WithTHMMJPEG(p.thmmJPEG))
+	}
+
 	if !p.quiet && p.format != "json" {
-		fmt.Fprintf(os.Stderr, "Decoder: trained-hmm (charset=%d chars font=%s)\n",
-			len([]rune(charset)), fontSource)
+		fmt.Fprintf(os.Stderr, "Decoder: trained-hmm (charset=%d chars font=%s lang=%s jpeg=%d)\n",
+			len([]rune(charset)), fontSource, p.thmmLang, p.thmmJPEG)
 	}
 
 	res, err := mosaictext.DecodeTrainedHMM(ctx, img, opts...)
@@ -1452,6 +1471,16 @@ Examples:
 				Name:  "remosaic-linear",
 				Usage: "use linear-light block averaging for --remosaic (GEGL/GIMP-redacted targets). Implies --remosaic.",
 			},
+			&cli.StringFlag{
+				Name:  "thmm-lang",
+				Usage: `trained-hmm (B4.1): draw training strings from the word list for "en" or "fr" instead of uniform-random chars, baking real letter n-grams into the HMM transition matrix. Falls back to --lang when unset. Default off (uniform-random, output identical to previous versions).`,
+				Value: "",
+			},
+			&cli.IntFlag{
+				Name:  "thmm-jpeg",
+				Usage: "trained-hmm (B4.2): JPEG-roundtrip each rendered training image at this quality [1–100] before pixelation, so the KMeans emission clusters absorb JPEG artefacts. Use when the target was captured as a JPEG. 0 = off (default, output identical to previous versions).",
+				Value: 0,
+			},
 			&cli.BoolFlag{
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
@@ -1560,6 +1589,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		remosaicGrid:        cmd.Int("remosaic-grid"),
 		remosaicLinear:      cmd.Bool("remosaic-linear"),
 		letterSpacingSearch: cmd.Bool("letter-spacing-search"),
+		thmmLang:            cmd.String("thmm-lang"),
+		thmmJPEG:            cmd.Int("thmm-jpeg"),
 	}
 
 	if err := validateParams(p); err != nil {

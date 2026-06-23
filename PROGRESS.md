@@ -719,3 +719,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `dd6990d` 2026-06-23 — feat(blind): Q5 letter-spacing auto-calibration (opt-in) _(7 fichiers)_
 - `a644eaf` 2026-06-23 — docs(journal): v0.11.0-dev run — quick wins land in blind path, core corpora flat (no regression) _(2 fichiers)_
 - `570d77d` 2026-06-23 — feat(render): B1 spike — pure-Go variable-font instancing (go/no-go: GO) _(6 fichiers)_
+- `a8a4bbf` 2026-06-23 — feat(varfont): B1 part 1 — variable-font renderer + coordinate-descent axis fitter _(10 fichiers)_
