@@ -731,3 +731,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `23cb24a` 2026-06-24 — test: restore coverage ≥85% for the v0.11.0 wave _(7 fichiers)_
 - `3eb9945` 2026-06-24 — feat(capacity): #1 information-theoretic capacity / triage map _(3 fichiers)_
 - `2ae839b` 2026-06-24 — feat(blinddecode): #2 advance-width constraint pre-filter (quality + 6.8x perf) _(5 fichiers)_
+- `84c45b7` 2026-06-24 — refactor: apply /simplify review findings (reuse/dedupe, behavior-preserving) _(14 fichiers)_
