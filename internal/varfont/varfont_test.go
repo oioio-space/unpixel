@@ -3,7 +3,6 @@ package varfont_test
 
 import (
 	"bytes"
-	_ "embed"
 	"image"
 	"image/color"
 	"sync"
@@ -13,10 +12,11 @@ import (
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/varfont"
+	vfembed "github.com/oioio-space/unpixel/internal/varfont/embed"
 )
 
-//go:embed testdata/NunitoVF-wght.ttf
-var nunitoData []byte
+// nunitoData is the bundled Nunito variable-weight font used by tests.
+var nunitoData = vfembed.NunitoVFWght
 
 // mustNewRenderer creates a VarRenderer for the Nunito VF font at wght=value or
 // fails the test.

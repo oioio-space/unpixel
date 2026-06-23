@@ -19,6 +19,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -47,6 +48,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
+	"github.com/oioio-space/unpixel/internal/varfont" // variable-font renderer + axis fitter (B1)
 	"github.com/oioio-space/unpixel/mosaictext"       // analytic HMM decoder (mono-hmm)
 )
 
@@ -111,6 +113,9 @@ type flagParams struct {
 	letterSpacingSearch bool   // --letter-spacing-search: sweep DefaultLetterSpacings
 	thmmLang            string // --thmm-lang: language-structured corpus for trained-hmm (B4.1)
 	thmmJPEG            int    // --thmm-jpeg: JPEG quality for emission augmentation (B4.2); 0 = off
+	varfontText         string // --varfont-text: known cleartext for varfont calibration mode
+	varfontAxes         string // --varfont-axes: comma-separated axis specs e.g. "wght:200:900:500"
+	varfontLinear       bool   // --varfont-linear: linear-light pixelation for varfont decoder
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -216,10 +221,10 @@ func validateParams(p flagParams) error {
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	switch p.decoder {
-	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm": // "" is equivalent to "default"
+	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont": // "" is equivalent to "default"
 	default:
-		return fmt.Errorf("--decoder must be %q, %q, %q, %q, or %q, got %q",
-			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", p.decoder)
+		return fmt.Errorf("--decoder must be %q, %q, %q, %q, %q, or %q, got %q",
+			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", p.decoder)
 	}
 	return nil
 }
@@ -1286,6 +1291,189 @@ func runTrainedHMM(ctx context.Context, imgPath string, p flagParams) error {
 	return nil
 }
 
+// parseVarFontAxes parses a comma-separated list of axis specs of the form
+// "tag:min:max:start" (e.g. "wght:200:900:500") into a []varfont.AxisSpec.
+// Returns an error for malformed entries.
+func parseVarFontAxes(s string) ([]varfont.AxisSpec, error) {
+	if s == "" {
+		return nil, fmt.Errorf("--varfont-axes: at least one axis required (e.g. \"wght:200:900:500\")")
+	}
+	var specs []varfont.AxisSpec
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.SplitN(part, ":", 4)
+		if len(fields) != 4 {
+			return nil, fmt.Errorf("--varfont-axes: %q must be tag:min:max:start", part)
+		}
+		tag := fields[0]
+		var lo, hi, start float64
+		if _, err := fmt.Sscanf(fields[1], "%f", &lo); err != nil {
+			return nil, fmt.Errorf("--varfont-axes: %q min: %w", part, err)
+		}
+		if _, err := fmt.Sscanf(fields[2], "%f", &hi); err != nil {
+			return nil, fmt.Errorf("--varfont-axes: %q max: %w", part, err)
+		}
+		if _, err := fmt.Sscanf(fields[3], "%f", &start); err != nil {
+			return nil, fmt.Errorf("--varfont-axes: %q start: %w", part, err)
+		}
+		specs = append(specs, varfont.AxisSpec{
+			Tag:   tag,
+			Min:   float32(lo),
+			Max:   float32(hi),
+			Start: float32(start),
+		})
+	}
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("--varfont-axes: no valid axis specs found in %q", s)
+	}
+	return specs, nil
+}
+
+// runVarFont runs the variable-font decoder (mosaictext.DecodeVarFont) when
+// --decoder varfont is set. It fits the font's design axes to the redaction
+// using the render→pixelate→metric pipeline and reports the fitted axes.
+//
+// Two modes:
+//   - Calibration (--varfont-text): fits axes to the known text, returning
+//     the best-fit axis values. Use this when you know a fragment of the
+//     redacted text (Bishop Fox method).
+//   - Blind (no --varfont-text): joint text+axis search over --charset
+//     candidates (up to MaxBlindCandidates single characters). Only tractable
+//     for very short strings; prefer calibration mode for real use.
+//
+// Reuses --font/--font-bold (user font → that font only, else bundled Nunito
+// default), --block-size, --charset, --font-size, --gamma (linear), and
+// --format.
+func runVarFont(ctx context.Context, imgPath string, p flagParams) error {
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	// Parse the required axis specs.
+	axes, err := parseVarFontAxes(p.varfontAxes)
+	if err != nil {
+		return err
+	}
+
+	// Resolve the variable font: user-supplied file → parse it; else use the
+	// bundled Nunito default (DecodeVarFont handles the nil case).
+	var font *varfont.Font
+	fontSource := "bundled Nunito variable font"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		if readErr != nil {
+			return fmt.Errorf("--font: %w", readErr)
+		}
+		font, err = varfont.ParseFont(bytes.NewReader(data))
+		if err != nil {
+			return fmt.Errorf("--font: parse variable font %q: %w", fontPath, err)
+		}
+		fontSource = "file:" + filepath.Base(fontPath)
+	}
+
+	linear := p.varfontLinear || p.gamma == "linear"
+
+	style := varfont.DefaultStyle()
+	if p.fontSize > 0 {
+		style.FontSize = p.fontSize
+	}
+	if p.letterSpacing != 0 {
+		style.LetterSpacing = p.letterSpacing
+	}
+
+	opts := []mosaictext.VarFontOption{
+		mosaictext.WithVarFontStyle(style),
+		mosaictext.WithVarFontLinear(linear),
+		mosaictext.WithVarFontAxes(axes),
+	}
+	if font != nil {
+		opts = append(opts, mosaictext.WithVarFont(font))
+	}
+	if p.blockSize > 0 {
+		opts = append(opts, mosaictext.WithVarFontBlockSize(p.blockSize))
+	}
+	if p.varfontText != "" {
+		opts = append(opts, mosaictext.WithVarFontText(p.varfontText))
+	}
+	if p.charset != "" && p.varfontText == "" {
+		// charset only used in blind mode
+		opts = append(opts, mosaictext.WithVarFontCharset(p.charset))
+	}
+
+	mode := "blind"
+	if p.varfontText != "" {
+		mode = "calibration (text=" + p.varfontText + ")"
+	}
+	if !p.quiet && p.format != "json" {
+		axisDesc := make([]string, len(axes))
+		for i, a := range axes {
+			axisDesc[i] = fmt.Sprintf("%s[%.0f–%.0f]@%.0f", a.Tag, a.Min, a.Max, a.Start)
+		}
+		fmt.Fprintf(os.Stderr, "Decoder: varfont (%s font=%s axes=%s linear=%v)\n",
+			mode, fontSource, strings.Join(axisDesc, ","), linear)
+	}
+
+	res, err := mosaictext.DecodeVarFont(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodeVarFont: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		axisVals := make([]string, len(res.FittedAxes))
+		for i, a := range res.FittedAxes {
+			axisVals[i] = fmt.Sprintf("%s=%.1f", a.Tag, a.Value)
+		}
+		fmt.Fprintf(os.Stderr, "Fitted: %s  dist=%.4f  evals=%d  linear=%v  block=%d\n",
+			strings.Join(axisVals, " "), res.Distance, res.Evals, res.Linear, res.BlockSize)
+	}
+
+	switch p.format {
+	case "json":
+		type axisJSON struct {
+			Tag   string  `json:"tag"`
+			Value float64 `json:"value"`
+		}
+		axesJSON := make([]axisJSON, len(res.FittedAxes))
+		for i, a := range res.FittedAxes {
+			axesJSON[i] = axisJSON{Tag: a.Tag, Value: float64(a.Value)}
+		}
+		out := struct {
+			BestGuess  string     `json:"best_guess"`
+			FittedAxes []axisJSON `json:"fitted_axes"`
+			Distance   float64    `json:"distance,omitzero"`
+			Evals      int        `json:"evals,omitzero"`
+			Linear     bool       `json:"linear,omitzero"`
+			BlockSize  int        `json:"block_size,omitzero"`
+		}{
+			BestGuess:  res.Text,
+			FittedAxes: axesJSON,
+			Distance:   res.Distance,
+			Evals:      res.Evals,
+			Linear:     res.Linear,
+			BlockSize:  res.BlockSize,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -1401,7 +1589,7 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "decoder",
-				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace), "ref-match" (pixel-exact reference matching), "window-hmm" (grid-window beam; proportional fonts), or "trained-hmm" (blind column-anchored trained HMM; Hill-2016 §2.2–2.3)`,
+				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace), "ref-match" (pixel-exact reference matching), "window-hmm" (grid-window beam; proportional fonts), "trained-hmm" (blind column-anchored trained HMM; Hill-2016 §2.2–2.3), or "varfont" (variable-font axis fitter; requires --varfont-axes)`,
 				Value: "default",
 			},
 			&cli.BoolFlag{
@@ -1525,6 +1713,20 @@ Examples:
 				Usage: "maximum time to spend on recovery (0 = no limit)",
 				Value: 0,
 			},
+			&cli.StringFlag{
+				Name:  "varfont-text",
+				Usage: "varfont decoder: known cleartext in the redaction for calibration mode (Bishop Fox method); omit for blind single-character axis search",
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "varfont-axes",
+				Usage: `varfont decoder: comma-separated axis specs "tag:min:max:start" (e.g. "wght:200:900:500"); required for --decoder varfont`,
+				Value: "",
+			},
+			&cli.BoolFlag{
+				Name:  "varfont-linear",
+				Usage: "varfont decoder: use linear-light block averaging (GEGL/GIMP Pixelize); overridden by --gamma=linear",
+			},
 		},
 		Action: run,
 	}
@@ -1591,6 +1793,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		letterSpacingSearch: cmd.Bool("letter-spacing-search"),
 		thmmLang:            cmd.String("thmm-lang"),
 		thmmJPEG:            cmd.Int("thmm-jpeg"),
+		varfontText:         cmd.String("varfont-text"),
+		varfontAxes:         cmd.String("varfont-axes"),
+		varfontLinear:       cmd.Bool("varfont-linear"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -1607,6 +1812,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return runRefMatch(ctx, imgPath, p)
 	case "window-hmm":
 		return runWindowHMM(ctx, imgPath, p)
+	case "varfont":
+		return runVarFont(ctx, imgPath, p)
 	case "trained-hmm":
 		return runTrainedHMM(ctx, imgPath, p)
 	}

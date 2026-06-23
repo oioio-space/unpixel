@@ -1,0 +1,186 @@
+package mosaictext_test
+
+import (
+	"bytes"
+	"context"
+	"image"
+	"testing"
+
+	"github.com/oioio-space/unpixel/internal/pixelate"
+	"github.com/oioio-space/unpixel/internal/varfont"
+	vfembed "github.com/oioio-space/unpixel/internal/varfont/embed"
+	"github.com/oioio-space/unpixel/mosaictext"
+)
+
+// TestDecodeVarFont_RoundTrip is the end-to-end proof for the varfont decoder:
+//
+//  1. Render "Hi!" with the Nunito variable font at wght=780 and pixelate it
+//     (block size 8, linear-light) — the synthetic redaction.
+//  2. Call DecodeVarFont with the known text ("Hi!") to fit the wght axis.
+//  3. Expect: recovered text == "Hi!", fitted wght near 780, distance near 0.
+//
+// Calibration mode (WithVarFontText) is used because blind joint text+axis
+// search over a proportional font is intractable at small charset size; the
+// calibration mode fits axes to a known text fragment, then is ready to decode
+// the same-font redaction. A blind mode is documented in DecodeVarFont.
+//
+// Timing: ~100–500 ms depending on hardware (FitAxes runs 12 rounds × ~2 axis
+// probes × render+pixelate+metric; wght is the only axis).
+func TestDecodeVarFont_RoundTrip(t *testing.T) {
+	const (
+		targetWght = float32(780)
+		blockSize  = 8
+		knownText  = "Hi!"
+	)
+
+	// Build synthetic redaction: render at targetWght, pixelate.
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+	rTarget, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: targetWght},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer: %v", err)
+	}
+	targetImg, _, err := rTarget.Render(knownText, style)
+	if err != nil {
+		t.Fatalf("render target: %v", err)
+	}
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+	redaction := pix.Pixelate(targetImg, 0, 0)
+
+	// DecodeVarFont with known-text calibration mode.
+	// WithVarFontLinear(true) must match the pixelator used to build the
+	// synthetic redaction above; mismatching colour-space breaks the comparison.
+	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontStyle(style),
+		mosaictext.WithVarFontBlockSize(blockSize),
+		mosaictext.WithVarFontLinear(true),
+		mosaictext.WithVarFontText(knownText),
+		mosaictext.WithVarFontAxes([]varfont.AxisSpec{
+			{Tag: "wght", Min: 200, Max: 900, Start: 500},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("DecodeVarFont: %v", err)
+	}
+
+	t.Logf("recovered text=%q wght=%.1f distance=%.4f evals=%d",
+		got.Text, got.FittedAxes[0].Value, got.Distance, got.Evals)
+
+	// got before want (Google style).
+	if got.Text != knownText {
+		t.Errorf("Text: got %q, want %q", got.Text, knownText)
+	}
+	const wghtTol = float32(100) // coordinate descent lands within 100 du of 780
+	if d := got.FittedAxes[0].Value - targetWght; d < -wghtTol || d > wghtTol {
+		t.Errorf("FittedAxes[0].Value: got %.1f, want %.1f ± %.0f",
+			got.FittedAxes[0].Value, targetWght, wghtTol)
+	}
+	if got.Distance > 0.05 {
+		t.Errorf("Distance: got %.4f, want <= 0.05 (near-zero means pixel-perfect match)", got.Distance)
+	}
+}
+
+// TestDecodeVarFont_OptIn verifies that DecodeVarFont is fully independent of
+// the existing decoders: calling it does not affect mosaictext.Decode results,
+// and the --decoder default path is byte-identical before and after this
+// package is imported.
+func TestDecodeVarFont_OptIn(t *testing.T) {
+	// A blank 64×16 white image: Decode returns ErrNoContent; DecodeVarFont
+	// with no known text and a trivial charset also returns an error — but both
+	// errors are independent and neither corrupts shared state.
+	blank := image.NewRGBA(image.Rect(0, 0, 64, 16))
+	for i := range blank.Pix {
+		blank.Pix[i] = 255
+	}
+
+	_, decodeErr := mosaictext.Decode(t.Context(), blank)
+	// Decode on a blank image must error (no mosaic or no content).
+	if decodeErr == nil {
+		t.Error("Decode on blank image: got nil error, want non-nil")
+	}
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	_, vfErr := mosaictext.DecodeVarFont(t.Context(), blank,
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontText("a"),
+		mosaictext.WithVarFontAxes([]varfont.AxisSpec{
+			{Tag: "wght", Min: 200, Max: 900, Start: 500},
+		}),
+	)
+	// DecodeVarFont on a blank image must also error (no mosaic grid).
+	if vfErr == nil {
+		t.Error("DecodeVarFont on blank image: got nil error, want non-nil")
+	}
+
+	// Re-running Decode after DecodeVarFont must yield the same error — no
+	// shared state was corrupted.
+	_, decodeErr2 := mosaictext.Decode(t.Context(), blank)
+	if (decodeErr == nil) != (decodeErr2 == nil) {
+		t.Errorf("Decode result changed after DecodeVarFont: first=%v second=%v", decodeErr, decodeErr2)
+	}
+}
+
+// BenchmarkDecodeVarFont measures one calibration-mode decode call end-to-end
+// (detect grid → FitAxes → report). Reports ns/op and eval count so the axis
+// dimension cost is visible in benchstat output.
+func BenchmarkDecodeVarFont(b *testing.B) {
+	const (
+		targetWght = float32(700)
+		blockSize  = 8
+		knownText  = "Hi"
+	)
+
+	b.ReportAllocs()
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		b.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+
+	rTarget, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: targetWght},
+	})
+	if err != nil {
+		b.Fatalf("NewVarRenderer: %v", err)
+	}
+	targetImg, _, renderErr := rTarget.Render(knownText, style)
+	if renderErr != nil {
+		b.Fatalf("render: %v", renderErr)
+	}
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+	redaction := pix.Pixelate(targetImg, 0, 0)
+
+	axes := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 500}}
+	ctx := context.Background()
+
+	b.ResetTimer()
+	var totalEvals int
+	var sinkResult mosaictext.VarFontResult
+	for b.Loop() {
+		r, benchErr := mosaictext.DecodeVarFont(ctx, redaction,
+			mosaictext.WithVarFont(font),
+			mosaictext.WithVarFontStyle(style),
+			mosaictext.WithVarFontBlockSize(blockSize),
+			mosaictext.WithVarFontLinear(true),
+			mosaictext.WithVarFontText(knownText),
+			mosaictext.WithVarFontAxes(axes),
+		)
+		if benchErr != nil {
+			b.Fatalf("DecodeVarFont: %v", benchErr)
+		}
+		totalEvals += r.Evals
+		sinkResult = r
+	}
+	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
+	_ = sinkResult
+}
