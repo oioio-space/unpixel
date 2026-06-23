@@ -68,11 +68,17 @@ and what the blur / zero-config work added.
 - **Blur, not just mosaic.** Blur is also a deterministic function of its input, so the same
   attack applies: `pixelate.NewGaussianBlur(σ)` / `WithPixelator` reproduce a Gaussian blur. **Blur
   recovery is now zero-config on σ:** `unpixel.RecoverBlurred(ctx, img, opts...)` auto-estimates σ
-  via `InferBlurSigma`, then searches σ adaptively as a dimension of the search (like block size in
-  mosaic), defaulting to **beam search with language prior** to recover longer words where per-character
-  image signal is weak. The CLI `--redaction blur` auto-searches σ when `--blur-sigma` is unset.
-  `Result.BlurSigma` records the recovered σ. Optional exploratory Richardson-Lucy deconvolution
-  (`--deblur`) for known-PSF cases.
+  via `InferBlurSigma` (density-adaptive gradient-percentile, accurate to ~±2% for σ∈{1,2,4,8}), then
+  searches σ adaptively as a dimension of the search (like block size in mosaic), defaulting to **beam
+  search with language prior** to recover longer words where per-character image signal is weak. The CLI
+  `--redaction blur` auto-searches σ when `--blur-sigma` is unset. `Result.BlurSigma` records the
+  recovered σ. Optional exploratory Richardson-Lucy deconvolution (`--deblur`) for known-PSF cases.
+  **Re-mosaic error correction** (`--remosaic` / `WithRemosaic()` / `WithRemosaicGrid(b)` /
+  `WithRemosaicLinear()`): apply Hill–Zhou–Saul–Shacham (PETS-2016 §4) composite Gaussian-blur →
+  block-average operator to collapse σ-mismatch and JPEG noise; opt-in via CLI or API, auto-selects
+  block grid as `max(2, round(σ))` and supports both sRGB and linear-light averaging (GEGL/GIMP
+  targets). Honest note: on self-consistent synthetics the plain path already converges, so the benefit
+  is for real-world σ-mismatch/JPEG; never regresses vs plain.
 - **Zero-config font matching.** Recovery needs the redaction's typeface — so with **no `--font`,
   UnPixel sweeps a built-in set of redistributable fonts** (Liberation Sans/Serif/Mono ≈
   Arial/Times/Courier, Carlito ≈ Calibri, Caladea ≈ Cambria, Adwaita Mono, Noto Sans Mono, Source
@@ -157,7 +163,13 @@ unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 unpixel --decoder mono-hmm --lang en image.png                              # LM-guided monospace decoder
 unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long-text.png  # with specific font
 unpixel --decoder ref-match --font "Liberation Sans" passwords.png          # reference-matching for arbitrary content
+unpixel --decoder window-hmm --lang en image.png                            # window-grid beam decoder (proportional fonts)
 unpixel --normalize --redaction blur real-blur.jpg                          # normalize input + blur recovery on JPEG
+
+# Re-mosaic correction (Hill–Zhou–Saul–Shacham PETS-2016, §4):
+unpixel --remosaic --redaction blur blurred.png                             # apply blur→remosaic error correction
+unpixel --remosaic-grid 4 --redaction blur image.png                        # pin the remosaic block grid
+unpixel --remosaic-linear --redaction blur gimp-output.png                  # use linear-light remosaic (GEGL/GIMP)
 ```
 
 Key flags (`unpixel --help` for the full list):
@@ -176,7 +188,10 @@ Key flags (`unpixel --help` for the full list):
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
 | `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
 | `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
-| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), or `ref-match` (reference-matching for known fonts) |
+| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), `ref-match` (reference-matching for known fonts), or `window-hmm` (grid-window beam for proportional fonts) |
+| `--remosaic` | off | Enable Hill–Zhou–Saul–Shacham PETS-2016 §4 composite blur→remosaic error correction (scales σ-mismatch and JPEG noise) |
+| `--remosaic-grid` | `0` (auto) | Block grid size for `--remosaic`; `0` auto-detects as `max(2, round(σ))` |
+| `--remosaic-linear` | off | Use linear-light block averaging for `--remosaic` (GEGL/GIMP-rendered targets) |
 | `--strategy` | `guided` | `guided` (full DFS), `beam` (bounded), or `mono` (monospace fast-path) |
 | `--beam-width` | `0` (16) | Candidates kept per depth level under `--strategy beam` |
 | `--metric` | `pixelmatch` | `pixelmatch` (faithful; auto `pixelmatch-fast` on block-average mosaic for identical results, zero-config) or `ssim` (structural) |
@@ -361,6 +376,37 @@ unpixel --decoder ref-match --charset "0-9A-Z" image.png               # narrow 
 
 **Key limitation:** Like all generate-and-test approaches, recovery is bounded by **font fidelity**. On real images where the exact font is not bundled (e.g., Notepad/Sublime screenshots), the bundled-sweep decode is incorrect. The exact-font path (`--font yourfont.ttf` or `WithRefFontFile`) is the technique's strength and is expected to recover redactions when the font is known.
 
+### Grid-window beam decoder (proportional-font mosaic text recovery)
+
+For **grid-aligned mosaic text** (not monospace-limited), the `mosaictext` package offers a **grid-window HMM beam decoder** that slides a window over pixelated grid cells and scores each candidate character by its per-window block MSE. This recovers **proportional-font mosaics** that the monospace `mono-hmm` cannot:
+
+```go
+text, err := mosaictext.DecodeWindowHMM(ctx, img,
+	mosaictext.WithWHMMCharset("0123456789 "),  // candidate alphabet
+	mosaictext.WithWHMMFont("Liberation Sans"), // or omit to sweep bundled fonts
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(text)
+```
+
+On the command line, use `--decoder window-hmm` to activate it:
+
+```bash
+unpixel --decoder window-hmm image.png                          # auto-detect font
+unpixel --decoder window-hmm --lang en --font Arial.ttf image.png  # supply a custom TTF/OTF
+unpixel --decoder window-hmm --charset "0-9" image.png          # narrow the charset
+```
+
+**API**: `mosaictext.DecodeWindowHMM(ctx, img, opts...)` with options `WithWHMMCharset` (default: `"0123456789 "`), `WithWHMMFont` (bundled font by name), `WithWHMMFontFile`/`WithWHMMFontFileBold` (caller-supplied TTF/OTF bytes), `WithWHMMLinear` (tri-state: auto/sRGB/linear-light block averaging), `WithWHMMBeamWidth` (default: 16), `WithWHMMSeed` (optional RNG seed for reproducibility).
+
+**Why it matters:** Proportional fonts have variable-width glyphs (unlike monospace), so the character-grid alignment changes per position. The window-HMM beam variant scores each grid cell window independently by MSE, allowing per-glyph recovery without assuming monospace structure. On synthetic grid-aligned fixtures (e.g., "hello world" rendered proportional then pixelated), the decoder recovers text exactly (distance near-zero).
+
+**Design note:** This is the **grid-window beam variant**, not the learned-emission HMM (Hill et al. PETS-2016 full model with k-means + Viterbi); the latter requires blind column-anchored observations (a structural redesign). The beam search variant trades some optimality for robustness to font mismatch.
+
+**Key limitation:** Like all approaches, recovery is bounded by **font fidelity**. On real images where the exact font is not bundled, the decode is inaccurate. The exact-font path (`--font yourfont.ttf` or `WithWHMMFontFile`) is the strength and is expected to recover proportional-font redactions when the font is known.
+
 Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
@@ -385,8 +431,10 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | **`mosaictext.Decode(ctx, image.Image, ...Option) (string, error)`** | **Zero-config monospace mosaic decoder (auto grid inference + character recognition)** |
 | **`mosaictext.DecodeHMM(ctx, image.Image, ...Option) (string, error)`** | **LM-guided beam decoder for long monospace mosaic text; fuses bigram language model into search objective; polynomial in length, breaks charset^len barrier; font-limited on out-of-bundle typefaces** |
 | **`mosaictext.With*` options (`WithLanguage`, `WithCharset`, `WithEmissionTemperature`, `WithFont`, `WithFontFile`, `WithFontFileBold`)** | **Configure DecodeHMM font/language/charset/tuning** |
-| **`mosaictext.DecodeReference(ctx, image.Image, ...RefOption) (Result, error)`** | **Reference-matching decoder: recovers arbitrary content (passwords, code, random strings) from mosaics via per-glyph reference matching; no language assumption; exact on self-consistent fixtures when font is known; works on proportional fonts** |
+| **`mosaictext.DecodeReference(ctx, image.Image, ...RefOption) (string, error)`** | **Reference-matching decoder: recovers arbitrary content (passwords, code, random strings) from mosaics via per-glyph reference matching; no language assumption; exact on self-consistent fixtures when font is known; works on proportional fonts** |
 | **`mosaictext.WithRef*` options (`WithRefCharset`, `WithRefFont`, `WithRefFontFile`, `WithRefFontFileBold`, `WithRefLinear`)** | **Configure DecodeReference font/charset/color-space selection** |
+| **`mosaictext.DecodeWindowHMM(ctx, image.Image, ...WHMMOption) (string, error)`** | **Grid-window beam decoder: recovers proportional-font mosaic text via per-cell window MSE scoring; no monospace assumption; exact on grid-aligned fixtures when font is known** |
+| **`mosaictext.WithWHMM*` options (`WithWHMMCharset`, `WithWHMMFont`, `WithWHMMFontFile`, `WithWHMMFontFileBold`, `WithWHMMLinear`, `WithWHMMBeamWidth`, `WithWHMMSeed`)** | **Configure DecodeWindowHMM font/charset/color-space/beam tuning** |
 
 ## Configuration
 
