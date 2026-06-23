@@ -549,7 +549,14 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
   d'Internet » : les quatre phases P-A/P-B/P-C/P-D — décodeur beam LM monospace `--decoder mono-hmm`,
   reference-matching Depix `--decoder ref-match` avec contrat de police utilisateur, normalisation
   d'entrée `--normalize` + décodage multi-formats JPEG/WebP/…, auto-détection mosaïque robuste +
-  best-effort ; toutes opt-in, pur-Go, panel 17/17 inchangé, couverture 87 %)
+  best-effort ; toutes opt-in, pur-Go, panel 17/17 inchangé, couverture 87 %), **v0.10.0**
+  (recommandations du papier Hill-2016 : décodeur grille-fenêtre `--decoder window-hmm` pour polices
+  proportionnelles, HMM à émissions apprises décodé en Viterbi aveugle `--decoder trained-hmm`
+  (exact sur chiffres, fragile à la géométrie), mode de correction d'erreur par re-mosaïque
+  `--remosaic`, meilleure estimation σ, désambiguïsation LM optionnelle sur ref-match (`--lang`),
+  journal de tests évolutif `mise run journal` + corpus de parité SICK/MICR. **Constat honnête** :
+  la géométrie/offset est robuste, mais la récupération de phrases proportionnelles à blocs grossiers
+  reste non résolue ; le mur réel demeure la fidélité de police. Opt-in, panel 17/17, couverture ~86 %)
   publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
@@ -703,3 +710,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `171f6f4` 2026-06-23 — feat(mosaictext): genuine learned-emission Viterbi HMM with blind decode (Hill-2016 #2) _(9 fichiers)_
 - `226eb7e` 2026-06-23 — test(parity): SICK + check-number benchmark fixtures vs Hill-2016 (#6) _(20 fichiers)_
 - `315ef53` 2026-06-23 — docs: trained-hmm decoder (#2) + SICK parity corpus (#6), with honest limits _(2 fichiers)_
+- `b20ab1d` 2026-06-23 — feat(refmatch): opt-in LM-beam disambiguation; diagnosis — geometry is robust, coarse blocks are the wall _(5 fichiers)_

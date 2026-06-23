@@ -4,16 +4,22 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.9.0** published — pure-Go mosaic and Gaussian-blur recovery with four new decoders
-> and input normalization for real captures.
+> **Status:** **v0.10.0** published — pure-Go mosaic and Gaussian-blur recovery with five decoders,
+> input normalization, and a re-readable test journal.
 > - **Core:** zero-config auto-detection (block size / blur σ / font / language), bilingual
->   blind recovery (FR/EN), **87% test coverage**, all gates green.
-> - **New (P-A/P-B/P-C/P-D):** LM-guided monospace decoder (`--decoder mono-hmm`), Depix-style reference-matching
->   decoder for arbitrary content + proportional fonts (`--decoder ref-match`), input normalization for real blur
->   captures (`--normalize`), multi-format input decoding (JPEG/GIF/WebP/BMP/TIFF), robust mosaic-vs-blur auto-detect
->   with best-effort surfacing (`Result.BelowThreshold`), and **~35% faster mosaic recovery** (AA-skip metric + caches, bit-identical).
-> - **Honesty:** new decoders extend the operating envelope and recover known-font cases exactly; real-world recovery
->   remains font-fidelity-bounded — supply the exact font via `--font` or `--font-dir` for real captures.
+>   blind recovery (FR/EN), **~86% test coverage**, all gates green.
+> - **Decoders:** guided/beam default, LM-guided monospace (`--decoder mono-hmm`), Depix-style
+>   reference-matching with optional LM disambiguation (`--decoder ref-match [--lang]`), grid-window
+>   beam for proportional fonts (`--decoder window-hmm`), and a genuine blind learned-emission Viterbi
+>   HMM (`--decoder trained-hmm`).
+> - **Real captures:** input normalization (`--normalize`), re-mosaic blur error-correction
+>   (`--remosaic`), improved blur-σ estimation, multi-format input (JPEG/GIF/WebP/BMP/TIFF), robust
+>   mosaic-vs-blur auto-detect + best-effort surfacing (`Result.BelowThreshold`).
+> - **Tracking:** `mise run journal` writes an evolving `docs/JOURNAL.md` over all corpora; a SICK /
+>   check-number parity corpus benchmarks against Hill-2016.
+> - **Honesty:** decoders recover known-font cases exactly (digits/short content) and extend the
+>   envelope, but real-world recovery stays font-fidelity-bounded (supply the exact font via `--font`)
+>   and proportional natural-language sentences at coarse blocks remain unsolved.
 > See [`PROGRESS.md`](PROGRESS.md) for the roadmap and [`docs/DELTA.md`](docs/DELTA.md) for the
 > delta vs the original Bishop Fox unredacter.
 
@@ -159,7 +165,7 @@ unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.p
 unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
 unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 
-# New decoders (v0.9.0):
+# Decoders (v0.10.0):
 unpixel --decoder mono-hmm --lang en image.png                              # LM-guided monospace decoder
 unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long-text.png  # with specific font
 unpixel --decoder ref-match --font "Liberation Sans" passwords.png          # reference-matching for arbitrary content
