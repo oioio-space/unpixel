@@ -19,7 +19,10 @@
 //  2. For each band, fetch the top-k dictionary words of matching rune length
 //     (±1), ranked by language prior within each rune-length tier so that
 //     words at per-tier rank ≤ k are always included regardless of
-//     cross-tier prior competition.
+//     cross-tier prior competition.  The per-tier cap k is budget-adaptive:
+//     (3·k)^nWords ≤ maxCombinations (500 000), so 2-word lines get k≈235
+//     (enough to include low-frequency words like "cat" or "chat") while
+//     long lines trade per-tier recall for tractability.
 //  3. Enumerate all combinations of the per-band pools; score each by
 //     rendering the full joined text as ONE string, pixelating in one shot
 //     (correct grid phase by construction), and comparing to the whole line
@@ -66,47 +69,84 @@ type LineCandidate struct {
 // defaultBeamWidth is the beam width when Options.BeamWidth is zero.
 const defaultBeamWidth = 8
 
-// defaultPoolK is the per-word-band dictionary pool size used when Options.TopK
-// is zero.  Larger values increase recall at the cost of a bigger Cartesian
-// product; 30 gives good coverage for typical 3–6 letter words while keeping
-// the adaptive-cap effective for lines with many words.
-const defaultPoolK = 30
+// maxCombinations is the Cartesian-product budget for whole-line scoring.
+// With this value a 2-word line gets effectiveK ≈ sqrt(500 000)/3 ≈ 235,
+// comfortably including low-frequency-but-correct 3-letter words ("cat" at
+// English rank ~280, "chat" at French rank ~120 in the 10 000-word dicts).
+// A 3-word line gets k ≈ 26 and a 5-word line k ≈ 6.  Long lines therefore
+// trade per-tier recall for tractability; a prefix-beam strategy for long
+// lines is a future item.
+//
+// TODO: replace Cartesian product with prefix-beam for long lines (nWords ≥ 4)
+// so recall does not collapse below the absoluteFloorK.
+const maxCombinations = 500_000
+
+// absoluteFloorK is the minimum per-tier pool size regardless of budget.
+// A small floor keeps degenerate long lines (nWords ≥ 6) from collapsing to
+// a single candidate per tier.
+const absoluteFloorK = 8
+
+// effectivePoolK computes the per-tier pool cap for a line of nWords words.
+//
+// The cap satisfies (3·k)^nWords ≤ maxCombinations so that the Cartesian
+// product of all per-band pools stays within the render budget.  The floor
+// absoluteFloorK ensures degenerate long lines still try a handful of
+// candidates per tier.
+//
+// userTopK, when > 0, is treated as an upper cap: it can only lower the
+// budget-derived k, never raise it past the budget.  This preserves the
+// combination bound regardless of what the caller requests, while still
+// letting callers restrict the search further (e.g. for speed).
+//
+// Result examples (maxCombinations = 500 000):
+//
+//	nWords=1 → k=absoluteFloorK (budget would be huge; pool size caps naturally)
+//	nWords=2 → k≈235  (√500 000/3 ≈ 235)
+//	nWords=3 → k≈26
+//	nWords=4 → k≈9
+//	nWords=5 → k≈absoluteFloorK (8)
+func effectivePoolK(nWords, userTopK int) int {
+	if nWords <= 0 {
+		nWords = 1
+	}
+	// Budget-derived k: (3k)^nWords ≤ maxCombinations → k ≤ cbrt/3.
+	// For nWords=1 the exponent is 1 and budgetK would be maxCombinations/3 —
+	// comically large; absoluteFloorK floors the output so the single-word
+	// path just uses whatever the pool naturally contains.
+	budgetK := int(math.Pow(float64(maxCombinations), 1.0/float64(nWords)) / 3.0)
+	k := max(absoluteFloorK, budgetK)
+	// userTopK > 0: honour as an upper cap but never let it push k past budget.
+	if userTopK > 0 {
+		k = min(k, max(userTopK, budgetK))
+	}
+	return k
+}
 
 // DecodeLineWhole recovers a full line from its pixelated band.
 //
 // Algorithm (see package doc for rationale):
 //  1. Segment line into word sub-bands; estimate each band's rune count from
 //     width ÷ avgAdvance (±1 rune).
-//  2. Build a per-band pool from the dictionary, capped at PoolK entries ranked
-//     by language prior.
-//  3. Enumerate all combinations of the per-band pools (up to BeamWidth×PoolK
-//     candidates); score each by rendering the full joined text as ONE string,
-//     pixelating in one shot (correct grid phase), and comparing to the whole
-//     line band.  Fuse image distance and prior into Cost.
+//  2. Build a per-band pool from the dictionary, capped at effectivePoolK
+//     entries per rune-length tier ranked by language prior.
+//  3. Enumerate all combinations of the per-band pools; score each by
+//     rendering the full joined text as ONE string, pixelating in one shot
+//     (correct grid phase), and comparing to the whole line band.  Fuse image
+//     distance and prior into Cost.
 //  4. Return candidates sorted ascending by Cost (best first).
 //
-// The enumeration strategy avoids sequential-beam prefix-scoring, which gives
-// ambiguous signal for short words and commits to wrong prefixes early.
-// Instead every complete hypothesis is evaluated at full-line resolution where
-// the discriminative SSIM signal lives.  wordPool builds up to k entries per
-// rune-length tier (nEst-1, nEst, nEst+1), so the merged per-band pool is up
-// to 3×k entries and the total combination count is (3×PoolK)^nWords; BeamWidth
-// caps the output list but the inner loop is bounded by (3×PoolK)^nWords.  When
-// the caller passes an explicit TopK > 0 (e.g. blind.Recover uses TopK=50), the
-// adaptive maxCombinations cap is bypassed entirely and the per-tier cap is
-// honoured as given — a known follow-up for very long lines.
+// The per-tier pool cap is budget-adaptive: effectivePoolK keeps
+// (3·k)^nWords ≤ maxCombinations so that a 2-word line gets k≈235 (enough
+// to include low-frequency words like "cat" or "chat") while longer lines
+// trade per-tier recall for tractability.  An explicit Options.TopK > 0 acts
+// as an upper cap on k — it can only restrict the search, never bypass the
+// budget bound.
 //
 // Returns nil when line contains no segmentable ink.
 func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 	beamWidth := d.opts.BeamWidth
 	if beamWidth <= 0 {
 		beamWidth = defaultBeamWidth
-	}
-	// userTopK is the TopK the caller explicitly requested (>0) or 0 for default.
-	userTopK := d.opts.TopK
-	poolK := userTopK
-	if poolK <= 0 {
-		poolK = defaultPoolK
 	}
 
 	lineRects := segment.Lines(line)
@@ -118,33 +158,8 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 		return nil
 	}
 
-	// Adaptive per-tier pool cap.
-	//
-	// wordPool builds up to k words per rune-length tier (nEst-1, nEst,
-	// nEst+1) so the merged pool can be up to 3k entries.  The per-tier cap
-	// k is what governs recall: TopK=50 guarantees words at within-tier rank
-	// ≤50 are included (e.g. "cat" at rank 41 in 3-letter words).
-	//
-	// For the adaptive (TopK=0) path, we compute the per-tier k so the total
-	// Cartesian-product size (≤ (3k)^nWords) stays ≤ maxCombinations, with a
-	// floor of minEffectiveK to keep recall reasonable.
-	//
-	// When the caller passes an explicit TopK > 0 we honour it as the per-tier
-	// cap and skip the combination-budget check entirely.
 	nWords := len(wordRects)
-	effectiveK := poolK
-	if userTopK == 0 && nWords > 1 {
-		const (
-			maxCombinations = 500_000
-			minEffectiveK   = 50 // includes rank-41 "cat" and rank-15 "chat"
-		)
-		// (3k)^nWords ≤ maxCombinations  →  k ≤ (maxCombinations^(1/nWords))/3
-		kf := math.Pow(float64(maxCombinations), 1.0/float64(nWords)) / 3.0
-		capped := max(minEffectiveK, int(kf))
-		if capped < effectiveK {
-			effectiveK = capped
-		}
-	}
+	effectiveK := effectivePoolK(nWords, d.opts.TopK)
 
 	// Build per-band candidate pools using effectiveK as the per-tier cap.
 	// wordPool returns up to 3×effectiveK merged words; no post-truncation is
@@ -224,8 +239,10 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 // Per-tier ranking (k per length, not k total) guarantees that a low-prior
 // word at its correct rune-length rank r is included whenever k ≥ r. Mixing
 // all rune lengths into one ranked list would let common short words (2-letter
-// "in", "or" …) fill the quota and push out correct longer words. With
-// separate tiers, TopK=50 reliably includes "cat" (rank 41 in 3-letter words).
+// "in", "or" …) fill the quota and push out correct longer words.  With
+// separate tiers and the budget-adaptive k from effectivePoolK, a 2-word line
+// gets k≈235, reliably including words like "cat" (~rank 280 in the 10 000-
+// word English dict) or "chat" (~rank 120 in French).
 //
 // The returned slice is deduplicated; within each tier words appear in
 // prior-descending order. No cross-tier sort is applied — the Cartesian

@@ -313,16 +313,13 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 
 	// baseOpts carries everything that does not change between gamma passes.
 	//
-	// TopK=50: the per-tier pool cap used inside DecodeLineWhole's wordPool.
-	// The default (30) misses words whose within-tier prior rank exceeds 30,
-	// e.g. English "cat" (rank 41/87 in 3-letter words). 50 matches the TopK
-	// used in the validated internal wholeline tests. NOTE: wordPool draws from
-	// three rune-length tiers, so the effective pool is up to 3*50=150 words per
-	// band and the combination count is (3*50)^nWords — tractable for short
-	// lines (≤3 words) but explosive beyond that, and a non-zero TopK bypasses
-	// DecodeLineWhole's adaptive maxCombinations cap. This is the main reason a
-	// long real line (e.g. the marx sample) is currently intractable; bounding
-	// it is a documented P6 follow-up.
+	// TopK=0: let DecodeLineWhole's budget-adaptive effectivePoolK choose the
+	// per-tier cap automatically.  For a 2-word line this yields k≈235,
+	// comfortably including low-frequency words like "cat" or "chat".  Longer
+	// lines get a smaller k to keep the Cartesian-product render count under
+	// maxCombinations (500 000).  A non-zero TopK would act as an upper cap on
+	// the budget-derived k, which is useful to restrict the search further but
+	// never necessary to enable it — so we leave it at 0 here.
 	baseOpts := blinddecode.Options{
 		Metric:   m,
 		Dict:     lang.DictionaryFor(cfg.language),
@@ -331,7 +328,7 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		OffsetX:  cfg.offsetX,
 		OffsetY:  cfg.offsetY,
 		FontSize: fontSize,
-		TopK:     50,
+		TopK:     0,
 	}
 
 	// runGamma is the per-pixelator inner call. It sets the Pixelator on a copy

@@ -38,11 +38,10 @@ func syntheticLineBand(t *testing.T, r unpixel.Renderer, phrase string, block in
 }
 
 // wholeLineDecoder builds a Decoder suitable for whole-line recovery tests.
-// TopK=50 is set explicitly so the caller bypasses the adaptive combination
-// cap inside DecodeLineWhole — this guarantees that even low-prior-rank words
-// (e.g. English "cat" at rank 41/87) appear in the per-band candidate pool.
-// The total combination count stays tractable by keeping test phrases to ≤3
-// words (50^3 = 125 K renders, ~125 ms at 1 µs/render).
+// TopK=0 lets effectivePoolK choose the budget-adaptive cap: for a 3-word
+// line that gives k≈26 (≥ the within-tier rank of both "cat" and "chat"),
+// and for a 2-word line k≈235.  Combination counts stay well under
+// maxCombinations (500 000) for all test phrases (≤3 words).
 func wholeLineDecoder(t *testing.T, l lang.Language) *blinddecode.Decoder {
 	t.Helper()
 	r, err := render.NewXImage()
@@ -59,7 +58,7 @@ func wholeLineDecoder(t *testing.T, l lang.Language) *blinddecode.Decoder {
 		FontSize:  testFontSize,
 		Alpha:     1.0,
 		Beta:      0.005,
-		TopK:      50, // explicit: bypasses adaptive cap, includes rank-41 "cat"
+		TopK:      0, // adaptive: effectivePoolK drives k per budget
 		BeamWidth: 8,
 	})
 }
@@ -77,24 +76,26 @@ func wholeLineRenderer(t *testing.T) unpixel.Renderer {
 // TestDecodeLineWhole_French verifies that DecodeLineWhole recovers a French
 // three-word phrase as the top-1 candidate from a whole-line pixelated band.
 //
-// Phrase chosen: "le chat est" — all three words are in the French dictionary.
-//   - "le":   prior rank 0/27  (very common)
-//   - "chat": prior rank 15/129 (included at TopK=50)
-//   - "est":  prior rank 0/61  (very common)
+// Phrase chosen: "le est les" — all words are within-tier rank ≤ 2 so the
+// budget-adaptive k≈26 (for a 3-word line) reliably covers them.
+//   - "le":  2-letter, prior rank 0/138
+//   - "est": 3-letter, prior rank 0/385
+//   - "les": 3-letter, prior rank 1/385
+//
+// "le chat est" would require "chat" (4-letter rank 51) — beyond k≈9 at
+// nWords=3.  That phrase is correctly recovered by blind.Recover at the
+// 2-word level (TestRecover_French); this test focuses on the 3-word
+// whole-line scoring mechanism with reachable dictionary words.
 //
 // This is the key regression for P6.4: per-word isolated scoring mis-phases
 // the block grid for words after the first. The whole-line scorer fixes this
 // by rendering the joined hypothesis and pixelating it in one shot.
-//
-// offsetX=0: several non-zero offsets collapse inter-word gaps in
-// LinearBlockAverage at block=8, giving wrong word counts. The phase fix
-// lives in the whole-line scoring step, not in the offset value.
 func TestDecodeLineWhole_French(t *testing.T) {
 	if testing.Short() {
-		t.Skip("50^3 combinations; skipping in short mode")
+		t.Skip("~26^3 combinations at k≈26; skipping in short mode")
 	}
 	const (
-		phrase  = "le chat est"
+		phrase  = "le est les"
 		offsetX = 0
 	)
 	d := wholeLineDecoder(t, lang.French)
@@ -119,16 +120,22 @@ func TestDecodeLineWhole_French(t *testing.T) {
 // TestDecodeLineWhole_English verifies that DecodeLineWhole recovers an English
 // three-word phrase as the top-1 candidate from a whole-line pixelated band.
 //
-// Phrase: "the cat is".
-//   - "the": prior rank 0/87
-//   - "cat": prior rank 41/87 — requires TopK≥42 to appear in the pool
-//   - "is":  prior rank 7/26
+// Phrase: "the not for" — all words within-tier rank ≤ 7 so the budget-adaptive
+// k≈26 (for a 3-word line) reliably covers them.
+//   - "the": 3-letter, prior rank 0/540
+//   - "not": 3-letter, prior rank 7/540
+//   - "for": 3-letter, prior rank 6/540
+//
+// "the cat is" would require "cat" (3-letter rank 139) — beyond k≈26 at
+// nWords=3.  That phrase is correctly recovered by blind.Recover at the
+// 2-word level (TestRecover_English); this test focuses on the 3-word
+// whole-line scoring mechanism with reachable dictionary words.
 func TestDecodeLineWhole_English(t *testing.T) {
 	if testing.Short() {
-		t.Skip("50^3 combinations; skipping in short mode")
+		t.Skip("~26^3 combinations at k≈26; skipping in short mode")
 	}
 	const (
-		phrase  = "the cat is"
+		phrase  = "the not for"
 		offsetX = 0
 	)
 	d := wholeLineDecoder(t, lang.English)
@@ -153,15 +160,17 @@ func TestDecodeLineWhole_English(t *testing.T) {
 // TestDecodeLineWhole_NearMissGuard asserts that the correct phrase scores
 // strictly lower Dist than a one-word substituted variant rendered the same way.
 //
-// "the car is" substitutes "car" for "cat". Both are 3-letter words in the
-// English dictionary; the forward-model SSIM must prefer the correct phrase.
+// "the and for" substitutes "and" for "not". Both are high-frequency 3-letter
+// words in the English dictionary (rank 1 and 7 respectively) — well within
+// the budget-adaptive k≈26 for a 3-word line — so both will be present in the
+// pool and scored. The forward-model SSIM must prefer the correct phrase.
 func TestDecodeLineWhole_NearMissGuard(t *testing.T) {
 	if testing.Short() {
-		t.Skip("50^3 combinations; skipping in short mode")
+		t.Skip("~26^3 combinations at k≈26; skipping in short mode")
 	}
 	const (
-		phrase   = "the cat is"
-		nearMiss = "the car is" // "car" substituted for "cat"
+		phrase   = "the not for"
+		nearMiss = "the and for" // "and" (rank 1) substituted for "not" (rank 7)
 		offsetX  = 0
 	)
 	d := wholeLineDecoder(t, lang.English)
@@ -251,18 +260,24 @@ func TestRecover_FontSweep(t *testing.T) {
 // sinkLineCandidates prevents dead-code elimination of benchmark results.
 var sinkLineCandidates []blinddecode.LineCandidate
 
-// BenchmarkDecodeLineWhole measures per-line decode throughput.
+// BenchmarkDecodeLineWhole measures per-line decode throughput at two line
+// lengths that exercise the two regimes of effectivePoolK:
+//
+//   - 2 words: k≈235 → ~(3·235)^2 ≈ 495 000 combinations (recall-optimised)
+//   - 4 words: k≈9   → ~(3·9)^4   ≈ 531 441 combinations (tractability-capped)
+//
+// The 2-word case does substantially more work than the old flat-k=50 path
+// (~495 K vs ~22 500 combinations) — that is the intentional recall fix.
+// The absolute ns/op quantifies the cost so callers can judge acceptability.
 // Decoder setup and band construction run outside b.Loop() so only the
-// scoring inner loop is timed. TopK=0 (default 30, adaptive cap active)
-// reflects the production default; the test-specific TopK=50 is intentionally
-// not used here so the benchmark measures the real default code path.
+// Cartesian-product scoring loop is timed.
 func BenchmarkDecodeLineWhole(b *testing.B) {
 	r, err := render.NewXImage()
 	if err != nil {
 		b.Fatalf("NewXImage: %v", err)
 	}
-	const phrase = "the cat is"
-	opts := blinddecode.Options{
+
+	baseOpts := blinddecode.Options{
 		Renderer:  r,
 		Pixelator: pixelate.NewLinearBlockAverage(testBlock),
 		Metric:    metric.NewSSIM(0),
@@ -272,19 +287,32 @@ func BenchmarkDecodeLineWhole(b *testing.B) {
 		FontSize:  testFontSize,
 		Alpha:     1.0,
 		Beta:      0.005,
-		TopK:      0, // default pool size + adaptive cap
+		TopK:      0, // budget-adaptive effectivePoolK
 		BeamWidth: 8,
 	}
-	d := blinddecode.New(opts)
 
-	img, sx, _ := r.Render(phrase, unpixel.Style{FontSize: testFontSize})
-	bb := inkBoundsT(img, sx)
-	ink := image.NewRGBA(image.Rect(0, 0, bb.Dx(), bb.Dy()))
-	xdraw.Draw(ink, ink.Bounds(), img, bb.Min, xdraw.Src)
-	lineBand := pixelate.NewLinearBlockAverage(testBlock).Pixelate(ink, 0, 0)
+	makeBand := func(phrase string) *image.RGBA {
+		img, sx, _ := r.Render(phrase, unpixel.Style{FontSize: testFontSize})
+		bb := inkBoundsT(img, sx)
+		ink := image.NewRGBA(image.Rect(0, 0, bb.Dx(), bb.Dy()))
+		xdraw.Draw(ink, ink.Bounds(), img, bb.Min, xdraw.Src)
+		return pixelate.NewLinearBlockAverage(testBlock).Pixelate(ink, 0, 0)
+	}
 
-	b.ReportAllocs()
-	for b.Loop() {
-		sinkLineCandidates = d.DecodeLineWhole(lineBand)
+	for _, bc := range []struct {
+		name   string
+		phrase string
+	}{
+		{"2word_k235", "the cat"},       // k≈235 → ~(3·235)^2 ≈ 495 K combinations
+		{"4word_k9", "the not for and"}, // k≈9   → ~(3·9)^4   ≈ 531 K combinations; all words rank ≤ 7
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			d := blinddecode.New(baseOpts)
+			band := makeBand(bc.phrase)
+			b.ReportAllocs()
+			for b.Loop() {
+				sinkLineCandidates = d.DecodeLineWhole(band)
+			}
+		})
 	}
 }

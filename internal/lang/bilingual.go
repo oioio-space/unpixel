@@ -6,15 +6,15 @@
 //
 // Design — fusion weights:
 //
-//	score = wDict * dictionaryScore + wChar * infini.Score(s)
+//	score = wDict * weightedFreqScore + wChar * infini.Score(s)
 //
 // Where wDict=0.5 and wChar=1.0.  Rationale:
 //   - infini.Score returns mean per-byte log-prob, typically in [-3, -1].
-//     dictionaryScore (BonusWord=1.0, mean over tokens) sits in [0, 1].
+//     weightedFreqScore (Zipfian rank→weight, mean over tokens) sits in [0, 1].
 //   - Without weighting, the char model dominates for long strings and the
-//     dict bonus disappears below noise.  With wDict=0.5 the dict contributes
-//     ~0.5 per fully in-vocabulary token — enough to separate "histoire" from
-//     a shuffled form while keeping the char model's OOV discrimination.
+//     dict bonus disappears below noise.  With wDict=0.5 the freq score
+//     contributes ~0.5 per common token — enough to separate "the"/"de" from a
+//     rare equal-length word while keeping the char model's OOV discrimination.
 //   - wChar=1.0 keeps the char floor visible even for OOV strings (accented
 //     forms, proper nouns) so the prior never goes silent.
 //   - Empirical verification: see TestPriorFor_frenchSentenceBeatsShuffled /
@@ -195,9 +195,10 @@ const (
 	wChar = 1.0 // weight on infini-gram mean per-byte log-prob (typically [-3, -1])
 )
 
-// PriorFor returns a plausibility scorer for l: a fusion of the word-dictionary
-// score and the variable-order character infini-gram, so in-vocabulary words are
-// rewarded and out-of-vocabulary strings still get graceful char-level scoring.
+// PriorFor returns a plausibility scorer for l: a fusion of a Zipfian
+// frequency-weighted dictionary score and the variable-order character
+// infini-gram, so common in-vocabulary words rank above rare ones and
+// out-of-vocabulary strings still get graceful char-level scoring.
 // Higher is more plausible. The returned function is safe to pass directly as
 // unpixel.WithLanguageModel (or composed via unpixel.WithPriors).
 //
@@ -207,13 +208,14 @@ const (
 //
 // Fusion:
 //
-//	score(s) = wDict*dictionaryScore(s) + wChar*infini.Score(s)
+//	score(s) = wDict*weightedScore(s) + wChar*infini.Score(s)
 //
-// where wDict=0.5 and wChar=1.0. The dictionary term rewards known words; the
-// char-gram term provides language discrimination for OOV strings and for
-// distinguishing word-order permutations via sequence likelihood.
+// where wDict=0.5 and wChar=1.0. weightedScore is [WeightedScoreEN] for
+// English and [WeightedScoreFR] for French: both apply the Zipfian rank→weight
+// model from the embedded frequency lists so that "the"/"de" outrank
+// equal-length rare words. The char-gram term provides language discrimination
+// for OOV strings and distinguishes word-order permutations.
 func PriorFor(l Language) func(string) float64 {
-	dict := DictionaryFor(l)
 	// Build a private Infini (not the shared singleton) so callers can invoke the
 	// returned function from multiple goroutines without a data race on the cache.
 	var corpusText string
@@ -230,6 +232,6 @@ func PriorFor(l Language) func(string) float64 {
 		}
 	}
 	return func(s string) float64 {
-		return wDict*dict.Score(s) + wChar*infini.Score(s)
+		return wDict*WeightedScoreEN(s) + wChar*infini.Score(s)
 	}
 }

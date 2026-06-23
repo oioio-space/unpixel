@@ -35,13 +35,16 @@ func syntheticBandSRGB(t *testing.T, phrase string, offsetX int) image.Image {
 // TestGammaMode_WithLinearCompat verifies that WithLinear(true) and
 // WithGamma(GammaLinear) produce identical Gamma/Text results, and that
 // WithLinear(false) and WithGamma(GammaSRGB) also agree.
+//
+// Uses a single-word phrase ("ok") to keep the Cartesian-product budget
+// trivial — this test exercises the gamma plumbing, not word recall.
 func TestGammaMode_WithLinearCompat(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full blind decode; skipping in -short mode")
 	}
 	t.Parallel()
 
-	img := syntheticBand(t, "the cat", 0)
+	img := syntheticBand(t, "ok", 0)
 	ctx := t.Context()
 	baseOpts := []blind.Option{
 		blind.WithLanguage(lang.English),
@@ -91,6 +94,9 @@ func TestGammaMode_WithLinearCompat(t *testing.T) {
 
 // TestGammaAuto_PicksLinear verifies that when the source image is pixelated in
 // linear space, GammaAuto selects "linear" (lower dist than sRGB).
+//
+// Uses a single-word phrase ("ok") for a trivial Cartesian product — gamma
+// selection is independent of word recall depth.
 func TestGammaAuto_PicksLinear(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full blind decode; skipping in -short mode")
@@ -98,7 +104,7 @@ func TestGammaAuto_PicksLinear(t *testing.T) {
 	t.Parallel()
 
 	// syntheticBand uses LinearBlockAverage — ground truth is linear.
-	img := syntheticBand(t, "the cat", 0)
+	img := syntheticBand(t, "ok", 0)
 	ctx := t.Context()
 
 	result, err := blind.Recover(
@@ -120,6 +126,9 @@ func TestGammaAuto_PicksLinear(t *testing.T) {
 
 // TestGammaAuto_PicksSRGB verifies that when the source image is pixelated in
 // sRGB space, GammaAuto selects "srgb" (lower dist than linear).
+//
+// Uses a single-word phrase ("ok") for a trivial Cartesian product — gamma
+// selection is independent of word recall depth.
 func TestGammaAuto_PicksSRGB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full blind decode; skipping in -short mode")
@@ -127,7 +136,7 @@ func TestGammaAuto_PicksSRGB(t *testing.T) {
 	t.Parallel()
 
 	// syntheticBandSRGB uses BlockAverage — ground truth is sRGB.
-	img := syntheticBandSRGB(t, "the cat", 0)
+	img := syntheticBandSRGB(t, "ok", 0)
 	ctx := t.Context()
 
 	result, err := blind.Recover(

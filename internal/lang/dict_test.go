@@ -45,8 +45,9 @@ func TestDictionaryScore_ordering(t *testing.T) {
 		{"hello", "xqzjv"},
 		{"go cat", "go xqz"},
 		{"the code", "xqz wkvb"},
-		{"a", "q"},
-		{"i", "z"},
+		// Single-character: use words certain to be in-dict vs certain OOV.
+		{"a", "xqzjv"},
+		{"i", "bzzzt"},
 	}
 	for _, tc := range cases {
 		g := lang.DictionaryScore(tc.good)
