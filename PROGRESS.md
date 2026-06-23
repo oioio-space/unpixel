@@ -722,3 +722,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `a8a4bbf` 2026-06-23 — feat(varfont): B1 part 1 — variable-font renderer + coordinate-descent axis fitter _(10 fichiers)_
 - `9fc6a72` 2026-06-23 — feat(mosaictext): B4 — language-structured + JPEG-robust trained HMM (opt-in) _(4 fichiers)_
 - `47d9183` 2026-06-23 — feat(mosaictext): B1 part 2 — variable-font axis-fitting decoder (--decoder varfont) _(8 fichiers)_
+- `0d6c0f1` 2026-06-23 — feat(fontrank): B3 — cheap exemplar visual font ranker (pre-decode pruning) _(3 fichiers)_
