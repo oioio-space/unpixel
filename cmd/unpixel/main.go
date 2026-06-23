@@ -105,6 +105,9 @@ type flagParams struct {
 	normalizeBg     string // "divide", "subtract", "none"
 	normalizeBin    bool
 	deblock         int
+	remosaic        bool // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
+	remosaicGrid    int  // --remosaic-grid N: pin block grid (0 = auto)
+	remosaicLinear  bool // --remosaic-linear: linear-light block average (GEGL/GIMP)
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -711,6 +714,23 @@ func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpi
 				p.normalizeBg, p.deblock, p.normalizeBin)
 		}
 	}
+	if p.remosaic {
+		blurOpts = append(blurOpts, unpixel.WithRemosaicGrid(p.remosaicGrid))
+		if p.remosaicLinear {
+			blurOpts = append(blurOpts, unpixel.WithRemosaicLinear())
+		}
+		if !p.quiet {
+			grid := "auto"
+			if p.remosaicGrid > 0 {
+				grid = fmt.Sprintf("%d", p.remosaicGrid)
+			}
+			light := "sRGB"
+			if p.remosaicLinear {
+				light = "linear"
+			}
+			fmt.Fprintf(os.Stderr, "Remosaic: enabled (grid=%s, %s)\n", grid, light)
+		}
+	}
 
 	res, err := unpixel.RecoverBlurred(ctx, img, blurOpts...)
 	if err != nil {
@@ -1173,6 +1193,23 @@ Examples:
 				Value: -1,
 			},
 			&cli.BoolFlag{
+				Name: "remosaic",
+				Usage: "enable Hill–Zhou–Saul–Shacham PETS-2016 §4 remosaic error-correction for blur recovery: " +
+					"forward operator becomes render→GaussianBlur(σ)→BlockAverage(b); " +
+					"target is pre-mosaiced by BlockAverage(b) once, collapsing σ-mismatch and JPEG noise. " +
+					"Only affects --redaction blur / RecoverBlurred. " +
+					"Combine with --remosaic-grid to pin the block size (default: auto, b=max(2,round(σ))).",
+			},
+			&cli.IntFlag{
+				Name:  "remosaic-grid",
+				Usage: "block grid size b for --remosaic (0 = auto: b=max(2,round(σ))). Implies --remosaic.",
+				Value: 0,
+			},
+			&cli.BoolFlag{
+				Name:  "remosaic-linear",
+				Usage: "use linear-light block averaging for --remosaic (GEGL/GIMP-redacted targets). Implies --remosaic.",
+			},
+			&cli.BoolFlag{
 				Name:  "language",
 				Usage: "break ties between equally-matching candidates toward plausible text (char-bigram prior)",
 			},
@@ -1276,6 +1313,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		normalizeBg:     cmd.String("normalize-bg"),
 		normalizeBin:    cmd.Bool("normalize-binarize"),
 		deblock:         cmd.Int("deblock"),
+		remosaic:        cmd.Bool("remosaic") || cmd.IsSet("remosaic-grid") || cmd.Bool("remosaic-linear"),
+		remosaicGrid:    cmd.Int("remosaic-grid"),
+		remosaicLinear:  cmd.Bool("remosaic-linear"),
 	}
 
 	if err := validateParams(p); err != nil {

@@ -11,6 +11,221 @@ import (
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
+// chooseRemosaicGrid returns the block size b for the remosaic operator. When
+// the caller supplied a positive override via WithRemosaicGrid it is used
+// unchanged; otherwise b = max(2, round(σ)), as recommended by Hill et al. 2016.
+func chooseRemosaicGrid(cfgGrid int, σ float64) int {
+	if cfgGrid > 0 {
+		return cfgGrid
+	}
+	return max(2, int(math.Round(σ)))
+}
+
+// remosaicTarget applies BlockAverage(b) to the target image once. The result
+// is used as the reference throughout the remosaic search so every comparison
+// is between two block-averaged images, collapsing σ-mismatch and JPEG noise.
+func remosaicTarget(img *image.RGBA, b int, linear bool) *image.RGBA {
+	var ba *pixelate.BlockAverage
+	if linear {
+		ba = pixelate.NewLinearBlockAverage(b)
+	} else {
+		ba = pixelate.NewBlockAverage(b)
+	}
+	return ba.Pixelate(img, 0, 0)
+}
+
+// recoverWithRemosaic runs the Hill–Zhou–Saul–Shacham §4 remosaic path:
+//
+//  1. Estimate σ₀ = InferBlurSigma(img).
+//  2. Choose grid b = chooseRemosaicGrid (auto or caller-pinned).
+//  3. Pre-mosaic the target image once: target′ = BlockAverage(b)(img).
+//  4. Run the σ-search (same coarse+fine sweep as RecoverBlurred) against
+//     target′ using Pixelator = BlurMosaic(σ, b), so every candidate is
+//     blur+mosaiced before comparison.
+//
+// Offset discovery uses BlockSize=b (the mosaic grid defines the block grid).
+// The result carries BlurSigma = σ and the remosaic grid b is recorded via
+// a note in the caller's log; Result fields are otherwise identical to the
+// plain blur path.
+func recoverWithRemosaic(ctx context.Context, img *image.RGBA, opts []Option) (Result, error) {
+	σ0 := InferBlurSigma(img)
+	if σ0 <= 0 {
+		σ0 = 3 // safe fallback when the image is near-flat
+	}
+
+	// Probe caller opts to get the remosaic config fields.
+	var probe Config
+	for _, o := range opts {
+		o(&probe)
+	}
+	b := chooseRemosaicGrid(probe.remosaicGrid, σ0)
+	linear := probe.remosaicLinear
+
+	// Pre-mosaic the target once.
+	target := remosaicTarget(img, b, linear)
+
+	// Build remosaic opts: override BlockSize=b and Pixelator=BlurMosaic.
+	// Strip any existing WithBlockSize / WithPixelator from opts so they do not
+	// interfere; the simplest approach is to append our overrides last (they win
+	// because options are applied in order).
+	remosaicOpts := func(σ float64) []Option {
+		o := make([]Option, 0, len(opts)+2)
+		o = append(o, opts...)
+		o = append(
+			o,
+			WithBlockSize(b),
+			WithPixelator(pixelate.NewBlurMosaic(σ, b, linear)),
+		)
+		return o
+	}
+
+	// Fast path: try σ₀ first.
+	{
+		res, err := Recover(ctx, target, remosaicOpts(σ0)...)
+		if err != nil {
+			return Result{}, err
+		}
+		if ctx.Err() == nil && res.BestGuess != "" && res.BestTotal < blurAcceptThreshold {
+			res.BlurSigma = σ0
+			return res, nil
+		}
+	}
+
+	// Fallback coarse+fine sweep, same grid as RecoverBlurred.
+	coarse := blurSigmaGrid(σ0)
+
+	// sweepSigmasParallel / sweepSigmasSeq expect opts that override BlockSize
+	// and Pixelator via the last two appended options — but those helpers call
+	// recoverAtSigma which prepends WithBlockSize(1)+WithPixelator(blur).
+	// We cannot reuse them directly for the remosaic path; run the sweep inline.
+	bestResult, bestSigma, err := remosaicSweepParallel(ctx, target, coarse, b, linear, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	if ctx.Err() != nil {
+		bestResult.BlurSigma = bestSigma
+		return bestResult, nil
+	}
+
+	fine := fineSigmaGrid(bestSigma)
+	fineResult, fineSigma, err := remosaicSweepSeq(ctx, target, fine, b, linear, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	if fineResult.BestGuess != "" && (bestResult.BestGuess == "" || fineResult.BestTotal < bestResult.BestTotal) {
+		bestResult = fineResult
+		bestSigma = fineSigma
+	}
+
+	bestResult.BlurSigma = bestSigma
+	return bestResult, nil
+}
+
+// remosaicSweepParallel runs the coarse σ sweep for the remosaic path. It is a
+// parallel bounded-pool sweep equivalent to sweepSigmasParallel but uses
+// BlurMosaic(σ, b) + WithBlockSize(b) instead of the plain blur operator.
+func remosaicSweepParallel(ctx context.Context, target *image.RGBA, grid []float64, b int, linear bool, opts []Option) (Result, float64, error) {
+	if len(grid) == 0 {
+		return Result{}, 0, nil
+	}
+	numCPU := runtime.GOMAXPROCS(0)
+	concurrent := max(1, min(len(grid), numCPU))
+
+	results := make([]sweepResult, len(grid))
+	errs := make([]error, len(grid))
+	sem := make(chan struct{}, concurrent)
+	var wg sync.WaitGroup
+	for i, σ := range grid {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				results[i] = sweepResult{skipped: true}
+				return
+			}
+			runOpts := make([]Option, 0, len(opts)+3)
+			runOpts = append(runOpts, opts...)
+			runOpts = append(
+				runOpts,
+				WithBlockSize(b),
+				WithPixelator(pixelate.NewBlurMosaic(σ, b, linear)),
+				WithWorkers(1),
+			)
+			res, err := Recover(ctx, target, runOpts...)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			rank := 1.0
+			if res.BestGuess != "" {
+				rank = res.BestTotal
+			}
+			results[i] = sweepResult{res: res, sigma: σ, rank: rank}
+		})
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return Result{}, 0, err
+		}
+	}
+
+	best := sweepResult{rank: 2.0}
+	found := false
+	for _, sr := range results {
+		if sr.skipped {
+			continue
+		}
+		if !found || sr.rank < best.rank || (sr.rank == best.rank && sr.sigma < best.sigma) {
+			best = sr
+			found = true
+		}
+	}
+	if !found {
+		return Result{}, 0, nil
+	}
+	return best.res, best.sigma, nil
+}
+
+// remosaicSweepSeq runs the fine σ sweep for the remosaic path sequentially,
+// using exact BlurMosaic at each σ.
+func remosaicSweepSeq(ctx context.Context, target *image.RGBA, grid []float64, b int, linear bool, opts []Option) (Result, float64, error) {
+	var (
+		best      Result
+		bestSigma float64
+		bestRank  = 2.0
+		found     bool
+	)
+	for _, σ := range grid {
+		if ctx.Err() != nil {
+			break
+		}
+		runOpts := make([]Option, 0, len(opts)+2)
+		runOpts = append(runOpts, opts...)
+		runOpts = append(
+			runOpts,
+			WithBlockSize(b),
+			WithPixelator(pixelate.NewBlurMosaic(σ, b, linear)),
+		)
+		res, err := Recover(ctx, target, runOpts...)
+		if err != nil {
+			return Result{}, 0, err
+		}
+		rank := 1.0
+		if res.BestGuess != "" {
+			rank = res.BestTotal
+		}
+		if !found || rank < bestRank {
+			best = res
+			bestSigma = σ
+			bestRank = rank
+			found = true
+		}
+	}
+	return best, bestSigma, nil
+}
+
 // RecoverBlurred recovers text from a Gaussian-blurred redaction without being
 // told the blur standard deviation σ. It is the zero-config counterpart of
 // Recover with a manual WithPixelator(GaussianBlur(σ)) + WithBlockSize(1).
@@ -100,6 +315,10 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	// whether the caller passed WithNormalize; if so, apply it to the image
 	// before σ estimation and the search. This does NOT affect the default path:
 	// a nil normalize field leaves img untouched and Result.Normalized = false.
+	//
+	// Also probe for WithRemosaic / WithRemosaicGrid here: when the remosaic flag
+	// is set we delegate entirely to recoverWithRemosaic (the Hill et al. §4 path)
+	// which manages its own σ-search against a pre-mosaiced target.
 	var normalized bool
 	{
 		var probe Config
@@ -109,6 +328,14 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 		if probe.normalize != nil {
 			img = deblur.Normalize(toRGBA(img), *probe.normalize)
 			normalized = true
+		}
+		if probe.remosaic {
+			res, err := recoverWithRemosaic(ctx, toRGBA(img), opts)
+			if err != nil {
+				return Result{}, err
+			}
+			res.Normalized = normalized
+			return res, nil
 		}
 	}
 

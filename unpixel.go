@@ -183,6 +183,17 @@ type Config struct {
 	// Set via WithNormalize; never set directly (unexported so external struct
 	// literals cannot accidentally include it, keeping the zero Config clean).
 	normalize *deblur.Options
+
+	// remosaic, when true, enables the Hill–Zhou–Saul–Shacham PETS-2016 §4
+	// remosaic-as-error-correction path in RecoverBlurred. Set via WithRemosaic
+	// or WithRemosaicGrid; never set directly.
+	remosaic bool
+	// remosaicGrid is the block size b for the remosaic operator. 0 means "auto:
+	// choose b = max(2, round(σ))". Set via WithRemosaicGrid.
+	remosaicGrid int
+	// remosaicLinear selects linear-light block averaging in the remosaic operator.
+	// Mirrors the gamma/linear flag used by the plain mosaic path.
+	remosaicLinear bool
 }
 
 // Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
@@ -1424,6 +1435,47 @@ func WithNormalize(fns ...func(*deblur.Options)) Option {
 			fn(&opts)
 		}
 		c.normalize = &opts
+	}
+}
+
+// WithRemosaic enables the Hill–Zhou–Saul–Shacham PETS-2016 §4 remosaic path
+// inside [RecoverBlurred]. When active the forward operator becomes:
+//
+//	render(candidate) → GaussianBlur(σ) → BlockAverage(b)
+//
+// and the target image is pre-mosaiced by BlockAverage(b) once before the
+// search. The mosaic stage collapses small pixel-level differences caused by
+// σ-mismatch or JPEG compression noise, making the comparison more robust than
+// plain GaussianBlur alone.
+//
+// The grid size b is chosen automatically as max(2, round(σ)); use
+// [WithRemosaicGrid] to override it. The linear-light block average is used when
+// [WithRemosaicLinear] is passed instead of WithRemosaic; by default sRGB means
+// are used (matching the plain mosaic path).
+//
+// WithRemosaic has no effect on [Recover] or the mosaic path.
+func WithRemosaic() Option {
+	return func(c *Config) { c.remosaic = true }
+}
+
+// WithRemosaicGrid enables the remosaic path (like [WithRemosaic]) and
+// additionally pins the block grid size to b pixels. b ≤ 0 selects auto
+// (b = max(2, round(σ)), same as WithRemosaic).
+func WithRemosaicGrid(b int) Option {
+	return func(c *Config) {
+		c.remosaic = true
+		c.remosaicGrid = b
+	}
+}
+
+// WithRemosaicLinear enables the remosaic path and uses linear-light block
+// averaging instead of the default sRGB means. Use it when the target was
+// redacted by a GEGL/GIMP-based tool that computes its block average in linear
+// light.
+func WithRemosaicLinear() Option {
+	return func(c *Config) {
+		c.remosaic = true
+		c.remosaicLinear = true
 	}
 }
 
