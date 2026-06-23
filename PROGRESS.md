@@ -701,3 +701,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `7dd965a` 2026-06-23 — feat: Hill-2016 quick wins — partial-credit journal score (#5) + better σ estimation (#4) _(6 fichiers)_
 - `eb5040b` 2026-06-23 — feat(blur): re-mosaic error-correction mode for blur recovery (Hill-2016 §4, #3) _(7 fichiers)_
 - `15020a6` 2026-06-23 — feat(mosaictext): grid-window beam decoder — proportional-font mosaic recovery (Hill-2016 #1) _(8 fichiers)_
+- `005c57b` 2026-06-23 — docs: Hill-2016 recommendations — window-hmm, remosaic, σ estimation, journal score _(2 fichiers)_

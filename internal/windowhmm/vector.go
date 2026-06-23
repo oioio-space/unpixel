@@ -1,10 +1,15 @@
-// Package windowhmm provides the block-grid types and window-vector extraction
-// used by the sliding-window beam-search decoder in mosaictext.
-//
-// Only [BlockCell] and [WindowVector] are kept here; the trained-HMM machinery
-// (KMeans, Train, Model.Viterbi, Concatenate) has been removed because
-// DecodeWindowHMM runs a character-level beam search, not a corpus-trained HMM.
+// Package windowhmm provides the block-grid types, window-vector extraction,
+// and the trained-HMM primitives (KMeans, Model, Viterbi, Concatenate) used by
+// the sliding-window decoders in mosaictext.
 package windowhmm
+
+// LabelledSample pairs a window vector with the state ID that generated it.
+// It is used by [mosaictext.ClassifyWindowAccuracy] to measure per-window
+// emission accuracy on held-out renders before running the full Viterbi decode.
+type LabelledSample struct {
+	StateID int
+	Vec     []float64
+}
 
 // BlockCell holds the mean RGB of one pixelated block, with values in [0, 255].
 // It mirrors internal/refmatch.BlockSig but is defined here to keep
