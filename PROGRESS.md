@@ -684,3 +684,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `366aac6` 2026-06-22 — docs(readme): refresh for v0.9.0 — real-world decoders, normalization, honest envelope _(2 fichiers)_
 - `3d0374b` 2026-06-23 — feat(journal): evolving test journal over all corpora (zero-config vs best-config) _(10 fichiers)_
 - `15a0c4c` 2026-06-23 — fix(search): trim phantom edge spaces from recovered text (journal finding) _(4 fichiers)_
+- `986f4ca` 2026-06-23 — docs(journal): second run — edge-space trim improves blur recovery (+1 zero, +1 best) _(2 fichiers)_

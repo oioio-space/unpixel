@@ -65,6 +65,149 @@ func classifyOutcome(
 	return outcomeFail, "wrong glyphs (font fidelity / params)"
 }
 
+// levenshteinStr returns the Levenshtein edit distance between a and b
+// (insertions, deletions, substitutions, each cost 1).
+// It uses the classic two-row DP algorithm: O(len(a)·len(b)) time, O(len(b)) space.
+// Named levenshteinStr (not levenshtein) to avoid collision with the []rune
+// overload in panel_test.go when the panel build tag is active.
+func levenshteinStr(a, b string) int {
+	ra := []rune(a)
+	rb := []rune(b)
+	m, n := len(ra), len(rb)
+	if m == 0 {
+		return n
+	}
+	if n == 0 {
+		return m
+	}
+
+	// prev[j] holds the edit distance between ra[:i] and rb[:j].
+	prev := make([]int, n+1)
+	for j := range n + 1 {
+		prev[j] = j
+	}
+
+	curr := make([]int, n+1)
+	for i := range m {
+		curr[0] = i + 1
+		for j := range n {
+			if ra[i] == rb[j] {
+				curr[j+1] = prev[j]
+			} else {
+				curr[j+1] = 1 + min(prev[j], min(curr[j], prev[j+1]))
+			}
+		}
+		prev, curr = curr, prev
+	}
+	return prev[n]
+}
+
+// recoveryScore returns a partial-credit score in [0, 100] measuring how
+// close guess is to gt, using Levenshtein distance normalised by len(gt):
+//
+//	score = 100 × (1 − editDistance(guess, gt) / len(gt))
+//
+// The score is clamped to 0 from below so that a guess longer than gt never
+// goes negative. If gt is empty, recoveryScore returns -1 (unknown / NA).
+func recoveryScore(guess, gt string) float64 {
+	if gt == "" {
+		return -1
+	}
+	gtRunes := utf8.RuneCountInString(gt)
+	d := levenshteinStr(guess, gt)
+	score := 100 * (1 - float64(d)/float64(gtRunes))
+	if score < 0 {
+		score = 0
+	}
+	return score
+}
+
+// TestRecoveryScore verifies recoveryScore properties. got before want.
+func TestRecoveryScore(t *testing.T) {
+	cases := []struct {
+		name      string
+		guess     string
+		gt        string
+		wantScore float64
+		wantExact bool // if true, expect exact equality; else check ≈
+	}{
+		{
+			name:      "exact match → 100",
+			guess:     "hello",
+			gt:        "hello",
+			wantScore: 100,
+			wantExact: true,
+		},
+		{
+			name:      "one substitution in 5 → 80",
+			guess:     "hxllo",
+			gt:        "hello",
+			wantScore: 80,
+			wantExact: true,
+		},
+		{
+			name:      "empty gt → -1 (unknown/NA)",
+			guess:     "anything",
+			gt:        "",
+			wantScore: -1,
+			wantExact: true,
+		},
+		{
+			name:  "total mismatch same length → ~0",
+			guess: "xxxxx",
+			gt:    "hello",
+			// 5 substitutions in 5 → 100*(1-5/5) = 0
+			wantScore: 0,
+			wantExact: true,
+		},
+		{
+			name:      "empty guess, non-empty gt → 0",
+			guess:     "",
+			gt:        "go",
+			wantScore: 0,
+			wantExact: true,
+		},
+		{
+			name:  "partial recovery (3 of 5 correct) → ~40",
+			guess: "heXYo",
+			gt:    "hello",
+			// d=2 substitutions → 100*(1-2/5) = 60
+			wantScore: 60,
+			wantExact: true,
+		},
+		{
+			name:  "guess longer than gt, total mismatch → clamped to 0",
+			guess: "xxxxxxxx",
+			gt:    "hi",
+			// d = max(levenshtein("xxxxxxxx","hi")); clamp to 0
+			wantScore: 0,
+			wantExact: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := recoveryScore(c.guess, c.gt)
+			if c.wantExact {
+				if got != c.wantScore {
+					t.Errorf("recoveryScore(%q, %q) = %.4f, want %.4f",
+						c.guess, c.gt, got, c.wantScore)
+				}
+			} else {
+				// approximate: within 1 point
+				diff := got - c.wantScore
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff > 1.0 {
+					t.Errorf("recoveryScore(%q, %q) = %.4f, want ≈%.4f (diff=%.4f)",
+						c.guess, c.gt, got, c.wantScore, diff)
+				}
+			}
+		})
+	}
+}
+
 // TestClassifyOutcome guards classifyOutcome with table-driven cases.
 // got before want throughout.
 func TestClassifyOutcome(t *testing.T) {

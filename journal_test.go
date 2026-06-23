@@ -120,6 +120,9 @@ type journalAttempt struct {
 	Status journalStatus `json:"status"`
 	// ExactCI is true when the guess matches ground truth case-insensitively.
 	ExactCI bool `json:"exact_ci,omitzero"`
+	// Score is the partial-credit Levenshtein score in [0,100], or -1 when
+	// ground truth is unknown. See recoveryScore in journal_classify_test.go.
+	Score float64 `json:"score"`
 	// Confidence is Result.Confidence.
 	Confidence float64 `json:"confidence"`
 	// BestTotal is Result.BestTotal.
@@ -144,7 +147,7 @@ type journalRow struct {
 	BestConfig  journalAttempt `json:"best_config"`
 }
 
-// journalCorpusSummary holds per-corpus aggregate counts.
+// journalCorpusSummary holds per-corpus aggregate counts and partial-credit metrics.
 type journalCorpusSummary struct {
 	Name        string `json:"name"`
 	Total       int    `json:"total"`
@@ -152,6 +155,15 @@ type journalCorpusSummary struct {
 	BestOK      int    `json:"best_ok"`
 	ZeroUnknown int    `json:"zero_unknown"`
 	BestUnknown int    `json:"best_unknown"`
+	// ZeroMeanScore is the mean recoveryScore across all images with known ground
+	// truth, zero-config mode. -1 when no scored images exist.
+	ZeroMeanScore float64 `json:"zero_mean_score"`
+	// BestMeanScore is the same for best-config mode.
+	BestMeanScore float64 `json:"best_mean_score"`
+	// ZeroSensical is the count of images scoring ≥70% in zero-config mode.
+	ZeroSensical int `json:"zero_sensical"`
+	// BestSensical is the count of images scoring ≥70% in best-config mode.
+	BestSensical int `json:"best_sensical"`
 }
 
 // journalRun is the full machine-readable run record written to benchmarks/journal/.
@@ -217,11 +229,17 @@ func TestJournal(t *testing.T) {
 	for _, cs := range corpora {
 		knowableZero := cs.Total - cs.ZeroUnknown
 		knowableBest := cs.Total - cs.BestUnknown
-		t.Logf("  %-8s  zero %d/%d  best %d/%d  (unknown z=%d b=%d)",
+		zeroMean, bestMean := "NA", "NA"
+		if cs.ZeroMeanScore >= 0 {
+			zeroMean = fmt.Sprintf("%.0f%%", cs.ZeroMeanScore)
+		}
+		if cs.BestMeanScore >= 0 {
+			bestMean = fmt.Sprintf("%.0f%%", cs.BestMeanScore)
+		}
+		t.Logf("  %-8s  zero %d/%d ≥70%%=%d mean=%s  best %d/%d ≥70%%=%d mean=%s",
 			cs.Name,
-			cs.ZeroOK, knowableZero,
-			cs.BestOK, knowableBest,
-			cs.ZeroUnknown, cs.BestUnknown)
+			cs.ZeroOK, knowableZero, cs.ZeroSensical, zeroMean,
+			cs.BestOK, knowableBest, cs.BestSensical, bestMean)
 	}
 	t.Logf("  total duration: %.1f s", totalDuration.Seconds())
 }
@@ -624,9 +642,12 @@ func classifyAttempt(
 	a.Status = journalStatus(st) // outcomeOK/outcomeFail/outcomeUnknown map 1-to-1 to journalStatus values.
 	a.Why = why
 
-	// ExactCI: set on both ok and fail paths.
+	// ExactCI and partial-credit score: set on both ok and fail paths.
 	if groundTruth != "" && groundTruth != "—" {
 		a.ExactCI = strings.EqualFold(res.BestGuess, groundTruth)
+		a.Score = recoveryScore(res.BestGuess, groundTruth)
+	} else {
+		a.Score = -1
 	}
 
 	return a
@@ -639,14 +660,25 @@ func summariseCorpora(rows []journalRow) []journalCorpusSummary {
 	// Preserve a stable corpus order.
 	order := []string{"fixtures", "blur", "real", "wild"}
 	for _, name := range order {
-		byCorpus[name] = &journalCorpusSummary{Name: name}
+		byCorpus[name] = &journalCorpusSummary{Name: name, ZeroMeanScore: -1, BestMeanScore: -1}
+	}
+
+	// Accumulate score sums separately so we can compute means at the end.
+	type scoreSums struct {
+		zeroSum, bestSum float64
+		zeroN, bestN     int
+	}
+	sums := make(map[string]*scoreSums)
+	for _, name := range order {
+		sums[name] = &scoreSums{}
 	}
 
 	for _, row := range rows {
 		cs, ok := byCorpus[row.Corpus]
 		if !ok {
-			cs = &journalCorpusSummary{Name: row.Corpus}
+			cs = &journalCorpusSummary{Name: row.Corpus, ZeroMeanScore: -1, BestMeanScore: -1}
 			byCorpus[row.Corpus] = cs
+			sums[row.Corpus] = &scoreSums{}
 			order = append(order, row.Corpus)
 		}
 		cs.Total++
@@ -662,13 +694,39 @@ func summariseCorpora(rows []journalRow) []journalCorpusSummary {
 		if row.BestConfig.Status == statusUnknown || row.GroundTruth == "—" {
 			cs.BestUnknown++
 		}
+
+		sm := sums[row.Corpus]
+		if row.ZeroConfig.Score >= 0 {
+			sm.zeroSum += row.ZeroConfig.Score
+			sm.zeroN++
+			if row.ZeroConfig.Score >= 70 {
+				cs.ZeroSensical++
+			}
+		}
+		if row.BestConfig.Score >= 0 {
+			sm.bestSum += row.BestConfig.Score
+			sm.bestN++
+			if row.BestConfig.Score >= 70 {
+				cs.BestSensical++
+			}
+		}
 	}
 
+	// Finalise mean scores.
 	result := make([]journalCorpusSummary, 0, len(order))
 	for _, name := range order {
-		if cs, ok := byCorpus[name]; ok && cs.Total > 0 {
-			result = append(result, *cs)
+		cs, ok := byCorpus[name]
+		if !ok || cs.Total == 0 {
+			continue
 		}
+		sm := sums[name]
+		if sm.zeroN > 0 {
+			cs.ZeroMeanScore = sm.zeroSum / float64(sm.zeroN)
+		}
+		if sm.bestN > 0 {
+			cs.BestMeanScore = sm.bestSum / float64(sm.bestN)
+		}
+		result = append(result, *cs)
 	}
 	return result
 }
@@ -746,6 +804,10 @@ func appendJournalMD(t *testing.T, run journalRun) {
 
 // buildJournalHeader returns the initial file content including the static
 // header and the evolution table header rows.
+//
+// Column layout (per corpus, zero then best):
+//
+//	exact | ≥70% | mean%
 func buildJournalHeader() string {
 	return `# UnPixel — Test Journal
 
@@ -753,33 +815,50 @@ This file is auto-generated by TestJournal (build tag: journal). Each run
 appends one row to the evolution table and prepends a full run section. Re-read
 this file over time to watch decode quality evolve.
 
+Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then best-config.
+
 ## Évolution
 
-| Date (UTC) | Commit | fix zero | fix best | blur zero | blur best | real zero | real best | wild zero | wild best | Total | Dur (s) |
+| Date (UTC) | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | Total | Dur (s) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 `
 }
 
 // buildEvolutionRow builds one markdown table row for the Évolution table.
+// Each corpus cell uses the compact format "exact/≥70%/mean%" where:
+//   - exact  = number of exact matches out of knowable images
+//   - ≥70%   = count scoring ≥70 (sensical recoveries per Hill et al.)
+//   - mean%  = mean Levenshtein score across knowable images (or NA)
 func buildEvolutionRow(run journalRun) string {
 	byName := make(map[string]journalCorpusSummary, len(run.Corpora))
 	for _, cs := range run.Corpora {
 		byName[cs.Name] = cs
 	}
+
+	// cell returns "exact/≥70%/mean%" for the given corpus+mode.
 	cell := func(name, mode string) string {
 		cs, ok := byName[name]
 		if !ok {
 			return "—"
 		}
-		var ok2, knowable int
+		var exact, sensical, knowable int
+		var mean float64
 		if mode == "zero" {
-			ok2 = cs.ZeroOK
+			exact = cs.ZeroOK
+			sensical = cs.ZeroSensical
 			knowable = cs.Total - cs.ZeroUnknown
+			mean = cs.ZeroMeanScore
 		} else {
-			ok2 = cs.BestOK
+			exact = cs.BestOK
+			sensical = cs.BestSensical
 			knowable = cs.Total - cs.BestUnknown
+			mean = cs.BestMeanScore
 		}
-		return fmt.Sprintf("%d/%d", ok2, knowable)
+		meanStr := "NA"
+		if mean >= 0 {
+			meanStr = fmt.Sprintf("%.0f%%", mean)
+		}
+		return fmt.Sprintf("%d/%d/%d/%s", exact, knowable, sensical, meanStr)
 	}
 
 	total := 0
@@ -820,7 +899,7 @@ func buildRunSection(run journalRun) string {
 			continue
 		}
 		fmt.Fprintf(&sb, "### %s\n\n", corpus)
-		fmt.Fprintf(&sb, "| image | gt | zero: status/guess/conf/ms | best: status/guess/conf/ms | why |\n")
+		fmt.Fprintf(&sb, "| image | gt | zero: status/guess/score%%/conf/ms | best: status/guess/score%%/conf/ms | why |\n")
 		fmt.Fprintf(&sb, "|---|---|---|---|---|\n")
 		for _, row := range rows {
 			gt := row.GroundTruth
@@ -854,8 +933,12 @@ func formatAttemptCell(a journalAttempt) string {
 	if guess == "" {
 		guess = "(none)"
 	}
-	return fmt.Sprintf("%s `%s` conf=%.2f ms=%.0f",
-		a.Status, guess, a.Confidence, a.DurationMS)
+	scoreStr := "NA"
+	if a.Score >= 0 {
+		scoreStr = fmt.Sprintf("%.0f%%", a.Score)
+	}
+	return fmt.Sprintf("%s/`%s`/%s/conf=%.2f/ms=%.0f",
+		a.Status, guess, scoreStr, a.Confidence, a.DurationMS)
 }
 
 // spliceJournalMD inserts a new evolution row at the end of the Évolution
