@@ -3,6 +3,7 @@ package mosaictext_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"testing"
 
@@ -126,6 +127,78 @@ func TestDecodeVarFont_OptIn(t *testing.T) {
 	_, decodeErr2 := mosaictext.Decode(t.Context(), blank)
 	if (decodeErr == nil) != (decodeErr2 == nil) {
 		t.Errorf("Decode result changed after DecodeVarFont: first=%v second=%v", decodeErr, decodeErr2)
+	}
+}
+
+// TestDecodeVarFont_BlindMode exercises fitBlind and WithVarFontCharset.
+//
+// It constructs a synthetic 1-char redaction (the letter "A" rendered and
+// pixelated with the bundled Nunito font at a known wght) then calls
+// DecodeVarFont without WithVarFontText so the blind-mode path runs. A
+// charset of exactly one character ("A") is passed via WithVarFontCharset so
+// the joint search has a single candidate — it must either accept or reject it
+// under BlindDistanceGate.
+//
+// This test exercises:
+//   - WithVarFontCharset (option setter)
+//   - fitBlind's loop body (at least one FitAxes call)
+//   - The gate logic at the end of fitBlind
+//
+// We do not assert the recovered text because a 1-char image with an aggressive
+// distance gate may or may not pass; instead we verify that the call either
+// returns a VarFontResult with Text=="A" OR returns ErrVarFontNoFit (both are
+// correct behaviours for blind mode). Any other error is a bug.
+func TestDecodeVarFont_BlindMode(t *testing.T) {
+	const (
+		blockSize = 8
+		knownChar = "A"
+	)
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+
+	// Build synthetic redaction: render "A" at wght=600, pixelate.
+	rTarget, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: 600},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer: %v", err)
+	}
+	targetImg, _, err := rTarget.Render(knownChar, style)
+	if err != nil {
+		t.Fatalf("render target: %v", err)
+	}
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+	redaction := pix.Pixelate(targetImg, 0, 0)
+
+	// Call DecodeVarFont in blind mode (no WithVarFontText), WithVarFontCharset set.
+	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontStyle(style),
+		mosaictext.WithVarFontBlockSize(blockSize),
+		mosaictext.WithVarFontLinear(true),
+		mosaictext.WithVarFontCharset(knownChar), // exercises WithVarFontCharset
+		mosaictext.WithVarFontAxes([]varfont.AxisSpec{
+			{Tag: "wght", Min: 200, Max: 900, Start: 500},
+		}),
+	)
+
+	// Acceptable outcomes: success with Text=="A", or ErrVarFontNoFit.
+	// Any other error is a bug.
+	switch {
+	case err == nil:
+		if got.Text != knownChar {
+			t.Errorf("blind mode: got Text=%q, want %q", got.Text, knownChar)
+		}
+		t.Logf("blind mode succeeded: text=%q wght=%.1f dist=%.4f evals=%d",
+			got.Text, got.FittedAxes[0].Value, got.Distance, got.Evals)
+	case errors.Is(err, mosaictext.ErrVarFontNoFit):
+		t.Logf("blind mode: ErrVarFontNoFit (dist above gate — acceptable for 1-char blind search)")
+	default:
+		t.Errorf("blind mode: unexpected error: %v", err)
 	}
 }
 

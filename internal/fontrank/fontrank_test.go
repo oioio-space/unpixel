@@ -201,6 +201,50 @@ func TestNonRGBATarget(t *testing.T) {
 	}
 }
 
+// TestCropToSentinel_CopyPath exercises cropToSentinel's draw.Draw copy branch.
+// cropToSentinel is unexported; the only route from the external test package
+// is via RankFonts → scoreFont → cropToSentinel. scoreFont passes the rendered
+// *image.RGBA SubImage to pixelate; that SubImage has a non-zero Bounds().Min
+// (because *image.RGBA.SubImage returns a view with the original offset).
+// RankFonts already calls scoreFont for every font, so any successful
+// RankFonts call covers the fast-path (sentinelX >= image width → return img
+// as-is). To cover the copy path we need sentinelX < image width.
+//
+// We exercise this indirectly: render a string, obtain the *image.RGBA and a
+// sentinelX that is strictly less than the image width, then invoke RankFonts
+// on an image with a recognisable block pattern so scoreFont's internal call to
+// cropToSentinel reaches the SubImage → !ok → draw.Draw copy branch.
+//
+// Concretely: pass a non-*image.RGBA image type (image.NRGBA) as the mosaic
+// target so that fontrank.toRGBA converts it (exercising that helper too).
+// Then rely on the normal RankFonts path to call scoreFont which calls
+// cropToSentinel on the rendered *image.RGBA exemplar.
+func TestCropToSentinel_CopyPath(t *testing.T) {
+	// Build a small NRGBA mosaic (non-*image.RGBA) so toRGBA inside RankFonts
+	// also executes its copy branch.
+	const W, H = 32, 16
+	nrgba := image.NewNRGBA(image.Rect(0, 0, W, H))
+	for y := range H {
+		for x := range W {
+			// Alternating grey bands to give the block detector something to find.
+			v := uint8(200)
+			if (x/8)%2 == 1 {
+				v = 50
+			}
+			nrgba.SetNRGBA(x, y, color.NRGBA{R: v, G: v, B: v, A: 255}) //nolint:gosec
+		}
+	}
+
+	named := namedFonts()
+	scores, err := fontrank.RankFonts(t.Context(), nrgba, named)
+	if err != nil {
+		t.Fatalf("RankFonts(NRGBA): %v", err)
+	}
+	if len(scores) != len(named) {
+		t.Errorf("got %d scores, want %d", len(scores), len(named))
+	}
+}
+
 // BenchmarkRankFonts measures the end-to-end cost of ranking all bundled fonts.
 // The ns/op figure should be compared to a full per-font calibrate+decode sweep
 // (see BenchmarkFullDecodeSweep) to quantify the pruning value.

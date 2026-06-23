@@ -1008,6 +1008,71 @@ func TestRunRefMatch_CLI(t *testing.T) {
 	})
 }
 
+// TestParseGammaMode verifies the --gamma flag parser: valid values are accepted
+// and the sentinel empty string maps to GammaAuto; unrecognised values return an error.
+func TestParseGammaMode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		input   string
+		wantErr bool
+	}{
+		{input: "", wantErr: false},
+		{input: "auto", wantErr: false},
+		{input: "linear", wantErr: false},
+		{input: "srgb", wantErr: false},
+		{input: "SRGB", wantErr: true},
+		{input: "Linear", wantErr: true},
+		{input: "sRGB", wantErr: true},
+		{input: "gamma22", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			_, err := parseGammaMode(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("parseGammaMode(%q) err = %v, wantErr = %v", tc.input, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestParseVarFontAxes verifies the --varfont-axes parser: valid specs are
+// parsed into AxisSpec slices, and invalid/empty inputs return errors.
+func TestParseVarFontAxes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+		wantLen int
+	}{
+		{name: "empty string", input: "", wantErr: true},
+		{name: "single axis", input: "wght:200:900:500", wantErr: false, wantLen: 1},
+		{name: "two axes", input: "wght:200:900:500,wdth:75:125:100", wantErr: false, wantLen: 2},
+		{name: "bad field count", input: "wght:200:900", wantErr: true},
+		{name: "non-numeric min", input: "wght:abc:900:500", wantErr: true},
+		{name: "non-numeric max", input: "wght:200:xyz:500", wantErr: true},
+		{name: "non-numeric start", input: "wght:200:900:bad", wantErr: true},
+		{name: "only whitespace parts", input: "  ,  ", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseVarFontAxes(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("parseVarFontAxes(%q) err = %v, wantErr = %v", tc.input, err, tc.wantErr)
+			}
+			if err == nil && len(got) != tc.wantLen {
+				t.Errorf("parseVarFontAxes(%q) len = %d, want %d", tc.input, len(got), tc.wantLen)
+			}
+			if err == nil && tc.wantLen > 0 {
+				// Verify values are plausible (parsed without truncation).
+				if got[0].Tag == "" {
+					t.Errorf("parseVarFontAxes(%q) first axis has empty tag", tc.input)
+				}
+			}
+		})
+	}
+}
+
 // TestRunWindowHMM_CLI exercises the --decoder window-hmm dispatch path through
 // buildApp. It verifies:
 //   - bad --lang is rejected before the image is loaded.

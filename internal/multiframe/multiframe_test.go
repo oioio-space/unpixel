@@ -251,6 +251,55 @@ func TestFuseErrorCases(t *testing.T) {
 	}
 }
 
+// TestToRGBAView_NonRGBAConversionPath exercises the else-branch of toRGBAView:
+// feeding a non-*image.RGBA image (image.NRGBA) so the copy path runs.
+// The conversion path is reached when a Frame carries a non-*image.RGBA image,
+// which happens when Fuse is called with such a frame.
+func TestToRGBAView_NonRGBAConversionPath(t *testing.T) {
+	const (
+		W     = 16
+		H     = 16
+		block = 8
+	)
+	// Build a source as *image.NRGBA (not *image.RGBA) so toRGBAView must copy.
+	src := image.NewNRGBA(image.Rect(0, 0, W, H))
+	for y := range H {
+		for x := range W {
+			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 15), G: uint8(y * 15), B: 128, A: 255}) //nolint:gosec
+		}
+	}
+
+	frames := []multiframe.Frame{
+		{Img: src, OffsetX: 0, OffsetY: 0},
+	}
+	fused, err := multiframe.Fuse(frames, block)
+	if err != nil {
+		t.Fatalf("Fuse(NRGBA frame): %v", err)
+	}
+	if got, want := fused.Bounds().Dx(), W; got != want {
+		t.Errorf("fused width: got %d, want %d", got, want)
+	}
+	if got, want := fused.Bounds().Dy(), H; got != want {
+		t.Errorf("fused height: got %d, want %d", got, want)
+	}
+}
+
+// TestItoaViaErrorMessage exercises itoa indirectly through the nil-frame error
+// path in FuseN: FuseN formats the error "frame N has nil image" which calls
+// itoa(N) for any N. We supply frames[1] as nil so itoa(1) is reached.
+func TestItoaViaErrorMessage(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	frames := []multiframe.Frame{
+		{Img: src, OffsetX: 0, OffsetY: 0},
+		{Img: nil, OffsetX: 0, OffsetY: 0}, // nil at index 1 → itoa(1) in error
+	}
+	_, err := multiframe.Fuse(frames, 8)
+	if err == nil {
+		t.Error("Fuse with nil frame[1]: expected error, got nil")
+	}
+	t.Logf("error (contains itoa output): %v", err)
+}
+
 // toRGBA converts an image.Image to *image.RGBA cropped/padded to w×h.
 func toRGBA(img image.Image, w, h int) *image.RGBA {
 	if r, ok := img.(*image.RGBA); ok {

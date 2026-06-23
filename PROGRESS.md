@@ -727,3 +727,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `c2fff70` 2026-06-23 — feat(multiframe): B2 — multi-frame sub-pixel fusion (iterative back-projection) _(4 fichiers)_
 - `4373fff` 2026-06-23 — feat(blinddecode): Q3 — French apostrophe-elision candidates in the blind path _(6 fichiers)_
 - `f2f9513` 2026-06-23 — docs: v0.11.0 — document the decoding-improvement wave (Q1–Q5 + B1–B4) _(2 fichiers)_
+- `5be028f` 2026-06-23 — docs(release): v0.11.0 — record recovery panel (17/17, fidelity 1.000) _(3 fichiers)_

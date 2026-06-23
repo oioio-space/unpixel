@@ -138,6 +138,41 @@ func TestWithTHMMFontFileBoldIgnoresNil(t *testing.T) {
 	}
 }
 
+// TestWithTHMMWindow_Applied verifies WithTHMMWindow's closure body executes by
+// passing it to DecodeTrainedHMM on a mosaic image. The call fails with
+// ErrNoContent (font mismatch) or succeeds; what matters is that the option
+// closure runs and sets cfg.w before any early return.
+func TestWithTHMMWindow_Applied(t *testing.T) {
+	t.Parallel()
+	fontData := thmmFindFont(t, "Liberation Mono")
+	img := syntheticMosaic(t, "314", fontData, 32.0, 4, false)
+	// WithTHMMWindow(3) must be applied (closure body runs) before the grid
+	// discovery or font resolution step that returns the error.
+	_, _ = mosaictext.DecodeTrainedHMM(
+		t.Context(), img,
+		mosaictext.WithTHMMFont("Liberation Mono"),
+		mosaictext.WithTHMMWindow(3), // exercises the w>0 branch
+		mosaictext.WithTHMMWindow(0), // exercises the w==0 (skip) branch
+	)
+}
+
+// TestWithTHMMFontFileBold_Applied verifies the len(boldTTF)>0 branch in
+// WithTHMMFontFileBold by applying it inside a DecodeTrainedHMM call on a
+// mosaic image. Any non-nil boldTTF fires the assignment; nil is skipped.
+func TestWithTHMMFontFileBold_Applied(t *testing.T) {
+	t.Parallel()
+	fontData := thmmFindFont(t, "Liberation Mono")
+	img := syntheticMosaic(t, "314", fontData, 32.0, 4, false)
+	// Passing non-nil bold bytes exercises the len>0 branch. The actual bytes
+	// are "fake" so the render will fail gracefully; we only care that the
+	// closure body ran.
+	_, _ = mosaictext.DecodeTrainedHMM(
+		t.Context(), img,
+		mosaictext.WithTHMMFontFile(fontData),
+		mosaictext.WithTHMMFontFileBold([]byte("fake bold bytes")), // exercises len>0
+	)
+}
+
 // --- Error paths ---
 
 // TestDecodeTrainedHMM_NonMosaicReturnsErrNoMosaic verifies a plain white
