@@ -726,3 +726,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `0d6c0f1` 2026-06-23 — feat(fontrank): B3 — cheap exemplar visual font ranker (pre-decode pruning) _(3 fichiers)_
 - `c2fff70` 2026-06-23 — feat(multiframe): B2 — multi-frame sub-pixel fusion (iterative back-projection) _(4 fichiers)_
 - `4373fff` 2026-06-23 — feat(blinddecode): Q3 — French apostrophe-elision candidates in the blind path _(6 fichiers)_
+- `f2f9513` 2026-06-23 — docs: v0.11.0 — document the decoding-improvement wave (Q1–Q5 + B1–B4) _(2 fichiers)_
