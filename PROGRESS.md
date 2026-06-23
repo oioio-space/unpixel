@@ -556,7 +556,8 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
   `--remosaic`, meilleure estimation σ, désambiguïsation LM optionnelle sur ref-match (`--lang`),
   journal de tests évolutif `mise run journal` + corpus de parité SICK/MICR. **Constat honnête** :
   la géométrie/offset est robuste, mais la récupération de phrases proportionnelles à blocs grossiers
-  reste non résolue ; le mur réel demeure la fidélité de police. Opt-in, panel 17/17, couverture ~86 %)
+  reste non résolue ; le mur réel demeure la fidélité de police. Opt-in, panel 17/17, couverture ~86 %), **v0.11.0**
+  (vague d'améliorations décodage — 9 fonctionnalités pur-Go opt-in, panel 17/17 inchangé, zéro régression. **Gains rapides (Q1–Q5)** : auto-gamma-selector (`--gamma auto` → sRGB vs linéaire, garde la meilleure distance), rappel de pool mot adaptatif (calibrage budget `effectivePoolK`), dicos bilingues 10k mots fréquence-pondérés (EN + FR via hermitdave/FrequencyWords), calibrage letter-spacing opt-in (`--letter-spacing-search`, enregistre `Result.LetterSpacing`), élision apostrophe français. Tous zero-config `blind`. **Grands paris (B1–B4)** : ajustement police variable (NEW décodeur `--decoder varfont` + descente coordonnées, méthode Bishop-Fox calibration), fusion multi-trames (inversion itérative arrière, sous-résolution bloc), classeur de police (~310× plus rapide que décodage, élagage balayage), enhancements HMM-entraîné (`mosaictext.WithTHMMLanguage` = corpus entraîné structuré-langue → n-grammes réels, `WithTHMMJPEG` = émissions augmentées JPEG), CLI `--thmm-lang`, `--thmm-jpeg`. **Constat honnête** : les gains rapides et grands paris **améliorent récupération de phrases courtes à police connue, robustesse calibrage et sélection police**. Ils ne **cassent pas** les murs réels/wild/sick — ceux-ci exigent de plus profonds bloquants : scoring par-mot single-bande + contexte/beam, variable-fonts couvrant internet réel. Tous opt-in, pur-Go (nouvelle dépendance pur-Go : go-text/typesetting pour varfont), panel 17/17, couverture ≥86 %)
   publiées sur pkg.go.dev.
   API stable pré-1.0, additive (peut évoluer avant 1.0.0). Release auto par goreleaser sur tag
   `v*` (gated sur CI verte).
@@ -724,3 +725,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `47d9183` 2026-06-23 — feat(mosaictext): B1 part 2 — variable-font axis-fitting decoder (--decoder varfont) _(8 fichiers)_
 - `0d6c0f1` 2026-06-23 — feat(fontrank): B3 — cheap exemplar visual font ranker (pre-decode pruning) _(3 fichiers)_
 - `c2fff70` 2026-06-23 — feat(multiframe): B2 — multi-frame sub-pixel fusion (iterative back-projection) _(4 fichiers)_
+- `4373fff` 2026-06-23 — feat(blinddecode): Q3 — French apostrophe-elision candidates in the blind path _(6 fichiers)_
