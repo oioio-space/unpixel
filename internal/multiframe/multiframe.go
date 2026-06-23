@@ -36,6 +36,7 @@ package multiframe
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -88,7 +89,7 @@ func FuseN(frames []Frame, block, iterations int) (*image.RGBA, error) {
 	}
 	for i, f := range frames {
 		if f.Img == nil {
-			return nil, errors.New("multiframe: frame " + itoa(i) + " has nil image")
+			return nil, fmt.Errorf("multiframe: frame %d has nil image", i)
 		}
 	}
 
@@ -262,20 +263,4 @@ func toRGBAView(img image.Image, w, h int) *image.RGBA {
 		}
 	}
 	return dst
-}
-
-// itoa converts a small non-negative integer to a decimal string without
-// importing strconv (avoids a dependency just for error messages).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	buf := [20]byte{}
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[pos:])
 }

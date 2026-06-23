@@ -499,6 +499,16 @@ func trainHMM(
 	// words with spaces until the target length is reached, giving the transition
 	// matrix real letter-pair statistics.  When language is nil (default) the
 	// wordPool is empty and uniform-random sampling is used unchanged.
+	// spaceInCharset is captured by sampleText and the wordPool filter below;
+	// computed once here so neither path repeats the scan over charRunes.
+	spaceInCharset := false
+	for _, r := range charRunes {
+		if r == ' ' {
+			spaceInCharset = true
+			break
+		}
+	}
+
 	var wordPool []string
 	if language != nil {
 		dict := lang.DictionaryFor(*language)
@@ -508,7 +518,6 @@ func trainHMM(
 		}
 		// Space must be in the charset for word-join to make sense; if it is
 		// not, fall back to concatenation without separators.
-		spaceInCharset := charSet[' ']
 		for w := range dict.All() {
 			ok := true
 			for _, r := range w {
@@ -551,13 +560,6 @@ func trainHMM(
 			return string(runes)
 		}
 		// Language-structured: pick random words and join.
-		spaceInCharset := false
-		for _, r := range charRunes {
-			if r == ' ' {
-				spaceInCharset = true
-				break
-			}
-		}
 		sep := ""
 		if spaceInCharset {
 			sep = " "

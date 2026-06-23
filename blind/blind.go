@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/draw"
 	"strings"
 
 	"github.com/oioio-space/unpixel"
@@ -275,7 +274,7 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 	}
 
 	// Convert to *image.RGBA.
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 
 	// Resolve the denoise radius from the three-state config field, then apply.
 	//
@@ -443,18 +442,6 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		Gamma:         gammaLabel,
 		LetterSpacing: winSpacing,
 	}, nil
-}
-
-// toRGBA returns img as *image.RGBA. If img is already *image.RGBA, it is
-// returned directly; otherwise it is drawn into a fresh *image.RGBA.
-func toRGBA(img image.Image) *image.RGBA {
-	if r, ok := img.(*image.RGBA); ok {
-		return r
-	}
-	b := img.Bounds()
-	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
-	return dst
 }
 
 // splitLines splits text on newlines, returning a slice of non-empty lines in

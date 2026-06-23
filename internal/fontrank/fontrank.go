@@ -59,6 +59,7 @@ import (
 	"sync"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 )
@@ -119,7 +120,7 @@ func RankFonts(ctx context.Context, img image.Image, fonts []NamedFont) ([]FontS
 	}
 
 	// Convert target to *image.RGBA once; detect the block size.
-	target := toRGBA(img)
+	target := imutil.ToRGBA(img)
 	blockSize := detectBlockSize(target)
 
 	// Compute the target's normalised luminance histogram.
@@ -232,9 +233,7 @@ func blockLumHistogram(img *image.RGBA, blockSize int) [histBuckets]float64 {
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := colStart; x < colEnd; x++ {
 				c := img.RGBAAt(x, y)
-				// BT.601 luma, integer arithmetic for speed.
-				lum := (299*int(c.R) + 587*int(c.G) + 114*int(c.B)) / 1000
-				sumLum += float64(lum)
+				sumLum += float64(imutil.Lum601(c.R, c.G, c.B))
 				n++
 			}
 		}
@@ -267,17 +266,6 @@ func l1Distance(a, b [histBuckets]float64) float64 {
 		s += math.Abs(a[i] - b[i])
 	}
 	return s / 2
-}
-
-// toRGBA returns img as *image.RGBA, converting via draw.Draw when necessary.
-func toRGBA(img image.Image) *image.RGBA {
-	if r, ok := img.(*image.RGBA); ok {
-		return r
-	}
-	b := img.Bounds()
-	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
-	return dst
 }
 
 // cropToSentinel returns the sub-image of img clipped to columns [0, sentinelX),

@@ -230,19 +230,25 @@ func DecodeVarFont(ctx context.Context, img image.Image, opts ...VarFontOption) 
 	return fitBlind(ctx, font, cfg, target, pix, m, blockSize)
 }
 
-// fitKnownText runs FitAxes for the caller-supplied text and returns the
-// fitted result. This is the fast, reliable calibration-mode path.
-func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
-	res, err := varfont.FitAxes(varfont.FitConfig{
+// mkFitConfig builds a varfont.FitConfig from the shared decoder inputs.
+// Only Text varies between the known-text and blind-mode call sites.
+func mkFitConfig(font *varfont.Font, text string, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) varfont.FitConfig {
+	return varfont.FitConfig{
 		Font:      font,
-		Text:      cfg.knownText,
+		Text:      text,
 		Style:     cfg.style,
 		Target:    target,
 		Pixelator: pix,
 		Metric:    m,
 		BlockSize: blockSize,
 		Axes:      cfg.axes,
-	})
+	}
+}
+
+// fitKnownText runs FitAxes for the caller-supplied text and returns the
+// fitted result. This is the fast, reliable calibration-mode path.
+func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
+	res, err := varfont.FitAxes(mkFitConfig(font, cfg.knownText, cfg, target, pix, m, blockSize))
 	if err != nil {
 		return VarFontResult{}, fmt.Errorf("mosaictext: FitAxes: %w", err)
 	}
@@ -260,7 +266,7 @@ func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, tar
 // candidate text it runs FitAxes and keeps the (text, axes) pair with the
 // lowest distance. Returns [ErrVarFontNoFit] when no candidate clears
 // [BlindDistanceGate].
-func fitBlind(_ context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
+func fitBlind(ctx context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
 	charset := []rune(cfg.charset)
 	// Cap the search to MaxBlindCandidates single-character candidates (the
 	// tractable case for blind mode).
@@ -278,16 +284,10 @@ func fitBlind(_ context.Context, font *varfont.Font, cfg *varFontConfig, target 
 	totalEvals := 0
 
 	for _, cand := range candidates {
-		res, err := varfont.FitAxes(varfont.FitConfig{
-			Font:      font,
-			Text:      cand,
-			Style:     cfg.style,
-			Target:    target,
-			Pixelator: pix,
-			Metric:    m,
-			BlockSize: blockSize,
-			Axes:      cfg.axes,
-		})
+		if err := ctx.Err(); err != nil {
+			return VarFontResult{}, fmt.Errorf("mosaictext: fitBlind: %w", err)
+		}
+		res, err := varfont.FitAxes(mkFitConfig(font, cand, cfg, target, pix, m, blockSize))
 		if err != nil {
 			continue
 		}

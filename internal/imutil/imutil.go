@@ -6,6 +6,25 @@ import (
 	"image/draw"
 )
 
+// ToRGBA returns img as *image.RGBA. If img is already *image.RGBA it is
+// returned directly (zero allocation); otherwise it is drawn into a fresh
+// *image.RGBA whose origin is (0,0).
+func ToRGBA(img image.Image) *image.RGBA {
+	if r, ok := img.(*image.RGBA); ok {
+		return r
+	}
+	b := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
+	return dst
+}
+
+// Lum601 returns the BT.601 luminance of an 8-bit RGB pixel as an integer in
+// [0, 255]. The formula is (299·r + 587·g + 114·b) / 1000.
+func Lum601(r, g, b uint8) int {
+	return (299*int(r) + 587*int(g) + 114*int(b)) / 1000
+}
+
 // FillWhite fills every pixel of img with opaque white (all channels = 0xFF).
 // It operates as a memset over img.Pix and is faster than per-pixel SetRGBA.
 func FillWhite(img *image.RGBA) {

@@ -5,6 +5,7 @@ import (
 	"image"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/imutil"
 )
 
 // AxisSpec describes one font axis to optimise over during [FitAxes].
@@ -128,12 +129,17 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 	}
 
 	// Crop target to its own bounds once — compare always against exactly this.
-	targetCrop := cropRGBA(cfg.Target)
+	// imutil.ToRGBA returns img as-is when it is already *image.RGBA at (0,0).
+	targetCrop := imutil.ToRGBA(cfg.Target)
+
+	// axesScratch is a reusable slice passed to evaluate to avoid a per-eval
+	// allocation inside the hot coordinate-descent loop.
+	axesScratch := make([]Axis, len(cfg.Axes))
 
 	var totalEvals int
 
 	// Initial evaluation at the start point.
-	bestDist, err := evaluate(cfg, current, targetCrop)
+	bestDist, err := evaluate(cfg, current, targetCrop, axesScratch)
 	if err != nil {
 		return FitResult{}, fmt.Errorf("varfont.FitAxes: initial eval: %w", err)
 	}
@@ -157,7 +163,7 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 				}
 				prev := current[ai]
 				current[ai] = v
-				d, err := evaluate(cfg, current, targetCrop)
+				d, err := evaluate(cfg, current, targetCrop, axesScratch)
 				if err != nil {
 					return FitResult{}, fmt.Errorf("varfont.FitAxes: eval axis %s=%.1f: %w", spec.Tag, v, err)
 				}
@@ -172,22 +178,23 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 		step *= shrink
 	}
 
-	axes := make([]Axis, len(cfg.Axes))
+	result := make([]Axis, len(cfg.Axes))
 	for i, spec := range cfg.Axes {
-		axes[i] = Axis{Tag: spec.Tag, Value: current[i]}
+		result[i] = Axis{Tag: spec.Tag, Value: current[i]}
 	}
-	return FitResult{Axes: axes, Distance: bestDist, Evals: totalEvals}, nil
+	return FitResult{Axes: result, Distance: bestDist, Evals: totalEvals}, nil
 }
 
 // evaluate renders cfg.Text at the given axis values, pixelates the result,
 // crops to the target size, and returns the metric distance against target.
-func evaluate(cfg FitConfig, current []float32, target *image.RGBA) (float64, error) {
-	axes := make([]Axis, len(cfg.Axes))
+// scratch is a caller-owned []Axis of len(cfg.Axes) reused across calls to
+// avoid a per-evaluation allocation inside the coordinate-descent hot loop.
+func evaluate(cfg FitConfig, current []float32, target *image.RGBA, scratch []Axis) (float64, error) {
 	for i, spec := range cfg.Axes {
-		axes[i] = Axis{Tag: spec.Tag, Value: current[i]}
+		scratch[i] = Axis{Tag: spec.Tag, Value: current[i]}
 	}
 
-	r := newFontVarRenderer(cfg.Font, axes)
+	r := newFontVarRenderer(cfg.Font, scratch)
 	img, _, err := r.Render(cfg.Text, cfg.Style)
 	if err != nil {
 		return 1, fmt.Errorf("render: %w", err)
@@ -195,7 +202,10 @@ func evaluate(cfg FitConfig, current []float32, target *image.RGBA) (float64, er
 
 	pixed := cfg.Pixelator.Pixelate(img, 0, 0)
 
-	// Crop to the target's dimensions for a fair pixel-level comparison.
+	// Crop both images to the overlapping top-left region for a fair comparison.
+	// cropToSize is a zero-alloc fast path: it returns src directly when it
+	// already has the exact requested dimensions at origin (0,0), which is the
+	// common case for target; imutil.Crop always allocates a fresh image.
 	tb := target.Bounds()
 	pb := pixed.Bounds()
 	w := min(tb.Dx(), pb.Dx())
@@ -207,37 +217,15 @@ func evaluate(cfg FitConfig, current []float32, target *image.RGBA) (float64, er
 	return cfg.Metric.Compare(tCrop, pCrop), nil
 }
 
-// cropRGBA returns src re-expressed with a (0,0)-origin rectangle so metric
-// comparisons are always at origin zero. When src already has a zero origin
-// it is returned as-is (no allocation).
-func cropRGBA(src *image.RGBA) *image.RGBA {
-	b := src.Bounds()
-	if b.Min.X == 0 && b.Min.Y == 0 {
-		return src
-	}
-	out := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	for y := range b.Dy() {
-		for x := range b.Dx() {
-			out.SetRGBA(x, y, src.RGBAAt(b.Min.X+x, b.Min.Y+y))
-		}
-	}
-	return out
-}
-
 // cropToSize returns a *image.RGBA containing the top-left w×h pixels of src.
-// When src is already exactly w×h at origin (0,0), it is returned as-is.
+// When src is already exactly w×h at origin (0,0), it is returned as-is (zero
+// allocation). Otherwise imutil.Crop is used for its row-copy fast path.
 func cropToSize(src *image.RGBA, w, h int) *image.RGBA {
 	b := src.Bounds()
 	if b.Min.X == 0 && b.Min.Y == 0 && b.Dx() == w && b.Dy() == h {
 		return src
 	}
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := range h {
-		for x := range w {
-			out.SetRGBA(x, y, src.RGBAAt(b.Min.X+x, b.Min.Y+y))
-		}
-	}
-	return out
+	return imutil.Crop(src, 0, 0, w, h)
 }
 
 // clampAxis clamps v to [lo, hi].

@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1309,21 +1310,20 @@ func parseVarFontAxes(s string) ([]varfont.AxisSpec, error) {
 			return nil, fmt.Errorf("--varfont-axes: %q must be tag:min:max:start", part)
 		}
 		tag := fields[0]
-		var lo, hi, start float64
-		if _, err := fmt.Sscanf(fields[1], "%f", &lo); err != nil {
-			return nil, fmt.Errorf("--varfont-axes: %q min: %w", part, err)
-		}
-		if _, err := fmt.Sscanf(fields[2], "%f", &hi); err != nil {
-			return nil, fmt.Errorf("--varfont-axes: %q max: %w", part, err)
-		}
-		if _, err := fmt.Sscanf(fields[3], "%f", &start); err != nil {
-			return nil, fmt.Errorf("--varfont-axes: %q start: %w", part, err)
+		labels := [3]string{"min", "max", "start"}
+		vals := [3]float32{}
+		for i, label := range labels {
+			v, err := strconv.ParseFloat(fields[1+i], 32)
+			if err != nil {
+				return nil, fmt.Errorf("--varfont-axes: %q %s: %w", part, label, err)
+			}
+			vals[i] = float32(v)
 		}
 		specs = append(specs, varfont.AxisSpec{
 			Tag:   tag,
-			Min:   float32(lo),
-			Max:   float32(hi),
-			Start: float32(start),
+			Min:   vals[0],
+			Max:   vals[1],
+			Start: vals[2],
 		})
 	}
 	if len(specs) == 0 {

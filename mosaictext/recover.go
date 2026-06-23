@@ -16,6 +16,10 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
+// toRGBA returns src as *image.RGBA, delegating to imutil.ToRGBA.
+// Kept package-private so the many mosaictext callers need no import change.
+func toRGBA(src image.Image) *image.RGBA { return imutil.ToRGBA(src) }
+
 // contentLumThreshold is the luminance below which a pixel is considered
 // non-background content (ink is darker than this on a white background).
 const contentLumThreshold = 244
@@ -278,16 +282,6 @@ func terminalPunct(s string) bool {
 }
 
 // --- image helpers ---
-
-func toRGBA(src image.Image) *image.RGBA {
-	if r, ok := src.(*image.RGBA); ok {
-		return r
-	}
-	b := src.Bounds()
-	d := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	xdraw.Draw(d, d.Bounds(), src, b.Min, xdraw.Src)
-	return d
-}
 
 // downscaleBox shrinks img by an integer factor f with an exact f×f box average,
 // so each output pixel is the mean of its source block. This preserves block

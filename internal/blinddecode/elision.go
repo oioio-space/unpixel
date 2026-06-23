@@ -34,9 +34,6 @@
 package blinddecode
 
 import (
-	"cmp"
-	"slices"
-
 	"github.com/oioio-space/unpixel/internal/lang"
 )
 
@@ -77,11 +74,6 @@ func elisionCandidates(
 	d *lang.Dict,
 	prior func(string) float64,
 ) []string {
-	type scored struct {
-		word  string
-		score float64
-	}
-
 	seen := make(map[string]struct{})
 	var out []string
 
@@ -93,23 +85,19 @@ func elisionCandidates(
 			if wordRunes < 1 {
 				continue
 			}
-			tier := slices.Clone(d.ByRuneLen(wordRunes))
+			tier := d.ByRuneLen(wordRunes)
 			if len(tier) == 0 {
 				continue
 			}
-			pairs := make([]scored, len(tier))
+			// Build glued strings for this (prefix, wordLen) bucket and rank by prior.
+			glued := make([]string, len(tier))
 			for i, w := range tier {
-				glued := prefix + w
-				pairs[i] = scored{word: glued, score: prior(glued)}
+				glued[i] = prefix + w
 			}
-			slices.SortFunc(pairs, func(a, b scored) int {
-				return cmp.Compare(b.score, a.score) // descending
-			})
-			lim := min(k, len(pairs))
-			for _, p := range pairs[:lim] {
-				if _, dup := seen[p.word]; !dup {
-					seen[p.word] = struct{}{}
-					out = append(out, p.word)
+			for _, g := range topKByPrior(glued, k, prior) {
+				if _, dup := seen[g]; !dup {
+					seen[g] = struct{}{}
+					out = append(out, g)
 				}
 			}
 		}

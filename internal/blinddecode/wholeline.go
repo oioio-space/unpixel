@@ -276,13 +276,6 @@ func (d *Decoder) wordPool(bandWidth, k int) []string {
 		nEst = 1
 	}
 
-	// scored pairs a word with its pre-computed prior so each word is scored
-	// exactly once per tier (not once per comparison in the sort).
-	type scored struct {
-		word  string
-		score float64
-	}
-
 	seen := make(map[string]struct{})
 	var words []string
 	for delta := -1; delta <= 1; delta++ {
@@ -290,20 +283,11 @@ func (d *Decoder) wordPool(bandWidth, k int) []string {
 		if n < 1 {
 			continue
 		}
-		// Clone the cached slice before sorting so the shared cache is not mutated.
-		tier := slices.Clone(d.opts.Dict.ByRuneLen(n))
-		// Score each candidate once, then sort by score descending.
-		pairs := make([]scored, len(tier))
-		for i, w := range tier {
-			pairs[i] = scored{word: w, score: d.opts.Prior(w)}
-		}
-		slices.SortFunc(pairs, func(a, b scored) int {
-			return cmp.Compare(b.score, a.score) // descending
-		})
-		for _, p := range pairs[:min(k, len(pairs))] {
-			if _, dup := seen[p.word]; !dup {
-				seen[p.word] = struct{}{}
-				words = append(words, p.word)
+		// topKByPrior clones the tier internally, so the shared dict cache is not mutated.
+		for _, w := range topKByPrior(d.opts.Dict.ByRuneLen(n), k, d.opts.Prior) {
+			if _, dup := seen[w]; !dup {
+				seen[w] = struct{}{}
+				words = append(words, w)
 			}
 		}
 	}

@@ -22,6 +22,7 @@
 package capacity
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -157,13 +158,7 @@ func Analyze(ctx context.Context, r unpixel.Renderer, charset string, fontSize f
 
 	// Sort classes by first member for determinism.
 	slices.SortFunc(classes, func(a, b GlyphClass) int {
-		if a.Members[0] < b.Members[0] {
-			return -1
-		}
-		if a.Members[0] > b.Members[0] {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Members[0], b.Members[0])
 	})
 
 	var bitsPerGlyph float64
@@ -210,7 +205,8 @@ func extractSignature(img *image.RGBA, block int) []float64 {
 				continue
 			}
 			c := img.RGBAAt(px, y)
-			sig = append(sig,
+			sig = append(
+				sig,
 				float64(c.R)/255,
 				float64(c.G)/255,
 				float64(c.B)/255,
