@@ -38,25 +38,76 @@ type Model struct {
 // The path has the same length as obs. Each element is a state ID in [0,
 // len(m.States)).
 func (m *Model) Viterbi(obs []int) []int {
+	return m.ViterbiLM(obs, 0, nil)
+}
+
+// ViterbiLM runs a language-model-fused Viterbi over the observation sequence
+// obs and returns the most-likely state ID path.
+//
+// At each transition from state prev to state s the per-edge score becomes:
+//
+//	logA[prev][s] + beta * lmScore(prevContext, addedChars)
+//
+// where addedChars is the non-overlapping prefix of the prev tuple that is
+// committed when the window advances to s (determined by the same maximal-overlap
+// merge rule used by [Concatenate]), and prevContext is the string of all
+// characters committed on the best path reaching prev at time t−1.
+//
+// LM accounting: the LM scores only the characters the transition actually
+// commits, not the full state tuple, to avoid double-counting characters that
+// remain in the window overlap and will be rescored on future transitions.
+//
+// When beta==0 or lmScore==nil the method is identical to [Viterbi] and
+// produces a byte-identical result given the same model and observations.
+func (m *Model) ViterbiLM(obs []int, beta float64, lmScore func(prevContext, addedChars string) float64) []int {
 	T := len(obs)
 	S := len(m.States)
 	if T == 0 || S == 0 {
 		return nil
 	}
 
-	// delta[t][s] = log P(best path to s at t, obs[0..t]).
+	useLM := beta != 0 && lmScore != nil
+
+	// delta[t][s] = log P(best path to s at t, obs[0..t]) + beta*LM(path).
 	// psi[t][s]   = predecessor state at t-1 on the best path to s at t.
+	// ctx[t][s]   = committed text on the best path to s at t (only when useLM).
 	delta := make([][]float64, T)
 	psi := make([][]int, T)
+	var ctx [][]string // ctx[t][s] = committed prefix text on best path to s at t
 	for t := range T {
 		delta[t] = make([]float64, S)
 		psi[t] = make([]int, S)
 	}
+	if useLM {
+		ctx = make([][]string, T)
+		for t := range T {
+			ctx[t] = make([]string, S)
+		}
+	}
 
-	// Initialisation.
+	// Initialisation: no transition at t=0, so no LM term.
 	for s := range S {
-		logE := m.logEmit(s, obs[0])
-		delta[0][s] = m.LogPi[s] + logE
+		delta[0][s] = m.LogPi[s] + m.logEmit(s, obs[0])
+		// ctx[0][s] stays "" — no characters committed at initialisation.
+	}
+
+	// Precompute per-transition committed chars when useLM so we don't repeat
+	// the overlap calculation inside the t-loop. The committed prefix for a
+	// transition prev→s is the first (len(prev)-overlap(prev,s)) elements of
+	// the prev tuple joined into a string.
+	var transAdded [][]string // transAdded[prev][s] = chars committed by prev→s
+	if useLM {
+		transAdded = make([][]string, S)
+		for prev := range S {
+			transAdded[prev] = make([]string, S)
+			prevTuple := parseTuple(m.States[prev])
+			for s := range S {
+				curTuple := parseTuple(m.States[s])
+				ov := maxOverlap(prevTuple, curTuple)
+				toCommit := len(prevTuple) - ov
+				transAdded[prev][s] = strings.Join(prevTuple[:toCommit], "")
+			}
+		}
 	}
 
 	// Recursion.
@@ -64,6 +115,7 @@ func (m *Model) Viterbi(obs []int) []int {
 		for s := range S {
 			logE := m.logEmit(s, obs[t])
 			best, bestPred := math.Inf(-1), 0
+			bestCtx := ""
 			for prev := range S {
 				lTrans := math.Inf(-1)
 				if m.LogTrans[prev] != nil {
@@ -71,13 +123,26 @@ func (m *Model) Viterbi(obs []int) []int {
 						lTrans = v
 					}
 				}
-				val := delta[t-1][prev] + lTrans + logE
+				lm := 0.0
+				if useLM {
+					added := transAdded[prev][s]
+					if added != "" {
+						lm = beta * lmScore(ctx[t-1][prev], added)
+					}
+				}
+				val := delta[t-1][prev] + lTrans + logE + lm
 				if val > best {
 					best, bestPred = val, prev
+					if useLM {
+						bestCtx = ctx[t-1][prev] + transAdded[prev][s]
+					}
 				}
 			}
 			delta[t][s] = best
 			psi[t][s] = bestPred
+			if useLM {
+				ctx[t][s] = bestCtx
+			}
 		}
 	}
 
@@ -94,6 +159,15 @@ func (m *Model) Viterbi(obs []int) []int {
 		path[t] = psi[t+1][path[t+1]]
 	}
 	return path
+}
+
+// parseTuple splits a canonical pipe-separated state key into individual
+// character strings (the inverse of [TupleKey]).
+func parseTuple(state string) []string {
+	if state == "" {
+		return nil
+	}
+	return strings.Split(state, "|")
 }
 
 // logEmit returns m.LogB[s][o], or -∞ when o is out of range.

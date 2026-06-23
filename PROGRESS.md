@@ -732,3 +732,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `3eb9945` 2026-06-24 — feat(capacity): #1 information-theoretic capacity / triage map _(3 fichiers)_
 - `2ae839b` 2026-06-24 — feat(blinddecode): #2 advance-width constraint pre-filter (quality + 6.8x perf) _(5 fichiers)_
 - `84c45b7` 2026-06-24 — refactor: apply /simplify review findings (reuse/dedupe, behavior-preserving) _(14 fichiers)_
+- `985ba3c` 2026-06-24 — fix(hooks): add commit-simplify-review so /simplify fires on every commit _(3 fichiers)_

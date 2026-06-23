@@ -157,6 +157,43 @@ func (d *Dict) ByRuneLen(n int) []string {
 }
 
 // ---------------------------------------------------------------------------
+// Bigram model per language
+// ---------------------------------------------------------------------------
+
+// ModelFor returns the shared bigram [Model] for l.
+// ModelFor(English) is equivalent to [Default]; ModelFor(French) returns a
+// bigram model trained on the embedded French corpus (corpus_fr.txt).
+// The returned model is safe for concurrent read-only use (Score,
+// TransitionLogProb).
+func ModelFor(l Language) *Model {
+	if l == French {
+		return frenchBigramModel()
+	}
+	return Default()
+}
+
+var (
+	frBigramOnce  sync.Once
+	frBigramModel *Model
+)
+
+func frenchBigramModel() *Model {
+	frBigramOnce.Do(func() { frBigramModel = New(corpusFR) })
+	return frBigramModel
+}
+
+// CorpusFor returns the raw embedded corpus text for l. It is provided so
+// callers that need to build a fresh (non-shared) [Model] or [Infini] for
+// concurrent use can do so without importing the corpus as a separate
+// dependency.
+func CorpusFor(l Language) string {
+	if l == French {
+		return corpusFR
+	}
+	return corpus
+}
+
+// ---------------------------------------------------------------------------
 // English Infini model
 // ---------------------------------------------------------------------------
 

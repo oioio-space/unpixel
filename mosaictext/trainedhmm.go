@@ -33,6 +33,7 @@ import (
 	"image/jpeg"
 	"math"
 	"math/rand/v2"
+	"unicode"
 
 	xdraw "golang.org/x/image/draw"
 
@@ -62,6 +63,7 @@ type trainedHMMConfig struct {
 	seed        uint64         // PRNG seed for corpus generation and KMeans
 	language    *lang.Language // non-nil → draw training strings from word-list corpus
 	jpegQuality int            // > 0 → JPEG-roundtrip rendered training images before pixelation
+	lmBeta      float64        // > 0 → fuse LM into Viterbi with this weight (requires language)
 }
 
 func defaultTrainedHMMConfig() trainedHMMConfig {
@@ -188,6 +190,31 @@ func WithTHMMJPEG(quality int) THMMOption {
 			c.jpegQuality = min(100, quality)
 		}
 	}
+}
+
+// WithTHMMLMWeight enables language-model-fused Viterbi decoding (roadmap item #3).
+//
+// When beta > 0 and [WithTHMMLanguage] is also set, the per-transition score
+// in Viterbi becomes:
+//
+//	logA[prev][s] + beta * lmScore(prevContext, addedChars)
+//
+// where addedChars is the non-overlapping prefix of the prev state tuple that
+// the window commits as it advances to s (the maximal-overlap merge rule, same
+// as [windowhmm.Concatenate]), and prevContext is the text committed on the
+// best path reaching the previous state. The LM scorer is
+// [lang.Model.TransitionLogProb] applied char-by-char over addedChars, using
+// the English or French bigram model selected by [WithTHMMLanguage].
+//
+// Accounting note: the LM scores only the characters actually committed by each
+// transition, not the full state tuple, so characters in the window overlap are
+// never double-counted across adjacent transitions.
+//
+// beta=0 (the default) restores byte-identical behaviour to the plain Viterbi;
+// nil or absent [WithTHMMLanguage] also silently disables the LM term.
+// Typical useful range: beta ∈ [0.5, 5.0]; start with beta=2.0.
+func WithTHMMLMWeight(beta float64) THMMOption {
+	return func(c *trainedHMMConfig) { c.lmBeta = beta }
 }
 
 // DecodeTrainedHMM recovers text from a mosaic-pixelated image using a
@@ -423,7 +450,31 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 				obs[t] = windowhmm.NearestCentroid(vec, model.Centroids)
 			}
 
-			path := model.Viterbi(obs)
+			// Build the LM scorer when language + positive beta are set AND
+			// the charset contains at least one Unicode letter. For digit-only or
+			// symbol-only charsets the English/French bigram model carries no
+			// meaningful signal and would distort the acoustic-only optimum.
+			var lmScore func(prevContext, addedChars string) float64
+			if tcfg.language != nil && tcfg.lmBeta > 0 && charsetHasLetters(charRunes) {
+				lm := lang.ModelFor(*tcfg.language)
+				lmScore = func(prevContext, addedChars string) float64 {
+					// Score each committed rune against the bigram model.
+					// prevContext is the text committed so far on the best path;
+					// the LM context rune is its last character (space if empty).
+					prev := ' '
+					for _, r := range prevContext {
+						prev = r // last rune
+					}
+					var sum float64
+					for _, r := range addedChars {
+						sum += lm.TransitionLogProb(prev, r)
+						prev = r
+					}
+					return sum
+				}
+			}
+
+			path := model.ViterbiLM(obs, tcfg.lmBeta, lmScore)
 			if len(path) == 0 {
 				continue
 			}
@@ -835,6 +886,19 @@ func trainHMM(
 		centroids, windowW,
 	)
 	return model, nil
+}
+
+// charsetHasLetters reports whether runes contains at least one Unicode letter.
+// Used to guard LM activation: the English/French bigram model is only
+// meaningful for alphabetic charsets; digit-only or symbol-only charsets
+// must not receive a spurious LM bias.
+func charsetHasLetters(runes []rune) bool {
+	for _, r := range runes {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // ClassifyWindowAccuracy returns the fraction of held-out window samples
