@@ -73,6 +73,12 @@ type Options struct {
 	// FontSize is the font size in points used to render candidates.
 	FontSize float64
 
+	// LetterSpacing is the extra horizontal space in pixels inserted after each
+	// glyph. Negative values tighten the advance; zero (the default) leaves glyph
+	// advances and kerning untouched, producing byte-identical output to earlier
+	// behaviour. The renderer honours fractional values via fixed-point rounding.
+	LetterSpacing float64
+
 	// Alpha weights the image distance term (default 1.0).
 	Alpha float64
 
@@ -207,7 +213,7 @@ func New(opts Options) *Decoder {
 // Y-range (inkY0, inkH) that is constant for all renders at this font/size.
 // Falls back to block size when the render fails or yields a zero width.
 func (d *Decoder) calibrateAvgAdvance() float64 {
-	img, sx, err := d.opts.Renderer.Render(referenceString, unpixel.Style{FontSize: d.opts.FontSize})
+	img, sx, err := d.opts.Renderer.Render(referenceString, unpixel.Style{FontSize: d.opts.FontSize, LetterSpacing: d.opts.LetterSpacing})
 	if err != nil || sx <= 0 {
 		return float64(d.opts.Block)
 	}
@@ -229,7 +235,7 @@ func (d *Decoder) renderWord(word string) *image.RGBA {
 	if img, ok := d.cache[word]; ok {
 		return img
 	}
-	img, sx, err := d.opts.Renderer.Render(word, unpixel.Style{FontSize: d.opts.FontSize})
+	img, sx, err := d.opts.Renderer.Render(word, unpixel.Style{FontSize: d.opts.FontSize, LetterSpacing: d.opts.LetterSpacing})
 	if err != nil {
 		return nil
 	}

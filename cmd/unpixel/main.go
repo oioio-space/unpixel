@@ -68,46 +68,47 @@ func main() {
 // unpixel.Config. Keeping them in a plain struct lets later batches extend
 // buildConfig without touching the flag wiring.
 type flagParams struct {
-	charset         string
-	strategy        string
-	metric          string
-	format          string
-	fontPaths       []string
-	fontBoldPath    string
-	fontDir         string
-	redaction       string
-	maxLength       int
-	blockSize       int
-	threshold       float64
-	spaceThreshold  float64
-	fontSize        float64
-	letterSpacing   float64
-	blurSigma       float64
-	minConfidence   float64
-	deblur          int
-	topN            int
-	charsetTopK     int
-	workers         int
-	beamWidth       int
-	timeout         time.Duration
-	quiet           bool
-	blurExact       bool
-	gamma           string // "auto" | "linear" | "srgb"
-	language        bool
-	secrets         bool
-	escalate        bool
-	charsetExplicit bool
-	blind           bool
-	lang            string
-	denoise         int
-	decoder         string // "default" or "mono-hmm"
-	normalize       bool
-	normalizeBg     string // "divide", "subtract", "none"
-	normalizeBin    bool
-	deblock         int
-	remosaic        bool // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
-	remosaicGrid    int  // --remosaic-grid N: pin block grid (0 = auto)
-	remosaicLinear  bool // --remosaic-linear: linear-light block average (GEGL/GIMP)
+	charset             string
+	strategy            string
+	metric              string
+	format              string
+	fontPaths           []string
+	fontBoldPath        string
+	fontDir             string
+	redaction           string
+	maxLength           int
+	blockSize           int
+	threshold           float64
+	spaceThreshold      float64
+	fontSize            float64
+	letterSpacing       float64
+	blurSigma           float64
+	minConfidence       float64
+	deblur              int
+	topN                int
+	charsetTopK         int
+	workers             int
+	beamWidth           int
+	timeout             time.Duration
+	quiet               bool
+	blurExact           bool
+	gamma               string // "auto" | "linear" | "srgb"
+	language            bool
+	secrets             bool
+	escalate            bool
+	charsetExplicit     bool
+	blind               bool
+	lang                string
+	denoise             int
+	decoder             string // "default" or "mono-hmm"
+	normalize           bool
+	normalizeBg         string // "divide", "subtract", "none"
+	normalizeBin        bool
+	deblock             int
+	remosaic            bool // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
+	remosaicGrid        int  // --remosaic-grid N: pin block grid (0 = auto)
+	remosaicLinear      bool // --remosaic-linear: linear-light block average (GEGL/GIMP)
+	letterSpacingSearch bool // --letter-spacing-search: sweep DefaultLetterSpacings
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -827,6 +828,9 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	if p.denoise >= 0 {
 		opts = append(opts, blind.WithDenoise(p.denoise))
 	}
+	if p.letterSpacingSearch {
+		opts = append(opts, blind.WithLetterSpacingSearch(blind.DefaultLetterSpacings...))
+	}
 
 	if !p.quiet {
 		fmt.Fprintf(os.Stderr, "Blind recovery (lang=%s)…\n", l)
@@ -838,8 +842,8 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f  denoise: %d  gamma: %s\n",
-			result.Font, result.Block, result.Dist, result.Denoise, result.Gamma)
+		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f  denoise: %d  gamma: %s  letter-spacing: %.2f\n",
+			result.Font, result.Block, result.Dist, result.Denoise, result.Gamma, result.LetterSpacing)
 	}
 	fmt.Println(result.Text)
 	return nil
@@ -1396,6 +1400,10 @@ Examples:
 				Usage: "blind mode: median denoise radius — -1=auto-detect (default), 0=off, N=force ((2N+1)×(2N+1) kernel; 1=3×3, 2=5×5)",
 			},
 			&cli.BoolFlag{
+				Name:  "letter-spacing-search",
+				Usage: "blind mode: sweep letter-spacing values " + fmt.Sprintf("%v", blind.DefaultLetterSpacings) + " px and keep the result with the lowest image distance; records the winner in the diagnostic line. Default off (spacing 0 only).",
+			},
+			&cli.BoolFlag{
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
@@ -1511,46 +1519,47 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	p := flagParams{
-		charset:         charset,
-		maxLength:       cmd.Int("max-length"),
-		blockSize:       cmd.Int("block-size"),
-		threshold:       cmd.Float("threshold"),
-		spaceThreshold:  cmd.Float("space-threshold"),
-		topN:            cmd.Int("top"),
-		workers:         cmd.Int("workers"),
-		strategy:        cmd.String("strategy"),
-		beamWidth:       cmd.Int("beam-width"),
-		metric:          cmd.String("metric"),
-		format:          cmd.String("format"),
-		fontPaths:       cmd.StringSlice("font"),
-		fontBoldPath:    cmd.String("font-bold"),
-		fontDir:         cmd.String("font-dir"),
-		redaction:       cmd.String("redaction"),
-		fontSize:        cmd.Float("font-size"),
-		letterSpacing:   cmd.Float("letter-spacing"),
-		blurSigma:       cmd.Float("blur-sigma"),
-		blurExact:       cmd.Bool("blur-exact"),
-		gamma:           cmd.String("gamma"),
-		deblur:          cmd.Int("deblur"),
-		language:        cmd.Bool("language"),
-		secrets:         cmd.Bool("secrets"),
-		minConfidence:   cmd.Float("min-confidence"),
-		escalate:        cmd.Bool("escalate"),
-		charsetTopK:     cmd.Int("charset-topk"),
-		charsetExplicit: cmd.IsSet("charset") || cmd.IsSet("charset-preset"),
-		quiet:           cmd.Bool("quiet"),
-		timeout:         cmd.Duration("timeout"),
-		blind:           cmd.Bool("blind"),
-		lang:            cmd.String("lang"),
-		denoise:         cmd.Int("denoise"),
-		decoder:         cmd.String("decoder"),
-		normalize:       cmd.Bool("normalize"),
-		normalizeBg:     cmd.String("normalize-bg"),
-		normalizeBin:    cmd.Bool("normalize-binarize"),
-		deblock:         cmd.Int("deblock"),
-		remosaic:        cmd.Bool("remosaic") || cmd.IsSet("remosaic-grid") || cmd.Bool("remosaic-linear"),
-		remosaicGrid:    cmd.Int("remosaic-grid"),
-		remosaicLinear:  cmd.Bool("remosaic-linear"),
+		charset:             charset,
+		maxLength:           cmd.Int("max-length"),
+		blockSize:           cmd.Int("block-size"),
+		threshold:           cmd.Float("threshold"),
+		spaceThreshold:      cmd.Float("space-threshold"),
+		topN:                cmd.Int("top"),
+		workers:             cmd.Int("workers"),
+		strategy:            cmd.String("strategy"),
+		beamWidth:           cmd.Int("beam-width"),
+		metric:              cmd.String("metric"),
+		format:              cmd.String("format"),
+		fontPaths:           cmd.StringSlice("font"),
+		fontBoldPath:        cmd.String("font-bold"),
+		fontDir:             cmd.String("font-dir"),
+		redaction:           cmd.String("redaction"),
+		fontSize:            cmd.Float("font-size"),
+		letterSpacing:       cmd.Float("letter-spacing"),
+		blurSigma:           cmd.Float("blur-sigma"),
+		blurExact:           cmd.Bool("blur-exact"),
+		gamma:               cmd.String("gamma"),
+		deblur:              cmd.Int("deblur"),
+		language:            cmd.Bool("language"),
+		secrets:             cmd.Bool("secrets"),
+		minConfidence:       cmd.Float("min-confidence"),
+		escalate:            cmd.Bool("escalate"),
+		charsetTopK:         cmd.Int("charset-topk"),
+		charsetExplicit:     cmd.IsSet("charset") || cmd.IsSet("charset-preset"),
+		quiet:               cmd.Bool("quiet"),
+		timeout:             cmd.Duration("timeout"),
+		blind:               cmd.Bool("blind"),
+		lang:                cmd.String("lang"),
+		denoise:             cmd.Int("denoise"),
+		decoder:             cmd.String("decoder"),
+		normalize:           cmd.Bool("normalize"),
+		normalizeBg:         cmd.String("normalize-bg"),
+		normalizeBin:        cmd.Bool("normalize-binarize"),
+		deblock:             cmd.Int("deblock"),
+		remosaic:            cmd.Bool("remosaic") || cmd.IsSet("remosaic-grid") || cmd.Bool("remosaic-linear"),
+		remosaicGrid:        cmd.Int("remosaic-grid"),
+		remosaicLinear:      cmd.Bool("remosaic-linear"),
+		letterSpacingSearch: cmd.Bool("letter-spacing-search"),
 	}
 
 	if err := validateParams(p); err != nil {

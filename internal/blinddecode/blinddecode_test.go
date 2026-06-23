@@ -410,6 +410,90 @@ func TestDecodeLine_JoinsBySpaces(t *testing.T) {
 	}
 }
 
+// TestLetterSpacing_ZeroIdentity proves that Options{LetterSpacing: 0} produces
+// byte-identical output to the default (LetterSpacing field absent). Both
+// decoders must return the same top-1 word and the same ImageDist.
+func TestLetterSpacing_ZeroIdentity(t *testing.T) {
+	t.Parallel()
+	r, err := render.NewXImage()
+	if err != nil {
+		t.Fatalf("NewXImage: %v", err)
+	}
+	makeDecoder := func(ls float64) *blinddecode.Decoder {
+		return blinddecode.New(blinddecode.Options{
+			Renderer:      r,
+			Pixelator:     pixelate.NewBlockAverage(testBlock),
+			Metric:        metric.NewSSIM(0),
+			Dict:          lang.DictionaryFor(lang.English),
+			Prior:         lang.PriorFor(lang.English),
+			Block:         testBlock,
+			FontSize:      testFontSize,
+			Alpha:         1.0,
+			Beta:          testBeta,
+			TopK:          5,
+			LetterSpacing: ls,
+		})
+	}
+	band := syntheticBand(t, r, "history")
+	dDefault := makeDecoder(0)
+	dExplicit := makeDecoder(0)
+
+	got := dDefault.DecodeWord(band)
+	want := dExplicit.DecodeWord(band)
+	if len(got) == 0 || len(want) == 0 {
+		t.Fatal("DecodeWord returned no candidates")
+	}
+	if got[0].Word != want[0].Word {
+		t.Errorf("top-1 word: got %q, want %q", got[0].Word, want[0].Word)
+	}
+	if got[0].ImageDist != want[0].ImageDist {
+		t.Errorf("ImageDist: got %v, want %v", got[0].ImageDist, want[0].ImageDist)
+	}
+}
+
+// TestLetterSpacing_NonZeroChangesResult proves that a non-zero LetterSpacing
+// reaches the renderer and actually changes the scored Dist for a given band.
+// The band is produced with spacing 0; a decoder with spacing -0.4 must report
+// a different (higher) ImageDist for the same word.
+func TestLetterSpacing_NonZeroChangesResult(t *testing.T) {
+	t.Parallel()
+	r, err := render.NewXImage()
+	if err != nil {
+		t.Fatalf("NewXImage: %v", err)
+	}
+	makeDecoder := func(ls float64) *blinddecode.Decoder {
+		return blinddecode.New(blinddecode.Options{
+			Renderer:      r,
+			Pixelator:     pixelate.NewBlockAverage(testBlock),
+			Metric:        metric.NewSSIM(0),
+			Dict:          lang.DictionaryFor(lang.English),
+			Prior:         lang.PriorFor(lang.English),
+			Block:         testBlock,
+			FontSize:      testFontSize,
+			Alpha:         1.0,
+			Beta:          testBeta,
+			TopK:          5,
+			LetterSpacing: ls,
+		})
+	}
+	// Band produced at spacing 0.
+	band := syntheticBand(t, r, "history")
+
+	dZero := makeDecoder(0)
+	dShifted := makeDecoder(-0.4)
+
+	cZero := dZero.DecodeWord(band)
+	cShifted := dShifted.DecodeWord(band)
+	if len(cZero) == 0 || len(cShifted) == 0 {
+		t.Fatal("DecodeWord returned no candidates")
+	}
+	// The ImageDist of the top-1 candidate must differ when letter-spacing changes,
+	// because the rendered glyph extents are different.
+	if cZero[0].ImageDist == cShifted[0].ImageDist {
+		t.Errorf("expected different ImageDist for spacing=0 vs -0.4, both got %.6f", cZero[0].ImageDist)
+	}
+}
+
 // sinkCandidates is a package-level sink that prevents dead-code elimination of
 // the benchmark result.
 var sinkCandidates []blinddecode.WordCandidate

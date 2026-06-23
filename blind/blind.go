@@ -76,19 +76,31 @@ type Result struct {
 	// Jimp). When GammaAuto is in effect, this records which space won; when
 	// a specific mode is forced it reflects that choice.
 	Gamma string
+	// LetterSpacing is the extra-pixels-per-glyph value that produced the lowest
+	// image distance among the candidates searched. Zero means either no search
+	// was performed (WithLetterSpacingSearch not called) or spacing 0 won.
+	LetterSpacing float64
 }
+
+// DefaultLetterSpacings is the recommended set of letter-spacing values for
+// WithLetterSpacingSearch. It brackets the -0.2 px value that Bishop Fox found
+// optimal for the unredacter challenge image, providing enough coverage to
+// distinguish tighter-than-default from looser-than-default spacing without an
+// expensive fine-grained sweep.
+var DefaultLetterSpacings = []float64{-0.4, -0.2, 0, 0.2}
 
 // config holds the resolved options for a Recover call.
 type config struct {
-	language      lang.Language
-	block         int // 0 = auto
-	offsetX       int
-	offsetY       int
-	fontSize      float64 // 0 = auto
-	gamma         GammaMode
-	fonts         []string
-	metric        unpixel.Metric
-	denoiseRadius int // -1 = auto (default), 0 = off, >0 = forced radius
+	language       lang.Language
+	block          int // 0 = auto
+	offsetX        int
+	offsetY        int
+	fontSize       float64 // 0 = auto
+	gamma          GammaMode
+	fonts          []string
+	metric         unpixel.Metric
+	denoiseRadius  int       // -1 = auto (default), 0 = off, >0 = forced radius
+	letterSpacings []float64 // nil = no search (default 0 only)
 }
 
 // Language selects the dictionary and language prior used for scoring. The
@@ -212,6 +224,26 @@ func WithDenoise(radius int) Option {
 	return func(c *config) { c.denoiseRadius = radius }
 }
 
+// WithLetterSpacingSearch enables a sweep over the given letter-spacing values.
+// For each value, Recover runs the full decode (including gamma selection when
+// GammaAuto is in effect) and keeps the result with the lowest Dist. The
+// winning spacing is recorded in Result.LetterSpacing.
+//
+// Calling with no arguments is a no-op (identical to not calling it). Use
+// DefaultLetterSpacings for the recommended set:
+//
+//	blind.WithLetterSpacingSearch(blind.DefaultLetterSpacings...)
+//
+// Cost: total inner decodes = len(values) × (1 or 2 for GammaAuto). The
+// default path (not called) is unchanged: a single spacing 0 is used.
+func WithLetterSpacingSearch(values ...float64) Option {
+	return func(c *config) {
+		if len(values) > 0 {
+			c.letterSpacings = values
+		}
+	}
+}
+
 // defaultFontSize is the fallback font size when InferFontSize returns 0.
 const defaultFontSize = 32.0
 
@@ -311,7 +343,7 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		return Result{}, errors.New("blind.Recover: no usable font renderers for the requested styles")
 	}
 
-	// baseOpts carries everything that does not change between gamma passes.
+	// baseOpts carries everything that does not change between gamma/spacing passes.
 	//
 	// TopK=0: let DecodeLineWhole's budget-adaptive effectivePoolK choose the
 	// per-tier cap automatically.  For a 2-word line this yields k≈235,
@@ -331,14 +363,16 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		TopK:     0,
 	}
 
-	// runGamma is the per-pixelator inner call. It sets the Pixelator on a copy
-	// of baseOpts (so baseOpts itself is immutable), checks ctx, then runs
-	// blinddecode.Recover. linear selects LinearBlockAverage vs BlockAverage.
-	runGamma := func(linear bool) (blinddecode.ImageResult, error) {
+	// runGamma is the per-pixelator inner call. It sets the Pixelator and
+	// LetterSpacing on a copy of baseOpts (so baseOpts itself is immutable),
+	// checks ctx, then runs blinddecode.Recover. linear selects
+	// LinearBlockAverage vs BlockAverage.
+	runGamma := func(linear bool, spacing float64) (blinddecode.ImageResult, error) {
 		if err := ctx.Err(); err != nil {
 			return blinddecode.ImageResult{}, fmt.Errorf("blind.Recover: %w", err)
 		}
 		o := baseOpts
+		o.LetterSpacing = spacing
 		if linear {
 			o.Pixelator = pixelate.NewLinearBlockAverage(block)
 		} else {
@@ -347,48 +381,64 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		return blinddecode.Recover(cropRGBA, o, renderers), nil
 	}
 
-	// Select which gamma pass(es) to run and which label to attach.
+	// runSpacing runs all gamma passes for one letter-spacing value and returns
+	// the best ImageResult and its gamma label.
+	runSpacing := func(spacing float64) (blinddecode.ImageResult, string, error) {
+		switch cfg.gamma {
+		case GammaLinear:
+			r, rerr := runGamma(true, spacing)
+			return r, "linear", rerr
+		case GammaSRGB:
+			r, rerr := runGamma(false, spacing)
+			return r, "srgb", rerr
+		default: // GammaAuto: run both, keep lower Dist; prefer linear on a tie.
+			linResult, linErr := runGamma(true, spacing)
+			if linErr != nil {
+				return blinddecode.ImageResult{}, "", linErr
+			}
+			srgbResult, srgbErr := runGamma(false, spacing)
+			if srgbErr != nil {
+				return blinddecode.ImageResult{}, "", srgbErr
+			}
+			if srgbResult.Dist < linResult.Dist {
+				return srgbResult, "srgb", nil
+			}
+			return linResult, "linear", nil
+		}
+	}
+
+	// Resolve the spacing values to sweep. When WithLetterSpacingSearch was not
+	// called, cfg.letterSpacings is nil and we use a single 0 (unchanged behaviour).
+	spacings := cfg.letterSpacings
+	if len(spacings) == 0 {
+		spacings = []float64{0}
+	}
+
+	// Sweep spacings, keeping the result with the lowest Dist.
 	var imgResult blinddecode.ImageResult
 	var gammaLabel string
-	switch cfg.gamma {
-	case GammaLinear:
-		imgResult, err = runGamma(true)
-		if err != nil {
-			return Result{}, err
+	var winSpacing float64
+	for i, sp := range spacings {
+		r, label, rerr := runSpacing(sp)
+		if rerr != nil {
+			return Result{}, rerr
 		}
-		gammaLabel = "linear"
-	case GammaSRGB:
-		imgResult, err = runGamma(false)
-		if err != nil {
-			return Result{}, err
-		}
-		gammaLabel = "srgb"
-	default: // GammaAuto: run both, keep the lower Dist; prefer linear on a tie.
-		linResult, linErr := runGamma(true)
-		if linErr != nil {
-			return Result{}, linErr
-		}
-		srgbResult, srgbErr := runGamma(false)
-		if srgbErr != nil {
-			return Result{}, srgbErr
-		}
-		if srgbResult.Dist < linResult.Dist {
-			imgResult, gammaLabel = srgbResult, "srgb"
-		} else {
-			imgResult, gammaLabel = linResult, "linear"
+		if i == 0 || r.Dist < imgResult.Dist {
+			imgResult, gammaLabel, winSpacing = r, label, sp
 		}
 	}
 
 	lines := splitLines(imgResult.Text)
 	return Result{
-		Text:    imgResult.Text,
-		Font:    imgResult.Font,
-		Lang:    cfg.language.String(),
-		Block:   block,
-		Dist:    imgResult.Dist,
-		Lines:   lines,
-		Denoise: appliedRadius,
-		Gamma:   gammaLabel,
+		Text:          imgResult.Text,
+		Font:          imgResult.Font,
+		Lang:          cfg.language.String(),
+		Block:         block,
+		Dist:          imgResult.Dist,
+		Lines:         lines,
+		Denoise:       appliedRadius,
+		Gamma:         gammaLabel,
+		LetterSpacing: winSpacing,
 	}, nil
 }
 

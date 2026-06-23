@@ -715,3 +715,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `e0284ed` 2026-06-23 — docs(journal): restore prior evolution rows lost to rm before v0.10.0 run _(2 fichiers)_
 - `0501f26` 2026-06-23 — feat(journal): add trend-analysis section + Version column to evolution table _(3 fichiers)_
 - `2b51ff2` 2026-06-23 — feat(blind): Q1 auto gamma selection (sRGB vs linear, keep best) _(4 fichiers)_
+- `d3d6bcf` 2026-06-23 — feat(lang,blind): Q4 stronger prior + Q2 adaptive pool recall _(16 fichiers)_

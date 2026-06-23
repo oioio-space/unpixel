@@ -2,6 +2,7 @@ package blind_test
 
 import (
 	"image"
+	"slices"
 	"testing"
 
 	xdraw "golang.org/x/image/draw"
@@ -258,6 +259,95 @@ func TestRecover_French(t *testing.T) {
 	}
 }
 
+// TestLetterSpacingSearch_RecoversBestSpacing builds a synthetic pixelated band
+// of "ok" rendered with spacing -0.4 px, then verifies that
+// WithLetterSpacingSearch(-0.4,-0.2,0,0.2) wins on spacing -0.4 (lower Dist
+// than spacing 0) and that Result.LetterSpacing records it.
+//
+// "ok" is chosen for speed: it is a 2-rune word, short enough that the full
+// letter-spacing × gamma search stays well under one second even in -race mode.
+func TestLetterSpacingSearch_RecoversBestSpacing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("letter-spacing search × gamma; skipping in -short mode")
+	}
+
+	// Build the target band with spacing -0.4 so the search must find it.
+	r, err := render.NewXImage()
+	if err != nil {
+		t.Fatalf("render.NewXImage: %v", err)
+	}
+	img, sx, err := r.Render("ok", unpixel.Style{FontSize: testFontSize, LetterSpacing: -0.4})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	ink := inkBounds(img, sx)
+	inkImg := image.NewRGBA(image.Rect(0, 0, ink.Dx(), ink.Dy()))
+	xdraw.Draw(inkImg, inkImg.Bounds(), img, ink.Min, xdraw.Src)
+	pix := pixelate.NewLinearBlockAverage(testBlock)
+	band := pix.Pixelate(inkImg, 0, 0)
+
+	// Run with search — the winner must be -0.4.
+	got, err := blind.Recover(
+		t.Context(), band,
+		blind.WithLanguage(lang.English),
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithFonts("sans"),
+		blind.WithGamma(blind.GammaLinear),
+		blind.WithLetterSpacingSearch(-0.4, -0.2, 0, 0.2),
+	)
+	if err != nil {
+		t.Fatalf("Recover (search): %v", err)
+	}
+	t.Logf("search: text=%q spacing=%.2f dist=%.6f", got.Text, got.LetterSpacing, got.Dist)
+
+	// Run without search — spacing 0, serves as baseline Dist.
+	base, err := blind.Recover(
+		t.Context(), band,
+		blind.WithLanguage(lang.English),
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithFonts("sans"),
+		blind.WithGamma(blind.GammaLinear),
+	)
+	if err != nil {
+		t.Fatalf("Recover (base): %v", err)
+	}
+	t.Logf("base:   text=%q spacing=%.2f dist=%.6f", base.Text, base.LetterSpacing, base.Dist)
+
+	// The search result must beat or match the baseline on Dist.
+	if got.Dist > base.Dist {
+		t.Errorf("search Dist %.6f > base Dist %.6f: search made things worse", got.Dist, base.Dist)
+	}
+	// The winning spacing must be -0.4 (the one the target was rendered with).
+	if got.LetterSpacing != -0.4 {
+		t.Errorf("LetterSpacing: got %.2f, want -0.40", got.LetterSpacing)
+	}
+}
+
+// TestLetterSpacingSearch_DefaultUnchanged verifies that calling Recover
+// without WithLetterSpacingSearch leaves Result.LetterSpacing at 0 and
+// produces the same Text as before (non-regression of the default path).
+func TestLetterSpacingSearch_DefaultUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full blind decode; skipping in -short mode")
+	}
+	img := syntheticBand(t, "ok", 0)
+	result, err := blind.Recover(
+		t.Context(), img,
+		blind.WithLanguage(lang.English),
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithFonts("sans"),
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if got, want := result.LetterSpacing, 0.0; got != want {
+		t.Errorf("LetterSpacing: got %v, want %v", got, want)
+	}
+}
+
 // BenchmarkRecover measures the per-call cost of blind.Recover on a tiny
 // synthetic band (block=8, "ok", sans fonts only).  Setup is outside the loop.
 func BenchmarkRecover(b *testing.B) {
@@ -277,4 +367,49 @@ func BenchmarkRecover(b *testing.B) {
 			b.Fatalf("Recover: %v", err)
 		}
 	}
+}
+
+// BenchmarkRecoverLetterSpacingSearch measures the multiplier cost of
+// WithLetterSpacingSearch(DefaultLetterSpacings...) vs a single-spacing
+// baseline. Both sub-benchmarks use the same "ok" band (block=8, linear gamma)
+// so the only variable is the number of spacing passes (1 vs 4).
+//
+// Run with -count=10 and compare via benchstat to get a reliable multiplier:
+//
+//	mise run bench:baseline   # record before change
+//	mise run bench:compare    # record after change; benchstat prints Δ
+func BenchmarkRecoverLetterSpacingSearch(b *testing.B) {
+	img := syntheticBandB(b, "ok", 0)
+	ctx := b.Context()
+
+	sharedOpts := []blind.Option{
+		blind.WithLanguage(lang.English),
+		blind.WithBlock(testBlock),
+		blind.WithFontSize(testFontSize),
+		blind.WithFonts("sans"),
+		blind.WithGamma(blind.GammaLinear),
+	}
+
+	b.Run("spacing=single", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var err error
+			sink, err = blind.Recover(ctx, img, sharedOpts...)
+			if err != nil {
+				b.Fatalf("Recover: %v", err)
+			}
+		}
+	})
+
+	b.Run("spacing=search4", func(b *testing.B) {
+		opts := slices.Concat(sharedOpts, []blind.Option{blind.WithLetterSpacingSearch(blind.DefaultLetterSpacings...)})
+		b.ReportAllocs()
+		for b.Loop() {
+			var err error
+			sink, err = blind.Recover(ctx, img, opts...)
+			if err != nil {
+				b.Fatalf("Recover: %v", err)
+			}
+		}
+	})
 }

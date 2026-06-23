@@ -323,7 +323,7 @@ func (d *Decoder) scoreWholeLine(text string, target *image.RGBA) float64 {
 	if text == "" || text == "?" {
 		return 1.0
 	}
-	img, sx, err := d.opts.Renderer.Render(text, unpixel.Style{FontSize: d.opts.FontSize})
+	img, sx, err := d.opts.Renderer.Render(text, unpixel.Style{FontSize: d.opts.FontSize, LetterSpacing: d.opts.LetterSpacing})
 	if err != nil {
 		return 1.0
 	}
