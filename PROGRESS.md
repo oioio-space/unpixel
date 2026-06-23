@@ -729,3 +729,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `f2f9513` 2026-06-23 — docs: v0.11.0 — document the decoding-improvement wave (Q1–Q5 + B1–B4) _(2 fichiers)_
 - `5be028f` 2026-06-23 — docs(release): v0.11.0 — record recovery panel (17/17, fidelity 1.000) _(3 fichiers)_
 - `23cb24a` 2026-06-24 — test: restore coverage ≥85% for the v0.11.0 wave _(7 fichiers)_
+- `3eb9945` 2026-06-24 — feat(capacity): #1 information-theoretic capacity / triage map _(3 fichiers)_

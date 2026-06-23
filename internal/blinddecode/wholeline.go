@@ -324,6 +324,30 @@ func (d *Decoder) wordPool(bandWidth, k int) []string {
 	if len(words) == 0 {
 		return []string{"?"}
 	}
+
+	// Advance-width pre-filter (roadmap #2): drop candidates whose rendered
+	// pixel width cannot match bandWidth within ±Block pixels. This prunes
+	// wrong-width strings before the expensive render→pixelate→metric loop.
+	// Disabled when opts.DisableWidthFilter is true (ablation / byte-identity).
+	if !d.opts.DisableWidthFilter {
+		tolPx := d.opts.Block
+		filtered := words[:0]
+		for _, w := range words {
+			if widthFits(d.renderedWidth(w), bandWidth, tolPx) {
+				filtered = append(filtered, w)
+			}
+		}
+		// If the filter drops everything (should not happen with tolPx=Block,
+		// but defensive), fall back to the unfiltered pool so recall is not
+		// destroyed.
+		if len(filtered) > 0 {
+			words = filtered
+		}
+	}
+
+	if len(words) == 0 {
+		return []string{"?"}
+	}
 	// No cross-tier sort: all combinations are scored exhaustively, so
 	// iteration order within the pool has no correctness impact.
 	return words

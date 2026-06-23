@@ -106,6 +106,14 @@ type Options struct {
 	// English or any language without apostrophe elision — the non-elision path
 	// is byte-identical to the pre-Q3 behaviour when Elisions is false.
 	Elisions bool
+
+	// DisableWidthFilter disables the advance-width pre-filter in wordPool.
+	// When false (the default), candidates whose rendered pixel width cannot
+	// match the band width within ±Block pixels are dropped before image
+	// scoring, shrinking the Cartesian-product pool and speeding up
+	// DecodeLineWhole. Set to true to restore byte-identical behaviour to
+	// the pre-filter code path (e.g. for ablation benchmarks).
+	DisableWidthFilter bool
 }
 
 // WordCandidate is one scored dictionary candidate for a word band.
@@ -143,6 +151,10 @@ type Decoder struct {
 
 	// cache stores rendered, ink-cropped images keyed by word.
 	cache map[string]*image.RGBA
+
+	// widthCache stores the rendered pixel width (sentinelX) of each string,
+	// populated lazily by renderedWidth. Keyed by the exact candidate string.
+	widthCache map[string]int
 }
 
 // referenceString is used to calibrate avgAdvance. The full lowercase alphabet
@@ -213,8 +225,9 @@ func New(opts Options) *Decoder {
 	}
 
 	d := &Decoder{
-		opts:  opts,
-		cache: make(map[string]*image.RGBA),
+		opts:       opts,
+		cache:      make(map[string]*image.RGBA),
+		widthCache: make(map[string]int),
 	}
 	d.avgAdvance = d.calibrateAvgAdvance()
 	return d
