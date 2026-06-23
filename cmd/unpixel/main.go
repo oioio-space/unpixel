@@ -92,7 +92,7 @@ type flagParams struct {
 	timeout         time.Duration
 	quiet           bool
 	blurExact       bool
-	gamma           bool
+	gamma           string // "auto" | "linear" | "srgb"
 	language        bool
 	secrets         bool
 	escalate        bool
@@ -771,6 +771,22 @@ func parseNormalizeBg(s string) (deblur.BgModel, error) {
 	}
 }
 
+// parseGammaMode converts the --gamma flag string to a blind.GammaMode.
+// An empty string defaults to GammaAuto (the blind-mode default).
+// Returns an error for unrecognised values.
+func parseGammaMode(s string) (blind.GammaMode, error) {
+	switch s {
+	case "", "auto":
+		return blind.GammaAuto, nil
+	case "linear":
+		return blind.GammaLinear, nil
+	case "srgb":
+		return blind.GammaSRGB, nil
+	default:
+		return blind.GammaAuto, fmt.Errorf(`--gamma must be "auto", "linear", or "srgb", got %q`, s)
+	}
+}
+
 // runBlind runs the blind-recovery pipeline (P6.6) when --blind is set.
 // It reuses --block-size, --font-size, and --gamma from the classic path and
 // prints the recovered text to stdout.
@@ -791,9 +807,14 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 		defer cancel()
 	}
 
+	gammaMode, err := parseGammaMode(p.gamma)
+	if err != nil {
+		return err
+	}
+
 	opts := []blind.Option{
 		blind.WithLanguage(l),
-		blind.WithLinear(p.gamma),
+		blind.WithGamma(gammaMode),
 	}
 	if p.blockSize > 0 {
 		opts = append(opts, blind.WithBlock(p.blockSize))
@@ -817,8 +838,8 @@ func runBlind(ctx context.Context, imgPath string, p flagParams) error {
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f  denoise: %d\n",
-			result.Font, result.Block, result.Dist, result.Denoise)
+		fmt.Fprintf(os.Stderr, "Font: %s  block: %d  dist: %.4f  denoise: %d  gamma: %s\n",
+			result.Font, result.Block, result.Dist, result.Denoise, result.Gamma)
 	}
 	fmt.Println(result.Text)
 	return nil
@@ -1164,7 +1185,7 @@ func runTrainedHMM(ctx context.Context, imgPath string, p flagParams) error {
 	}
 
 	linear := -1 // auto/sweep
-	if p.gamma {
+	if p.gamma == "linear" {
 		linear = 1
 	}
 
@@ -1378,9 +1399,10 @@ Examples:
 				Name:  "blur-exact",
 				Usage: "use the exact Gaussian for blur even at large sigma (default: fast box approximation when sigma is large)",
 			},
-			&cli.BoolFlag{
+			&cli.StringFlag{
 				Name:  "gamma",
-				Usage: "average mosaic blocks in linear light (matches GIMP/GEGL Pixelize, CSS, most editors) instead of sRGB; use for redactions made by those tools",
+				Usage: `colour space for block averaging: "auto" (try both, pick lower distance), "linear" (GIMP/GEGL Pixelize, CSS), or "srgb" (original unredacter / Jimp). Default: "auto" for --blind, "srgb" for the classic mosaic path.`,
+				Value: "",
 			},
 			&cli.IntFlag{
 				Name:  "deblur",
@@ -1508,7 +1530,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		letterSpacing:   cmd.Float("letter-spacing"),
 		blurSigma:       cmd.Float("blur-sigma"),
 		blurExact:       cmd.Bool("blur-exact"),
-		gamma:           cmd.Bool("gamma"),
+		gamma:           cmd.String("gamma"),
 		deblur:          cmd.Int("deblur"),
 		language:        cmd.Bool("language"),
 		secrets:         cmd.Bool("secrets"),
@@ -1639,7 +1661,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 	} else {
 		warnIfNoMosaic(os.Stderr, img, p.blockSize, source)
-		if p.gamma {
+		if p.gamma == "linear" {
 			// Linear-light mosaic (GIMP/GEGL Pixelize, CSS, most editors). Resolve
 			// the block size now so the pixelator's grid matches the engine's.
 			block := p.blockSize
@@ -1653,7 +1675,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 					fmt.Fprintf(os.Stderr, "Mosaic: linear-light block average (block=%d)\n", block)
 				}
 			} else if !p.quiet {
-				fmt.Fprintln(os.Stderr, "--gamma ignored: no mosaic block grid detected (pass --block-size)")
+				fmt.Fprintln(os.Stderr, "--gamma=linear ignored: no mosaic block grid detected (pass --block-size)")
 			}
 		}
 	}

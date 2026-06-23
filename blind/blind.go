@@ -31,6 +31,27 @@ import (
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
+// GammaMode controls which colour space is used for block averaging during
+// blind recovery. GIMP, GEGL, and most editors average in linear light; the
+// original unredacter / Jimp averaged in sRGB. Real captures vary, so
+// GammaAuto (the default) tries both and keeps the one with the lower image
+// distance.
+type GammaMode int
+
+const (
+	// GammaAuto runs the decoder twice — once with linear-light averaging and
+	// once with sRGB averaging — and keeps the result with the lower Dist.
+	// On a tie, linear is preferred for determinism. This is the default when
+	// neither WithGamma nor WithLinear is called.
+	GammaAuto GammaMode = iota
+	// GammaLinear forces linear-light block averaging (matches GIMP/GEGL
+	// Pixelize, CSS pixel-average, and most modern editors).
+	GammaLinear
+	// GammaSRGB forces sRGB block averaging (matches the original unredacter /
+	// Jimp behaviour and older tooling).
+	GammaSRGB
+)
+
 // Result is the outcome of a blind recovery.
 type Result struct {
 	// Text is the recovered text. Lines are separated by newlines.
@@ -50,6 +71,11 @@ type Result struct {
 	// auto-detect chose not to filter, or WithDenoise(0) disabled auto).
 	// Positive values correspond to the imutil.Median radius (1 = 3×3, 2 = 5×5).
 	Denoise int
+	// Gamma is the colour space used for block averaging that produced this
+	// result: "linear" (GIMP/GEGL Pixelize) or "srgb" (original unredacter /
+	// Jimp). When GammaAuto is in effect, this records which space won; when
+	// a specific mode is forced it reflects that choice.
+	Gamma string
 }
 
 // config holds the resolved options for a Recover call.
@@ -59,7 +85,7 @@ type config struct {
 	offsetX       int
 	offsetY       int
 	fontSize      float64 // 0 = auto
-	linear        bool
+	gamma         GammaMode
 	fonts         []string
 	metric        unpixel.Metric
 	denoiseRadius int // -1 = auto (default), 0 = off, >0 = forced radius
@@ -108,10 +134,29 @@ func WithFontSize(px float64) Option {
 	return func(c *config) { c.fontSize = px }
 }
 
+// WithGamma sets the colour space used for block averaging. GammaAuto (the
+// default) runs both linear and sRGB and picks the one with lower image
+// distance, recording the winner in Result.Gamma. GammaLinear and GammaSRGB
+// force a specific space and skip the second pass.
+func WithGamma(mode GammaMode) Option {
+	return func(c *config) { c.gamma = mode }
+}
+
 // WithLinear controls whether block averaging is done in linear light (true,
-// matching GIMP/GEGL Pixelize) or sRGB space (false). Default: true.
+// matching GIMP/GEGL Pixelize) or sRGB space (false).
+//
+// Deprecated: prefer WithGamma(GammaLinear) or WithGamma(GammaSRGB). The
+// default (no option) is now GammaAuto, which tries both and picks the better
+// result. WithLinear is kept for backward compatibility and maps true →
+// GammaLinear, false → GammaSRGB.
 func WithLinear(on bool) Option {
-	return func(c *config) { c.linear = on }
+	return func(c *config) {
+		if on {
+			c.gamma = GammaLinear
+		} else {
+			c.gamma = GammaSRGB
+		}
+	}
 }
 
 // WithFonts sets the font-style filter for the bundled font sweep.
@@ -181,14 +226,15 @@ const defaultFontSize = 32.0
 //  4. Build a blinddecode.Options with the configured pixelator, metric,
 //     dictionary, and prior.
 //  5. Build bundled font renderers via BundledRenderers (filtered by WithFonts).
-//  6. Call blinddecode.Recover and return the result.
+//  6. Call blinddecode.Recover (once for a forced gamma, twice for GammaAuto)
+//     and return the result with the lower image distance.
 //
-// Recover honours ctx cancellation between font sweeps. It returns a non-nil
-// error when no usable font can be built or the image is unrecoverable.
+// Recover honours ctx cancellation between phases. It returns a non-nil error
+// when no usable font can be built or the image is unrecoverable.
 func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, error) {
 	cfg := config{
 		language:      lang.English,
-		linear:        true,
+		gamma:         GammaAuto, // default: try both, keep the better one
 		fonts:         []string{"sans"},
 		denoiseRadius: -1, // auto by default
 	}
@@ -250,21 +296,22 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		}
 	}
 
-	// Build the metric.
+	// Build the metric (resolved once; shared across both gamma runs).
 	m := cfg.metric
 	if m == nil {
 		m = metric.NewSSIM(7)
 	}
 
-	// Build the pixelator.
-	var pix unpixel.Pixelator
-	if cfg.linear {
-		pix = pixelate.NewLinearBlockAverage(block)
-	} else {
-		pix = pixelate.NewBlockAverage(block)
+	// Build renderers (resolved once; shared across both gamma runs).
+	renderers, err := blinddecode.BundledRenderers(cfg.fonts...)
+	if err != nil {
+		return Result{}, fmt.Errorf("blind.Recover: build renderers: %w", err)
+	}
+	if len(renderers) == 0 {
+		return Result{}, errors.New("blind.Recover: no usable font renderers for the requested styles")
 	}
 
-	// Build blind-decode options.
+	// baseOpts carries everything that does not change between gamma passes.
 	//
 	// TopK=50: the per-tier pool cap used inside DecodeLineWhole's wordPool.
 	// The default (30) misses words whose within-tier prior rank exceeds 30,
@@ -276,34 +323,64 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 	// DecodeLineWhole's adaptive maxCombinations cap. This is the main reason a
 	// long real line (e.g. the marx sample) is currently intractable; bounding
 	// it is a documented P6 follow-up.
-	bdOpts := blinddecode.Options{
-		Pixelator: pix,
-		Metric:    m,
-		Dict:      lang.DictionaryFor(cfg.language),
-		Prior:     lang.PriorFor(cfg.language),
-		Block:     block,
-		OffsetX:   cfg.offsetX,
-		OffsetY:   cfg.offsetY,
-		FontSize:  fontSize,
-		TopK:      50,
+	baseOpts := blinddecode.Options{
+		Metric:   m,
+		Dict:     lang.DictionaryFor(cfg.language),
+		Prior:    lang.PriorFor(cfg.language),
+		Block:    block,
+		OffsetX:  cfg.offsetX,
+		OffsetY:  cfg.offsetY,
+		FontSize: fontSize,
+		TopK:     50,
 	}
 
-	// Build renderers.
-	renderers, err := blinddecode.BundledRenderers(cfg.fonts...)
-	if err != nil {
-		return Result{}, fmt.Errorf("blind.Recover: build renderers: %w", err)
-	}
-	if len(renderers) == 0 {
-		return Result{}, errors.New("blind.Recover: no usable font renderers for the requested styles")
+	// runGamma is the per-pixelator inner call. It sets the Pixelator on a copy
+	// of baseOpts (so baseOpts itself is immutable), checks ctx, then runs
+	// blinddecode.Recover. linear selects LinearBlockAverage vs BlockAverage.
+	runGamma := func(linear bool) (blinddecode.ImageResult, error) {
+		if err := ctx.Err(); err != nil {
+			return blinddecode.ImageResult{}, fmt.Errorf("blind.Recover: %w", err)
+		}
+		o := baseOpts
+		if linear {
+			o.Pixelator = pixelate.NewLinearBlockAverage(block)
+		} else {
+			o.Pixelator = pixelate.NewBlockAverage(block)
+		}
+		return blinddecode.Recover(cropRGBA, o, renderers), nil
 	}
 
-	// Check context before starting the expensive decode.
-	if err := ctx.Err(); err != nil {
-		return Result{}, fmt.Errorf("blind.Recover: %w", err)
+	// Select which gamma pass(es) to run and which label to attach.
+	var imgResult blinddecode.ImageResult
+	var gammaLabel string
+	switch cfg.gamma {
+	case GammaLinear:
+		imgResult, err = runGamma(true)
+		if err != nil {
+			return Result{}, err
+		}
+		gammaLabel = "linear"
+	case GammaSRGB:
+		imgResult, err = runGamma(false)
+		if err != nil {
+			return Result{}, err
+		}
+		gammaLabel = "srgb"
+	default: // GammaAuto: run both, keep the lower Dist; prefer linear on a tie.
+		linResult, linErr := runGamma(true)
+		if linErr != nil {
+			return Result{}, linErr
+		}
+		srgbResult, srgbErr := runGamma(false)
+		if srgbErr != nil {
+			return Result{}, srgbErr
+		}
+		if srgbResult.Dist < linResult.Dist {
+			imgResult, gammaLabel = srgbResult, "srgb"
+		} else {
+			imgResult, gammaLabel = linResult, "linear"
+		}
 	}
-
-	// Run the font-sweep decoder.
-	imgResult := blinddecode.Recover(cropRGBA, bdOpts, renderers)
 
 	lines := splitLines(imgResult.Text)
 	return Result{
@@ -314,6 +391,7 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		Dist:    imgResult.Dist,
 		Lines:   lines,
 		Denoise: appliedRadius,
+		Gamma:   gammaLabel,
 	}, nil
 }
 

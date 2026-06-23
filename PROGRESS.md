@@ -713,3 +713,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `b20ab1d` 2026-06-23 — feat(refmatch): opt-in LM-beam disambiguation; diagnosis — geometry is robust, coarse blocks are the wall _(5 fichiers)_
 - `6cf50fe` 2026-06-23 — docs(release): v0.10.0 — Hill-2016 decoders, blur error-correction, evolving journal _(5 fichiers)_
 - `e0284ed` 2026-06-23 — docs(journal): restore prior evolution rows lost to rm before v0.10.0 run _(2 fichiers)_
+- `0501f26` 2026-06-23 — feat(journal): add trend-analysis section + Version column to evolution table _(3 fichiers)_
