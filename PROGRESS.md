@@ -711,3 +711,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `226eb7e` 2026-06-23 — test(parity): SICK + check-number benchmark fixtures vs Hill-2016 (#6) _(20 fichiers)_
 - `315ef53` 2026-06-23 — docs: trained-hmm decoder (#2) + SICK parity corpus (#6), with honest limits _(2 fichiers)_
 - `b20ab1d` 2026-06-23 — feat(refmatch): opt-in LM-beam disambiguation; diagnosis — geometry is robust, coarse blocks are the wall _(5 fichiers)_
+- `6cf50fe` 2026-06-23 — docs(release): v0.10.0 — Hill-2016 decoders, blur error-correction, evolving journal _(5 fichiers)_
