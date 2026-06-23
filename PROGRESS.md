@@ -717,3 +717,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `2b51ff2` 2026-06-23 — feat(blind): Q1 auto gamma selection (sRGB vs linear, keep best) _(4 fichiers)_
 - `d3d6bcf` 2026-06-23 — feat(lang,blind): Q4 stronger prior + Q2 adaptive pool recall _(16 fichiers)_
 - `dd6990d` 2026-06-23 — feat(blind): Q5 letter-spacing auto-calibration (opt-in) _(7 fichiers)_
+- `a644eaf` 2026-06-23 — docs(journal): v0.11.0-dev run — quick wins land in blind path, core corpora flat (no regression) _(2 fichiers)_
