@@ -686,3 +686,4 @@ Une proposition externe (super-résolution **ESRGAN** + OCR **EMNIST** via `onnx
 - `15a0c4c` 2026-06-23 — fix(search): trim phantom edge spaces from recovered text (journal finding) _(4 fichiers)_
 - `986f4ca` 2026-06-23 — docs(journal): second run — edge-space trim improves blur recovery (+1 zero, +1 best) _(2 fichiers)_
 - `7dd965a` 2026-06-23 — feat: Hill-2016 quick wins — partial-credit journal score (#5) + better σ estimation (#4) _(6 fichiers)_
+- `eb5040b` 2026-06-23 — feat(blur): re-mosaic error-correction mode for blur recovery (Hill-2016 §4, #3) _(7 fichiers)_

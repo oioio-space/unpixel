@@ -213,9 +213,9 @@ func validateParams(p flagParams) error {
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	switch p.decoder {
-	case "", "default", "mono-hmm", "ref-match": // "" is equivalent to "default"
+	case "", "default", "mono-hmm", "ref-match", "window-hmm": // "" is equivalent to "default"
 	default:
-		return fmt.Errorf("--decoder must be %q, %q, or %q, got %q", "default", "mono-hmm", "ref-match", p.decoder)
+		return fmt.Errorf("--decoder must be %q, %q, %q, or %q, got %q", "default", "mono-hmm", "ref-match", "window-hmm", p.decoder)
 	}
 	return nil
 }
@@ -1029,6 +1029,100 @@ func runRefMatch(ctx context.Context, imgPath string, p flagParams) error {
 	return nil
 }
 
+// runWindowHMM runs the grid-window beam-search decoder
+// (mosaictext.DecodeWindowHMM) when --decoder window-hmm is set. It is the
+// proportional-font-capable decoder: at each character position it renders the
+// full candidate string, extracts a per-character window of block columns, and
+// scores by MSE. It reuses --charset, --font/--font-bold (user font → that
+// font only, else the bundled sweep), and --format.
+func runWindowHMM(ctx context.Context, imgPath string, p flagParams) error {
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	charset := p.charset
+	if charset == "" {
+		charset = mosaictext.DefaultWHMMCharset
+	}
+
+	opts := []mosaictext.WHMMOption{
+		mosaictext.WithWHMMCharset(charset),
+	}
+
+	// Font selection: path on disk → WithWHMMFontFile; bundled name → WithWHMMFont.
+	fontSource := "bundled sweep"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		switch {
+		case readErr == nil:
+			opts = append(opts, mosaictext.WithWHMMFontFile(data))
+			fontSource = "file:" + filepath.Base(fontPath)
+			if p.fontBoldPath != "" {
+				boldData, boldErr := os.ReadFile(p.fontBoldPath) // #nosec G304 -- user-supplied path
+				if boldErr != nil {
+					return fmt.Errorf("--font-bold: %w", boldErr)
+				}
+				opts = append(opts, mosaictext.WithWHMMFontFileBold(boldData))
+			}
+		case os.IsNotExist(readErr):
+			opts = append(opts, mosaictext.WithWHMMFont(fontPath))
+			fontSource = "bundled:" + fontPath
+		default:
+			return fmt.Errorf("--font: %w", readErr)
+		}
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: window-hmm beam (charset=%d chars font=%s)\n",
+			len([]rune(charset)), fontSource)
+	}
+
+	res, err := mosaictext.DecodeWindowHMM(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodeWindowHMM: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Font: %s  linear: %v  block: %d  N: %d  dist: %.4f\n",
+			res.Font, res.Linear, res.BlockSize, res.CharCount, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess string  `json:"best_guess"`
+			Font      string  `json:"font,omitempty"`
+			Linear    bool    `json:"linear,omitzero"`
+			BlockSize int     `json:"block_size,omitzero"`
+			CharCount int     `json:"char_count,omitzero"`
+			Distance  float64 `json:"distance,omitzero"`
+		}{
+			BestGuess: res.Text,
+			Font:      res.Font,
+			Linear:    res.Linear,
+			BlockSize: res.BlockSize,
+			CharCount: res.CharCount,
+			Distance:  res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -1144,7 +1238,7 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "decoder",
-				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace mosaics), or "ref-match" (pixel-exact reference matching for known fonts)`,
+				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace mosaics), "ref-match" (pixel-exact reference matching for known fonts), or "window-hmm" (grid-window beam search; handles proportional fonts by per-character window scoring)`,
 				Value: "default",
 			},
 			&cli.BoolFlag{
@@ -1330,6 +1424,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return runHMM(ctx, imgPath, p)
 	case "ref-match":
 		return runRefMatch(ctx, imgPath, p)
+	case "window-hmm":
+		return runWindowHMM(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {

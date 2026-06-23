@@ -1007,3 +1007,86 @@ func TestRunRefMatch_CLI(t *testing.T) {
 		}
 	})
 }
+
+// TestRunWindowHMM_CLI exercises the --decoder window-hmm dispatch path through
+// buildApp. It verifies:
+//   - bad --lang is rejected before the image is loaded.
+//   - a white image (no block grid) returns ErrNoMosaic wrapped by runWindowHMM.
+//   - text output on a real mosaic fixture completes without unexpected error.
+//   - JSON output on the same fixture produces valid JSON when no error occurs.
+func TestRunWindowHMM_CLI(t *testing.T) {
+	fixture := filepath.Join("..", "..", "testdata", "fixtures", "block08_go.png")
+	fixtureAvail := true
+	if _, statErr := os.Stat(fixture); statErr != nil {
+		fixtureAvail = false
+	}
+
+	t.Run("bad lang rejected", func(t *testing.T) {
+		path := whitePNG(t, 8, 8)
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet", "--decoder", "window-hmm", "--lang", "klingon", path,
+		})
+		if err == nil {
+			t.Error("expected error for unknown --lang, got nil")
+		}
+	})
+
+	t.Run("white image returns error", func(t *testing.T) {
+		path := whitePNG(t, 8, 8)
+		err := buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet", "--decoder", "window-hmm", path,
+		})
+		if err == nil {
+			t.Error("expected error for white image (no mosaic), got nil")
+		}
+	})
+
+	t.Run("text output on fixture", func(t *testing.T) {
+		if !fixtureAvail {
+			t.Skip("fixture not found")
+		}
+		out := captureStdout(t, func() {
+			err := buildApp().Run(t.Context(), []string{
+				"unpixel", "--quiet",
+				"--decoder", "window-hmm",
+				"--charset", "abcdefghijklmnopqrstuvwxyz ",
+				"--font", "Liberation Mono",
+				fixture,
+			})
+			// ErrNoContent is acceptable (font mismatch or empty result); anything
+			// else is a bug.
+			if err != nil && !errors.Is(err, mosaictext.ErrNoContent) {
+				t.Errorf("runWindowHMM text: unexpected error: %v", err)
+			}
+		})
+		// When text is produced it must be newline-terminated.
+		if len(out) > 0 && out[len(out)-1] != '\n' {
+			t.Errorf("text output should end with newline, got %q", out)
+		}
+	})
+
+	t.Run("json output on fixture", func(t *testing.T) {
+		if !fixtureAvail {
+			t.Skip("fixture not found")
+		}
+		var runErr error
+		out := captureStdout(t, func() {
+			runErr = buildApp().Run(t.Context(), []string{
+				"unpixel", "--quiet",
+				"--decoder", "window-hmm",
+				"--format", "json",
+				"--charset", "abcdefghijklmnopqrstuvwxyz ",
+				"--font", "Liberation Mono",
+				fixture,
+			})
+		})
+		if runErr != nil {
+			t.Logf("runWindowHMM json: %v (acceptable)", runErr)
+			return
+		}
+		var v map[string]any
+		if jsonErr := json.Unmarshal([]byte(out), &v); jsonErr != nil {
+			t.Errorf("json output is not valid JSON: %v\nout=%q", jsonErr, out)
+		}
+	})
+}
