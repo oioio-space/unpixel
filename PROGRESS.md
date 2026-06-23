@@ -723,3 +723,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `9fc6a72` 2026-06-23 — feat(mosaictext): B4 — language-structured + JPEG-robust trained HMM (opt-in) _(4 fichiers)_
 - `47d9183` 2026-06-23 — feat(mosaictext): B1 part 2 — variable-font axis-fitting decoder (--decoder varfont) _(8 fichiers)_
 - `0d6c0f1` 2026-06-23 — feat(fontrank): B3 — cheap exemplar visual font ranker (pre-decode pruning) _(3 fichiers)_
+- `c2fff70` 2026-06-23 — feat(multiframe): B2 — multi-frame sub-pixel fusion (iterative back-projection) _(4 fichiers)_

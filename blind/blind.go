@@ -361,6 +361,9 @@ func Recover(ctx context.Context, img image.Image, opts ...Option) (Result, erro
 		OffsetY:  cfg.offsetY,
 		FontSize: fontSize,
 		TopK:     0,
+		// Enable French apostrophe-elision candidates (l'/d'/qu'/…) only for
+		// French; the English path stays byte-identical (Elisions defaults false).
+		Elisions: cfg.language == French,
 	}
 
 	// runGamma is the per-pixelator inner call. It sets the Pixelator and

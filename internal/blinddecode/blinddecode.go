@@ -94,6 +94,18 @@ type Options struct {
 	// word position during DecodeLineWhole beam search (default 8). A larger
 	// value improves recall at the cost of more whole-line renders.
 	BeamWidth int
+
+	// Elisions enables French apostrophe-elision candidate generation in
+	// wordPool. When true, each band also receives candidates of the form
+	// <prefix><word> where prefix ∈ FrenchElisionPrefixes and word is drawn
+	// from the dictionary for the remaining rune width. The additive candidates
+	// fire only for bands wide enough to hold prefix+1 character; they do not
+	// affect the Cartesian-product budget for bands where no elision fits.
+	//
+	// Set to true when decoding French text; leave false (the default) for
+	// English or any language without apostrophe elision — the non-elision path
+	// is byte-identical to the pre-Q3 behaviour when Elisions is false.
+	Elisions bool
 }
 
 // WordCandidate is one scored dictionary candidate for a word band.

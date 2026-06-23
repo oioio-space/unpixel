@@ -232,6 +232,17 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 	return results
 }
 
+// WordPool returns the candidate string pool for a band of the given pixel
+// width, capped at k entries per rune-length tier.
+//
+// It is the exported counterpart of wordPool, intended for white-box tests
+// that need to inspect the generated candidate set (e.g. to verify that
+// elision candidates are produced). Production callers use DecodeLineWhole,
+// which calls wordPool directly.
+func (d *Decoder) WordPool(bandWidth, k int) []string {
+	return d.wordPool(bandWidth, k)
+}
+
 // wordPool returns up to k dictionary words per rune-length tier whose rune
 // length matches the estimated count for a band of given pixel width, ranked
 // descending by prior within each tier.
@@ -243,6 +254,13 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 // separate tiers and the budget-adaptive k from effectivePoolK, a 2-word line
 // gets k≈235, reliably including words like "cat" (~rank 280 in the 10 000-
 // word English dict) or "chat" (~rank 120 in French).
+//
+// When d.opts.Elisions is true (French), the pool also includes candidates of
+// the form <elisionPrefix><word> for each prefix in FrenchElisionPrefixes and
+// each dictionary word whose rune length fills the remaining band width (±1).
+// These additive elision candidates only fire when the band is wide enough to
+// hold prefix+1 character; on the non-elision path (Elisions=false) the output
+// is byte-identical to the pre-Q3 behaviour.
 //
 // The returned slice is deduplicated; within each tier words appear in
 // prior-descending order. No cross-tier sort is applied — the Cartesian
@@ -289,6 +307,20 @@ func (d *Decoder) wordPool(bandWidth, k int) []string {
 			}
 		}
 	}
+
+	// Elision candidates: French apostrophe-glued forms (e.g. "c'est",
+	// "l'histoire"). These are additive — they extend the pool without
+	// displacing regular dictionary words. Gated on Elisions=true so the
+	// English / non-apostrophe path is byte-identical.
+	if d.opts.Elisions {
+		for _, glued := range elisionCandidates(nEst, k, d.opts.Dict, d.opts.Prior) {
+			if _, dup := seen[glued]; !dup {
+				seen[glued] = struct{}{}
+				words = append(words, glued)
+			}
+		}
+	}
+
 	if len(words) == 0 {
 		return []string{"?"}
 	}
