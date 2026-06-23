@@ -8,11 +8,42 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 
 ## Évolution
 
-| Date (UTC) | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-06-22 | 366aac6 | 8/17/—/— | 17/17/—/— | 12/14/—/— | 11/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1135 |
-| 2026-06-22 | 15a0c4c | 8/17/—/— | 17/17/—/— | 13/14/—/— | 12/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1134 |
-| 2026-06-23 | b20ab1d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/17% | 0/10/0/20% | 54 | 1865 |
+| Date (UTC) | Version | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-06-22 | v0.10.0-dev | 366aac6 | 8/17/—/— | 17/17/—/— | 12/14/—/— | 11/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1135 |
+| 2026-06-22 | v0.10.0-dev | 15a0c4c | 8/17/—/— | 17/17/—/— | 13/14/—/— | 12/14/—/— | 0/3/—/— | 0/3/—/— | 0/5/—/— | 0/5/—/— | — | — | 44 | 1134 |
+| 2026-06-23 | v0.10.0 | b20ab1d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/17% | 0/10/0/20% | 54 | 1865 |
+
+
+## Analyse de tendance
+
+_À rafraîchir à chaque run du journal — la table évolue, ce texte doit suivre._
+
+**Verdict : ça va dans le bon sens là où le moteur peut bouger ; les murs connus sont
+stables et désormais tracés plutôt que cachés.**
+
+- **fixtures (best 17/17 → 17/17 → 17/17)** — parfait, maintenu sur 3 runs, **aucune
+  régression**. Le zero-config reste 8/17 : marge connue (sans réglage de grille, les
+  petits/gros blocs tombent sous le seuil de confiance). ✅ stable.
+- **blur (best 11 → 12 → 13 / 14)** — **tendance nette à la hausse, +2 sur le cycle**,
+  tirée par le trim des espaces de bord (`15a0c4c`) puis la correction d'erreur blur
+  (`b20ab1d`). Le seul échec restant (`blur_connect`) bascule entre zero/best :
+  ambiguïté glyphe à gros bloc, pas un mur de géométrie. ✅ progresse.
+- **real (0/3) · wild (0/5)** — **plats**. Attendu : ce sont les murs honnêtes
+  — fidélité de police (fontes non embarquées des captures internet) et ambiguïté
+  bloc-grossier sur phrases proportionnelles. Le moteur trouve la bonne longueur/offset
+  mais pas les glyphes. ⚠ non résolu, pas une régression.
+- **sick (0/10, mean 20% best, nouveau en `b20ab1d`)** — corpus parité Hill-2016
+  (phrases proportionnelles). Baseline posée : longueur souvent correcte, glyphes non.
+  ⚠ non résolu, mais **désormais suivi** run-après-run.
+- **Durée 1134 → 1865 s** — hausse due à l'**ajout du corpus sick** (10 images à
+  timeouts 30–90 s), pas à un ralentissement du moteur. Coût de couverture, pas une
+  régression perf.
+
+**Conclusion :** frontière résoluble en hausse (blur +2, fixtures à 100 % tenu),
+frontière difficile (real/wild/sick) à plat et explicitement tracée. La prochaine
+aiguille à déplacer : fidélité de police + désambiguïsation glyphe à gros bloc
+(cf. [[real-world-images-operating-envelope]], [[hill2016-redaction-paper]]).
 
 
 ## Run 2026-06-23T14:18:20Z — b20ab1d

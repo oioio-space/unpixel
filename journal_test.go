@@ -188,6 +188,7 @@ type journalCorpusSummary struct {
 type journalRun struct {
 	Timestamp  string                 `json:"timestamp"`
 	Commit     string                 `json:"commit"`
+	Version    string                 `json:"version"`
 	GoVersion  string                 `json:"go_version"`
 	GOOS       string                 `json:"goos"`
 	GOARCH     string                 `json:"goarch"`
@@ -217,6 +218,7 @@ var journalWideCharset = unpixel.CharsetAlnum + "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{
 func TestJournal(t *testing.T) {
 	start := time.Now()
 	commit := gitShortCommit(t)
+	version := gitVersion(t)
 	timestamp := start.UTC().Format("2006-01-02T15:04:05Z")
 
 	var rows []journalRow
@@ -232,6 +234,7 @@ func TestJournal(t *testing.T) {
 	run := journalRun{
 		Timestamp:  timestamp,
 		Commit:     commit,
+		Version:    version,
 		GoVersion:  runtime.Version(),
 		GOOS:       runtime.GOOS,
 		GOARCH:     runtime.GOARCH,
@@ -923,8 +926,8 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 
 ## Évolution
 
-| Date (UTC) | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Date (UTC) | Version | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 `
 }
 
@@ -972,8 +975,9 @@ func buildEvolutionRow(run journalRun) string {
 	durSec := run.DurationMS / 1000
 
 	return fmt.Sprintf(
-		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
+		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
 		run.Timestamp[:10],
+		run.Version,
 		run.Commit,
 		cell("fixtures", "zero"), cell("fixtures", "best"),
 		cell("blur", "zero"), cell("blur", "best"),
@@ -1127,6 +1131,24 @@ func gitShortCommit(t *testing.T) string {
 		return "unknown"
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// gitVersion returns the release label to show beside the commit in the
+// evolution table. Precedence: the JOURNAL_VERSION env var (set at release time,
+// mirroring PANEL_LABEL), then an exact tag on HEAD, then "<latest-tag>+dev" for
+// an untagged work-in-progress commit, then "untagged".
+func gitVersion(t *testing.T) string {
+	t.Helper()
+	if v := strings.TrimSpace(os.Getenv("JOURNAL_VERSION")); v != "" {
+		return v
+	}
+	if out, err := exec.Command("git", "describe", "--tags", "--exact-match").Output(); err == nil { // #nosec G204 -- test only
+		return strings.TrimSpace(string(out))
+	}
+	if out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output(); err == nil { // #nosec G204 -- test only
+		return strings.TrimSpace(string(out)) + "+dev"
+	}
+	return "untagged"
 }
 
 // truncate returns s truncated to at most n runes, appending "…" when shortened.

@@ -712,3 +712,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `315ef53` 2026-06-23 — docs: trained-hmm decoder (#2) + SICK parity corpus (#6), with honest limits _(2 fichiers)_
 - `b20ab1d` 2026-06-23 — feat(refmatch): opt-in LM-beam disambiguation; diagnosis — geometry is robust, coarse blocks are the wall _(5 fichiers)_
 - `6cf50fe` 2026-06-23 — docs(release): v0.10.0 — Hill-2016 decoders, blur error-correction, evolving journal _(5 fichiers)_
+- `e0284ed` 2026-06-23 — docs(journal): restore prior evolution rows lost to rm before v0.10.0 run _(2 fichiers)_
