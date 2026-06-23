@@ -2,6 +2,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-text/typesetting v0.3.4 h1:YYurUOtEb9kGSOz4uE3k4OpBGsp1dDL8+fjCeaFamAU=
 github.com/go-text/typesetting v0.3.4/go.mod h1:4qZCQphq4KSgGTAeI0uMEkVbROgfah8BuyF5LRYr7XY=
+github.com/go-text/typesetting-utils v0.0.0-20260223113751-2d88ac90dae3 h1:drBZzMgdYPbmyXqOto4YhhJGrFIQCX94FpR4MzTCsos=
+github.com/go-text/typesetting-utils v0.0.0-20260223113751-2d88ac90dae3/go.mod h1:3/62I4La/HBRX9TcTpBj4eipLiwzf+vhI+7whTc9V7o=
 github.com/orisano/pixelmatch v0.0.0-20230914042517-fa304d1dc785 h1:J1//5K/6QF10cZ59zLcVNFGmBfiSrH8Cho/lNrViK9s=
 github.com/orisano/pixelmatch v0.0.0-20230914042517-fa304d1dc785/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
