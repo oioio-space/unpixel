@@ -100,6 +100,23 @@ func Redact(s Spec) (*image.RGBA, error) {
 	if err != nil {
 		return nil, fmt.Errorf("renderer: %w", err)
 	}
+	return redactWith(r, s)
+}
+
+// RedactFont is like [Redact] but uses the provided TTF/OTF font bytes instead
+// of the default embedded Liberation Sans. Pass nil for boldTTF to derive bold
+// from the regular face. This allows the sick-corpus generator to vary fonts
+// across the bundled set without importing the top-level fonts package.
+func RedactFont(s Spec, regularTTF, boldTTF []byte) (*image.RGBA, error) {
+	r, err := render.NewXImageFromFonts(regularTTF, boldTTF)
+	if err != nil {
+		return nil, fmt.Errorf("renderer: %w", err)
+	}
+	return redactWith(r, s)
+}
+
+// redactWith executes the render → crop → pad → pixelate pipeline using r.
+func redactWith(r *render.XImage, s Spec) (*image.RGBA, error) {
 	pix := pixelate.NewBlockAverage(s.BlockSize)
 
 	img, sentinelX, err := r.Render(s.Text, s.Style())

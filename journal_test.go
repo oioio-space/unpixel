@@ -96,6 +96,24 @@ type journalWildEntry struct {
 	Notes       string `json:"notes"`
 }
 
+// journalSickEntry mirrors one entry in testdata/sick/manifest.json, which is
+// the paper-parity (Hill-2016) corpus of SICK sentences and digit check-numbers.
+type journalSickEntry struct {
+	Name        string  `json:"name"`
+	Text        string  `json:"text"`
+	Charset     string  `json:"charset"`
+	FontSize    float64 `json:"font_size"`
+	Bold        bool    `json:"bold"`
+	BlockSize   int     `json:"block_size"`
+	PaddingTop  int     `json:"padding_top"`
+	PaddingLeft int     `json:"padding_left"`
+	Font        string  `json:"font"`
+	Kind        string  `json:"kind"` // "sick" or "digits"
+	Note        string  `json:"note,omitempty"`
+}
+
+func (e journalSickEntry) file() string { return e.Name + ".png" }
+
 // ─── result types ─────────────────────────────────────────────────────────────
 
 // journalStatus represents the outcome of a recovery attempt.
@@ -206,6 +224,7 @@ func TestJournal(t *testing.T) {
 	rows = append(rows, runBlurCorpus(t)...)
 	rows = append(rows, runRealCorpus(t)...)
 	rows = append(rows, runWildCorpus(t)...)
+	rows = append(rows, runSickCorpus(t)...)
 
 	totalDuration := time.Since(start)
 	corpora := summariseCorpora(rows)
@@ -579,6 +598,91 @@ func recoverWildEntry(ctx context.Context, path, kind string, opts ...unpixel.Op
 	return unpixel.RecoverFile(ctx, path, opts...)
 }
 
+// runSickCorpus runs the paper-parity Hill-2016 corpus (testdata/sick/) through
+// UnPixel in zero-config and best-config modes. Best-config uses the manifest's
+// charset, block size, font size, and padding — the fully matched-parameter
+// self-consistent setup that corresponds to the paper's "matched font/grid" condition.
+func runSickCorpus(t *testing.T) []journalRow {
+	t.Helper()
+	const dir = "testdata/sick"
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Logf("sick: read manifest: %v (skipping corpus)", err)
+		return nil
+	}
+	var entries []journalSickEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		t.Logf("sick: parse manifest: %v (skipping corpus)", err)
+		return nil
+	}
+
+	rows := make([]journalRow, 0, len(entries))
+	for _, e := range entries {
+		imgPath := filepath.Join(dir, e.file())
+		if _, statErr := os.Stat(imgPath); statErr != nil {
+			t.Logf("sick/%s: file missing, skipping", e.Name)
+			rows = append(rows, skippedRow("sick", e.Name, "mosaic", e.Text))
+			continue
+		}
+
+		gt := e.Text
+		gtLen := utf8.RuneCountInString(gt)
+
+		// Zero-config: no charset / block / font hints.
+		zeroCtx, zeroCancel := context.WithTimeout(t.Context(), journalTimeoutZero)
+		zeroStart := time.Now()
+		zeroRes, zeroErr := unpixel.RecoverFile(
+			zeroCtx, imgPath,
+			unpixel.WithMaxLength(gtLen+4),
+			unpixel.WithWorkers(2),
+		)
+		zeroDur := time.Since(zeroStart)
+		zeroTimedOut := zeroCtx.Err() != nil
+		zeroCancel()
+		zeroAttempt := classifyAttempt(
+			zeroRes, zeroErr, gt, zeroDur, zeroTimedOut,
+			fmt.Sprintf("zero-config maxLen=%d", gtLen+4),
+		)
+
+		// Best-config: fully matched parameters from manifest (charset + block +
+		// font size + padding). This mirrors the paper's "matched font/grid" condition.
+		bestCtx, bestCancel := context.WithTimeout(t.Context(), journalTimeoutBest)
+		bestStart := time.Now()
+		bestRes, bestErr := unpixel.RecoverFile(
+			bestCtx, imgPath,
+			unpixel.WithCharset(e.Charset),
+			unpixel.WithBlockSize(e.BlockSize),
+			unpixel.WithStyle(unpixel.Style{
+				FontSize:    e.FontSize,
+				Bold:        e.Bold,
+				PaddingTop:  e.PaddingTop,
+				PaddingLeft: e.PaddingLeft,
+			}),
+			unpixel.WithMaxLength(gtLen+1),
+			unpixel.WithWorkers(2),
+		)
+		bestDur := time.Since(bestStart)
+		bestTimedOut := bestCtx.Err() != nil
+		bestCancel()
+		bestAttempt := classifyAttempt(
+			bestRes, bestErr, gt, bestDur, bestTimedOut,
+			fmt.Sprintf("charset=%q block=%d font=%.0fpt bold=%v pad=%d,%d font=%q",
+				e.Charset, e.BlockSize, e.FontSize, e.Bold, e.PaddingLeft, e.PaddingTop, e.Font),
+		)
+
+		rows = append(rows, journalRow{
+			Corpus:      "sick",
+			Name:        e.Name,
+			Kind:        e.Kind,
+			GroundTruth: gt,
+			ZeroConfig:  zeroAttempt,
+			BestConfig:  bestAttempt,
+		})
+		t.Logf("sick/%-28s gt=%q  zero=%s best=%s", e.Name, truncate(gt, 30), zeroAttempt.Status, bestAttempt.Status)
+	}
+	return rows
+}
+
 // skippedRow is a convenience constructor for missing-file rows.
 func skippedRow(corpus, name, kind, gt string) journalRow {
 	if gt == "" {
@@ -658,7 +762,7 @@ func classifyAttempt(
 func summariseCorpora(rows []journalRow) []journalCorpusSummary {
 	byCorpus := make(map[string]*journalCorpusSummary)
 	// Preserve a stable corpus order.
-	order := []string{"fixtures", "blur", "real", "wild"}
+	order := []string{"fixtures", "blur", "real", "wild", "sick"}
 	for _, name := range order {
 		byCorpus[name] = &journalCorpusSummary{Name: name, ZeroMeanScore: -1, BestMeanScore: -1}
 	}
@@ -819,8 +923,8 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 
 ## Évolution
 
-| Date (UTC) | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | Total | Dur (s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+| Date (UTC) | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 `
 }
 
@@ -868,13 +972,14 @@ func buildEvolutionRow(run journalRun) string {
 	durSec := run.DurationMS / 1000
 
 	return fmt.Sprintf(
-		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
+		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
 		run.Timestamp[:10],
 		run.Commit,
 		cell("fixtures", "zero"), cell("fixtures", "best"),
 		cell("blur", "zero"), cell("blur", "best"),
 		cell("real", "zero"), cell("real", "best"),
 		cell("wild", "zero"), cell("wild", "best"),
+		cell("sick", "zero"), cell("sick", "best"),
 		total, durSec,
 	)
 }
@@ -893,7 +998,7 @@ func buildRunSection(run journalRun) string {
 		byCorpus[row.Corpus] = append(byCorpus[row.Corpus], row)
 	}
 
-	for _, corpus := range []string{"fixtures", "blur", "real", "wild"} {
+	for _, corpus := range []string{"fixtures", "blur", "real", "wild", "sick"} {
 		rows, ok := byCorpus[corpus]
 		if !ok || len(rows) == 0 {
 			continue

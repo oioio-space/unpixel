@@ -5,3 +5,4 @@ package unpixel
 //	go generate ./...
 //
 //go:generate go run ./internal/fixture/gen -out testdata/fixtures
+//go:generate go run ./internal/fixture/gensick -out testdata/sick

@@ -702,3 +702,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `eb5040b` 2026-06-23 — feat(blur): re-mosaic error-correction mode for blur recovery (Hill-2016 §4, #3) _(7 fichiers)_
 - `15020a6` 2026-06-23 — feat(mosaictext): grid-window beam decoder — proportional-font mosaic recovery (Hill-2016 #1) _(8 fichiers)_
 - `005c57b` 2026-06-23 — docs: Hill-2016 recommendations — window-hmm, remosaic, σ estimation, journal score _(2 fichiers)_
+- `171f6f4` 2026-06-23 — feat(mosaictext): genuine learned-emission Viterbi HMM with blind decode (Hill-2016 #2) _(9 fichiers)_
