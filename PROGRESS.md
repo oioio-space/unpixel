@@ -702,3 +702,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `005c57b` 2026-06-23 — docs: Hill-2016 recommendations — window-hmm, remosaic, σ estimation, journal score _(2 fichiers)_
 - `171f6f4` 2026-06-23 — feat(mosaictext): genuine learned-emission Viterbi HMM with blind decode (Hill-2016 #2) _(9 fichiers)_
 - `226eb7e` 2026-06-23 — test(parity): SICK + check-number benchmark fixtures vs Hill-2016 (#6) _(20 fichiers)_
+- `315ef53` 2026-06-23 — docs: trained-hmm decoder (#2) + SICK parity corpus (#6), with honest limits _(2 fichiers)_

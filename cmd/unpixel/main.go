@@ -985,9 +985,22 @@ func runRefMatch(ctx context.Context, imgPath string, p flagParams) error {
 		}
 	}
 
+	// Language model: --lang enables the LM beam over per-cell geometric
+	// distances. Without --lang the greedy path is used unchanged —
+	// additive and opt-in; byte-identical to versions without this option.
+	lmNote := ""
+	if p.lang != "" {
+		l, ok := lang.ParseLanguage(p.lang)
+		if !ok {
+			return fmt.Errorf("--lang: unknown language %q (supported: en, fr)", p.lang)
+		}
+		opts = append(opts, mosaictext.WithRefLanguage(l))
+		lmNote = " lm=" + p.lang
+	}
+
 	if !p.quiet && p.format != "json" {
-		fmt.Fprintf(os.Stderr, "Decoder: ref-match (charset=%d chars font=%s)\n",
-			len([]rune(charset)), fontSource)
+		fmt.Fprintf(os.Stderr, "Decoder: ref-match (charset=%d chars font=%s%s)\n",
+			len([]rune(charset)), fontSource, lmNote)
 	}
 
 	res, err := mosaictext.DecodeReference(ctx, img, opts...)

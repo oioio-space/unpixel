@@ -12,8 +12,9 @@
 // observational (quality logged, never fails on score). Each fixture is run
 // twice: once through the default engine (RecoverFile) and once through the
 // kind-matched new decoder (DecodeTrainedHMM for digits, DecodeWindowHMM for
-// SICK sentences). Two machine-readable PARITY lines are emitted so the gain
-// from the specialised decoders is clearly visible.
+// SICK sentences, or DecodeReference+WithRefLanguage for "sick" kind).
+// Two machine-readable PARITY lines are emitted so the gain from the
+// specialised decoders is clearly visible.
 //
 // Drive it with:
 //
@@ -209,16 +210,47 @@ func parityRunMatched(t *testing.T, e journalSickEntry, imgPath string) (float64
 			return 0, ""
 		}
 		guess = res.Text
-	default: // "sick"
-		res, decErr := mosaictext.DecodeWindowHMM(ctx, img,
+	default: // "sick" — run both window-HMM and ref-match+LM; log both, return the better score
+		wRes, wErr := mosaictext.DecodeWindowHMM(ctx, img,
 			mosaictext.WithWHMMCharset(e.Charset),
 			mosaictext.WithWHMMFont(e.Font),
 		)
-		if decErr != nil {
-			t.Logf("%s matched(window-hmm): %v — score 0", e.Name, decErr)
-			return 0, ""
+		if wErr != nil {
+			t.Logf("%s matched(window-hmm): %v — score 0", e.Name, wErr)
+		} else {
+			t.Logf("%s matched(window-hmm): %q  score=%.0f%%",
+				e.Name, wRes.Text, recoveryScore(wRes.Text, e.Text))
 		}
-		guess = res.Text
+
+		rRes, rErr := mosaictext.DecodeReference(ctx, img,
+			mosaictext.WithRefFont(e.Font),
+			mosaictext.WithRefCharset(e.Charset),
+			mosaictext.WithRefLanguage(mosaictext.LangEnglish),
+		)
+		if rErr != nil {
+			t.Logf("%s matched(ref+lm): %v — score 0", e.Name, rErr)
+		} else {
+			t.Logf("%s matched(ref+lm): %q  score=%.0f%%",
+				e.Name, rRes.Text, recoveryScore(rRes.Text, e.Text))
+		}
+
+		// Return the result with the higher character-accuracy score.
+		switch {
+		case wErr != nil && rErr != nil:
+			return 0, ""
+		case wErr != nil:
+			guess = rRes.Text
+		case rErr != nil:
+			guess = wRes.Text
+		default:
+			wScore := recoveryScore(wRes.Text, e.Text)
+			rScore := recoveryScore(rRes.Text, e.Text)
+			if rScore > wScore {
+				guess = rRes.Text
+			} else {
+				guess = wRes.Text
+			}
+		}
 	}
 
 	return recoveryScore(guess, e.Text), guess

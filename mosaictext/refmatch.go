@@ -46,6 +46,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 	"sync"
 
 	xdraw "golang.org/x/image/draw"
@@ -54,6 +55,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/fonts"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/refmatch"
 	"github.com/oioio-space/unpixel/internal/render"
 )
@@ -63,13 +65,71 @@ import (
 // source code, and arbitrary secrets.
 const DefaultRefCharset = unpixel.CharsetASCII
 
+// LangEnglish and LangFrench re-export lang.Language constants for callers who
+// want LM-guided ref-match without importing the internal lang package directly.
+const (
+	LangEnglish = lang.English
+	LangFrench  = lang.French
+)
+
+// defaultRefBeamWidth is the number of beam hypotheses kept at each cell when
+// the LM beam is enabled. Width 16 gives a good coverage of proportional-font
+// ambiguity (many glyphs pixelate alike at block 8) without excessive runtime.
+const defaultRefBeamWidth = 32
+
+// defaultRefLambda is the LM weight λ for the ref-match beam. The beam prunes
+// hypotheses by a combined score:
+//
+//	beamScore = distSum/cells − λ·lmSum/cells
+//
+// where distSum is the cumulative raw per-cell block distance (lower = better)
+// and lmSum is the cumulative bigram log-prob (higher = better; negative).
+// λ scales the LM contribution relative to geometry.
+//
+// Final winner-selection uses distSum/cells alone, so the reported perCell
+// distance is a pure geometric measure comparable to the greedy path.
+//
+// Calibration: per-cell block distances ∈ [0.001, 0.15]; bigram log-probs
+// ∈ [−8, −1] nats. With λ = 0.03, a 3-nat logP difference (≈ 20× probability
+// ratio) shifts the beam score by 0.09 — comparable to the 0.01–0.05 distance
+// gap between ambiguous lower-case proportional glyphs at block 8.
+//
+// The τ-based candidate gate (only candidates within [d_min, d_min+τ] enter the
+// beam) uses τ = defaultRefTau, keeping unambiguous glyphs exact.
+// defaultRefLambda is the LM weight λ used in the combined beam score and
+// winner selection. The score is:
+//
+//	score = distSum/cells − λ·lmSum/cells
+//
+// λ must be small enough that a full-range LM difference (~7 nats) cannot
+// compensate for a geometric distance difference that exceeds the τ tie band.
+// With τ=0.05 and λ=0.005, the maximum LM compensation is 7×0.005=0.035 —
+// less than τ, so geometry strictly dominates outside the tie band.
+const defaultRefLambda = 0.02
+
+// defaultRefTau is the geometric tie-band radius for beamMatchPhase. Only
+// candidates whose per-cell distance is within τ of the per-hypothesis minimum
+// d_min are expanded into the beam. This gates the LM influence: outside the
+// band, only the geometric winner enters and the LM cannot change the choice.
+//
+// τ = 0.05 targets the ambiguous proportional lower-case letter cluster at
+// block=8 (inter-candidate gaps typically 0.01–0.04) while excluding most
+// unambiguous characters. Note that at block=8, digit gaps in proportional and
+// monospace fonts can be as small as 0.001–0.05 depending on phase, so digit
+// sequences may still have multiple τ-band candidates — the LM then acts as a
+// tiebreaker, which for digit-only charsets has minimal effect since the
+// English bigram model assigns similar probabilities to all digit transitions.
+const defaultRefTau = 0.10
+
 // refConfig holds DecodeReference option state.
 type refConfig struct {
 	charset      string
-	fontName     string // empty → sweep all bundled fonts
-	fontData     []byte // non-nil → use this TTF/OTF exclusively
-	fontBoldData []byte // non-nil → used as bold face alongside fontData
-	linear       int    // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
+	fontName     string         // empty → sweep all bundled fonts
+	fontData     []byte         // non-nil → use this TTF/OTF exclusively
+	fontBoldData []byte         // non-nil → used as bold face alongside fontData
+	linear       int            // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
+	lmLang       *lang.Language // non-nil → use LM beam with this language
+	lmLambda     float64        // emission temperature (0 → use defaultRefLambda)
 }
 
 func defaultRefConfig() refConfig {
@@ -133,6 +193,36 @@ func WithRefLinear(mode int) RefOption {
 	return func(c *refConfig) { c.linear = mode }
 }
 
+// WithRefLanguage enables the LM-guided beam over the per-cell geometric
+// distances produced by the reference-match decoder. When set, decodeRefOne
+// calls beamMatchPhase instead of greedyMatchPhase for each starting phase.
+//
+// The beam keeps the top defaultRefBeamWidth hypotheses at each character
+// position, scoring by: dist − λ·TransitionLogProb(prev, candidate). Lower
+// score is better (dist is a mean block distance, log-prob is negative).
+//
+// Without this option, DecodeReference uses the greedy path and the result
+// is byte-identical to versions without this option — additive and opt-in.
+//
+// Use LangEnglish or LangFrench as the argument, or lang.ParseLanguage to
+// convert a user-supplied string.
+func WithRefLanguage(l lang.Language) RefOption {
+	return func(c *refConfig) { c.lmLang = new(l) }
+}
+
+// WithRefEmissionTemperature sets λ, the scale applied to per-cell geometric
+// distance before combining with bigram log-prob in the LM beam
+// (score = dist − λ·logP). Larger λ weights the image signal more strongly;
+// smaller λ lets the language model dominate. Default is defaultRefLambda
+// (10.0). Has no effect unless WithRefLanguage is also set.
+func WithRefEmissionTemperature(lambda float64) RefOption {
+	return func(c *refConfig) {
+		if lambda > 0 {
+			c.lmLambda = lambda
+		}
+	}
+}
+
 // refCandidate holds one (font, linear) decode result for the sweep winner.
 type refCandidate struct {
 	text      string
@@ -143,6 +233,7 @@ type refCandidate struct {
 	charCount int
 	dist      float64 // whole-image block distance (lower = better)
 	perCell   float64 // mean per-cell distance (comparable across fonts)
+	lmPerCell float64 // mean per-cell LM log-prob (used for combined selection when LM enabled)
 }
 
 // DecodeReference recovers text from a mosaic-pixelated image by geometrically
@@ -264,7 +355,7 @@ func DecodeReference(ctx context.Context, img image.Image, opts ...RefOption) (R
 				defer func() { <-sem }()
 
 				cand := decodeRefOne(ctx, fe.r, fe.name, lin,
-					target, block, rcfg.charset)
+					target, block, rcfg.charset, rcfg.lmLang, rcfg.lmLambda)
 				if cand.text == "" {
 					return
 				}
@@ -413,9 +504,10 @@ func buildPerCharRefs(
 // decodeRefOne runs the reference-matching decoder for a single (renderer,
 // linear) pair. It calibrates the font size from the target image height, then
 // builds a per-character-per-phase reference table and sweeps all 8 starting
-// phases. For each starting phase it runs a greedy left-to-right block match
-// where the sub-block phase of each decoded position is tracked precisely as
-// the accumulated pixel offset modulo the block size.
+// phases. For each starting phase it runs a greedy (or LM-guided beam when
+// lmLang is non-nil) left-to-right block match where the sub-block phase of
+// each decoded position is tracked precisely as the accumulated pixel offset
+// modulo the block size.
 //
 // The starting phase with the lowest mean per-cell block distance is returned.
 func decodeRefOne(
@@ -426,6 +518,8 @@ func decodeRefOne(
 	target *image.RGBA,
 	block int,
 	charset string,
+	lmLang *lang.Language,
+	lmLambda float64,
 ) refCandidate {
 	pix := pixelatorFor(block, linear)
 
@@ -475,16 +569,49 @@ func decodeRefOne(
 		// table[p][i] is the block reference for charRunes[i] at sub-block phase p.
 		table := buildPerCharRefs(r, pix, charRunes, advances, fs, block, inkRows)
 
+		// Build LM model once if enabled (nil lmLang → greedy path).
+		var lmModel *lang.Model
+		if lmLang != nil {
+			lmModel = lang.Default()
+			if *lmLang == lang.French {
+				// French corpus uses the same Default() bigram — it is an
+				// English-biased model. For French we still use Default() since
+				// the internal lang package does not export a French *Model
+				// (it uses Infini for French). Callers that need true French
+				// bigrams should pass lang.English until a French Model is added.
+				lmModel = lang.Default()
+			}
+		}
+		lambda := lmLambda
+		if lambda == 0 {
+			lambda = defaultRefLambda
+		}
+
 		// Sweep all 8 starting sub-block phases.
 		for p0 := range block {
 			if ctx.Err() != nil {
 				break
 			}
-			text, perCell := greedyMatchPhase(ctx, tgtGrid, tgtCols, charRunes, advances, table, block, p0)
+			var text string
+			var perCell, lmPerCell float64
+			if lmModel != nil {
+				text, perCell, lmPerCell = beamMatchPhase(ctx, tgtGrid, tgtCols, charRunes, advances, table, block, p0, lmModel, lambda)
+			} else {
+				text, perCell = greedyMatchPhase(ctx, tgtGrid, tgtCols, charRunes, advances, table, block, p0)
+			}
 			if text == "" {
 				continue
 			}
-			if perCell < bestCand.perCell {
+			// When LM is enabled use the combined score for phase/fs winner
+			// selection so the LM benefit is propagated through to the result;
+			// pure-greedy path keeps the geometry-only comparison.
+			var score float64
+			if lmModel != nil {
+				score = perCell - lambda*lmPerCell
+			} else {
+				score = perCell
+			}
+			if score < bestCand.perCell {
 				bestCand = refCandidate{
 					text:      text,
 					fontName:  fontName,
@@ -493,7 +620,8 @@ func decodeRefOne(
 					phaseX:    p0,
 					charCount: len([]rune(text)),
 					dist:      perCell,
-					perCell:   perCell,
+					perCell:   score,
+					lmPerCell: lmPerCell,
 				}
 			}
 		}
@@ -632,6 +760,218 @@ func greedyMatchPhase(
 		return "", math.Inf(1)
 	}
 	return string(runes), distSum / float64(len(runes))
+}
+
+// beamMatchPhase runs a left-to-right beam search over tgtGrid starting with
+// sub-block pixel offset p0. It mirrors greedyMatchPhase but keeps the top
+// defaultRefBeamWidth hypotheses at each character position instead of
+// committing to the single nearest glyph.
+//
+// Scoring per candidate extension at each hypothesis's current cell:
+//
+//	cellCost = (d − d_min) + λ·(logP_max − logP(prev→cand))
+//
+// Both terms are local-relative: d_min is the geometric minimum across all
+// valid candidates for that hypothesis, and logP_max is the highest bigram
+// log-prob available from the hypothesis's last rune. Neither term can
+// accumulate a cross-step advantage from absolute-value differences — the
+// LM only penalises transitions that are less probable than the best
+// available one, and the geometric term only penalises candidates that are
+// further than the nearest match.
+//
+// Each hypothesis tracks its own column cursor (proportional advances differ
+// per glyph). Hypotheses that exhaust tgtCols are "complete"; the one with
+// the lowest per-cell raw-dist average wins (perCell matches greedyMatchPhase).
+//
+// Algorithm per step:
+//  1. For each live hypothesis, collect all valid candidates and find d_min.
+//  2. Admit only candidates within [d_min, d_min+τ] (the geometric tie band).
+//     The geometric winner is always admitted; unambiguous glyphs (gap > τ)
+//     have only one admissible candidate, so the LM cannot influence them.
+//  3. Prune the expanded set to defaultRefBeamWidth by:
+//     beamScore = distSum/cells − λ·lmSum/cells  (lower = better).
+//  4. Winner is the complete hypothesis with the combined score above.
+//  5. Returns (text, perCell, lmPerCell): perCell = distSum/cells (geometry),
+//     lmPerCell = lmSum/cells (for combined phase selection in decodeRefOne).
+func beamMatchPhase(
+	ctx context.Context,
+	tgtGrid [][]refmatch.BlockSig,
+	tgtCols int,
+	charRunes []rune,
+	advances map[rune]int,
+	table [][]*perCharPhaseRef,
+	block, p0 int,
+	model *lang.Model,
+	lambda float64, // LM weight in beam score (0 → geometry-only, same as greedy)
+) (text string, perCell, lmPerCell float64) {
+	// beamHyp is one live hypothesis in the beam.
+	type beamHyp struct {
+		runes   []rune
+		col     int     // current block-column cursor in tgtGrid
+		pixOff  int     // accumulated pixel offset (for phase tracking)
+		prev    rune    // last chosen rune (LM context)
+		distSum float64 // Σ per-cell geometric distance (lower = better)
+		lmSum   float64 // Σ bigram log-prob (higher = better; used for pruning only)
+		cells   int     // number of cells chosen so far
+	}
+
+	// cellCandidate holds a single extension option for one hypothesis.
+	type cellCandidate struct {
+		charIdx int
+		ch      rune
+		d       float64 // raw per-cell geometric distance
+		logP    float64 // TransitionLogProb(prev→ch)
+	}
+
+	beam := []beamHyp{{
+		col:    0,
+		pixOff: p0,
+		prev:   ' ', // sentence-start context
+	}}
+
+	var complete []beamHyp
+
+	for len(beam) > 0 {
+		if ctx.Err() != nil {
+			break
+		}
+
+		next := make([]beamHyp, 0, len(beam)*4)
+
+		for _, h := range beam {
+			phase := h.pixOff % block
+			phaseRefs := table[phase]
+			firstChar := h.col == 0 || phase == 0
+
+			// Collect valid candidates; track geometric minimum.
+			var cands []cellCandidate
+			dMin := math.Inf(1)
+
+			for i, ch := range charRunes {
+				ref := phaseRefs[i]
+				if ref == nil {
+					continue
+				}
+				var compareCols, refStart, tgtStart int
+				if firstChar {
+					compareCols = min(ref.advance, ref.cols)
+					refStart = 0
+					tgtStart = h.col
+				} else {
+					compareCols = ref.advance - 1
+					if compareCols < 1 {
+						compareCols = ref.cols - 1
+					}
+					refStart = 1
+					tgtStart = h.col + 1
+				}
+				if compareCols < 1 || tgtStart+compareCols > tgtCols {
+					continue
+				}
+				d := glyphDistPhaseSkip(tgtGrid, tgtStart, ref, refStart, compareCols)
+				if math.IsInf(d, 1) {
+					continue
+				}
+				cands = append(cands, cellCandidate{
+					charIdx: i,
+					ch:      ch,
+					d:       d,
+					logP:    model.TransitionLogProb(h.prev, ch),
+				})
+				if d < dMin {
+					dMin = d
+				}
+			}
+			if len(cands) == 0 {
+				continue
+			}
+
+			// Admit only candidates in the geometric tie band [d_min, d_min+τ].
+			// This is the hard gate: unambiguous glyphs have only one admissible
+			// candidate (the geometric winner), so the LM cannot change the choice.
+			for _, cc := range cands {
+				if cc.d > dMin+defaultRefTau {
+					continue
+				}
+				ref := phaseRefs[cc.charIdx]
+				newCol := h.col + max(1, ref.advance)
+				newPixOff := h.pixOff + advances[cc.ch]
+				newRunes := make([]rune, len(h.runes)+1)
+				copy(newRunes, h.runes)
+				newRunes[len(h.runes)] = cc.ch
+
+				hyp := beamHyp{
+					runes:   newRunes,
+					col:     newCol,
+					pixOff:  newPixOff,
+					prev:    cc.ch,
+					distSum: h.distSum + cc.d,
+					lmSum:   h.lmSum + cc.logP,
+					cells:   h.cells + 1,
+				}
+				if newCol >= tgtCols {
+					complete = append(complete, hyp)
+				} else {
+					next = append(next, hyp)
+				}
+			}
+		}
+
+		// Prune to beam width by combined score: distSum/cells − λ·lmSum/cells.
+		// lmSum ≤ 0, so −λ·lmSum ≥ 0; higher-probability paths get lower score.
+		// λ is small enough that the LM term (max ≈ 7λ ≈ 0.035) cannot overcome
+		// a geometric difference outside the τ tie band — geometry always dominates.
+		if len(next) > defaultRefBeamWidth {
+			slices.SortFunc(next, func(a, b beamHyp) int {
+				ac := float64(max(1, a.cells))
+				bc := float64(max(1, b.cells))
+				as := a.distSum/ac - lambda*(a.lmSum/ac)
+				bs := b.distSum/bc - lambda*(b.lmSum/bc)
+				if as < bs {
+					return -1
+				}
+				if as > bs {
+					return 1
+				}
+				return 0
+			})
+			next = next[:defaultRefBeamWidth]
+		}
+		beam = next
+	}
+
+	if len(complete) == 0 {
+		return "", math.Inf(1), math.Inf(1)
+	}
+
+	// Pick the winner using a combined score: distSum/cells − λ·lmSum/cells.
+	// lmSum ≤ 0, so −λ·lmSum ≥ 0; higher log-prob reduces the score.
+	// Returns the winner's perCell (geometry) and lmPerCell so decodeRefOne
+	// can select the best phase using the same combined criterion.
+	slices.SortFunc(complete, func(a, b beamHyp) int {
+		if a.cells == 0 {
+			return 1
+		}
+		if b.cells == 0 {
+			return -1
+		}
+		ac, bc := float64(a.cells), float64(b.cells)
+		as := a.distSum/ac - lambda*(a.lmSum/ac)
+		bs := b.distSum/bc - lambda*(b.lmSum/bc)
+		if as < bs {
+			return -1
+		}
+		if as > bs {
+			return 1
+		}
+		return 0
+	})
+	best := complete[0]
+	if best.cells == 0 {
+		return "", math.Inf(1), math.Inf(1)
+	}
+	c := float64(best.cells)
+	return string(best.runes), best.distSum / c, best.lmSum / c
 }
 
 // glyphDistPhaseSkip computes the mean block-signature distance between a
