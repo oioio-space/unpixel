@@ -164,6 +164,7 @@ unpixel --decoder mono-hmm --lang en image.png                              # LM
 unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long-text.png  # with specific font
 unpixel --decoder ref-match --font "Liberation Sans" passwords.png          # reference-matching for arbitrary content
 unpixel --decoder window-hmm --lang en image.png                            # window-grid beam decoder (proportional fonts)
+unpixel --decoder trained-hmm image.png                                     # learned-emission Viterbi HMM (digit/PIN codes)
 unpixel --normalize --redaction blur real-blur.jpg                          # normalize input + blur recovery on JPEG
 
 # Re-mosaic correction (Hill–Zhou–Saul–Shacham PETS-2016, §4):
@@ -188,7 +189,7 @@ Key flags (`unpixel --help` for the full list):
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
 | `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
 | `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
-| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), `ref-match` (reference-matching for known fonts), or `window-hmm` (grid-window beam for proportional fonts) |
+| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), `ref-match` (reference-matching for known fonts), `window-hmm` (grid-window beam for proportional fonts), or `trained-hmm` (learned-emission Viterbi HMM for constrained alphabets) |
 | `--remosaic` | off | Enable Hill–Zhou–Saul–Shacham PETS-2016 §4 composite blur→remosaic error correction (scales σ-mismatch and JPEG noise) |
 | `--remosaic-grid` | `0` (auto) | Block grid size for `--remosaic`; `0` auto-detects as `max(2, round(σ))` |
 | `--remosaic-linear` | off | Use linear-light block averaging for `--remosaic` (GEGL/GIMP-rendered targets) |
@@ -407,6 +408,40 @@ unpixel --decoder window-hmm --charset "0-9" image.png          # narrow the cha
 
 **Key limitation:** Like all approaches, recovery is bounded by **font fidelity**. On real images where the exact font is not bundled, the decode is inaccurate. The exact-font path (`--font yourfont.ttf` or `WithWHMMFontFile`) is the strength and is expected to recover proportional-font redactions when the font is known.
 
+### Learned-emission Viterbi HMM decoder (constrained alphabets)
+
+For **constrained character alphabets** (digits, PINs, check numbers), the `mosaictext` package offers a **learned-emission Viterbi HMM decoder** that trains on rendered examples to model per-window block observations and character-tuple state transitions. It then decodes the target via a single Viterbi pass over the block grid without assuming character boundaries — true column-anchored blind recovery:
+
+```go
+text, err := mosaictext.DecodeTrainedHMM(ctx, img,
+	mosaictext.WithTHMMCharset("0123456789"),         // digits: PINs, credit cards, check numbers
+	mosaictext.WithTHMMFont("Liberation Mono"),       // or omit to sweep bundled fonts
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(text)
+```
+
+On the command line, use `--decoder trained-hmm` to activate it:
+
+```bash
+unpixel --decoder trained-hmm image.png                                  # auto-detect font
+unpixel --decoder trained-hmm --charset "0-9" --font Arial.ttf image.png # with specific font
+unpixel --decoder trained-hmm --charset "0-9A-Z" image.png               # custom charset (auto-font sweep)
+```
+
+**API**: `mosaictext.DecodeTrainedHMM(ctx, img, opts...)` with options `WithTHMMCharset` (default: digits), `WithTHMMFont` (bundled font by name), `WithTHMMFontFile`/`WithTHMMFontFileBold` (caller-supplied TTF/OTF bytes), `WithTHMMLinear` (tri-state: auto/sRGB/linear-light block averaging), `WithTHMMK` (KMeans clusters; default 128), `WithTHMMWindow` (window width in blocks; default auto), `WithTHMMCorpus` (training corpus size; default 2000), `WithTHMMSeed` (PRNG seed for reproducibility).
+
+**Why it matters:** This is the genuine learned-emission HMM from Hill et al. (PETS-2016), with k-means quantized block observations and empirically-trained state transitions. Unlike beam search (which commits partial decisions), Viterbi finds the globally optimal state path, provided the model captures the true distribution.
+
+**Honest scope & limitations:**
+- **Recovers the constrained-alphabet case exactly** on self-consistent synthetic fixtures (digits/PINs rendered and re-pixelated at the same grid/offset). Achieves the paper's reference result (~100% on digit codes).
+- **Per-window emission accuracy is modest (~55%)** — the k-means clustering of block windows loses fine structure — but global path optimization compensates when the true answer is structurally plausible.
+- **Brittle to grid/render geometry mismatch**: The model is trained on a specific `(block size, font size, font face, block phase)` tuple. On independent test images with different geometry, even when the same font, accuracy drops sharply (paper's Fig-14 offset-sensitivity; observed <5% on paper-parity fixtures with different image sources).
+- **Not a general decoder for real images.** Font fidelity and geometry drift dominate recovery success. On real captures, supply the exact font via `--font` and ensure block-size consistency. For out-of-sample geometry, `window-hmm` (beam) is currently more robust.
+- **Best suited for:** digits, PINs, check numbers, or other highly constrained codes on self-consistent redactions. For proportional-font text or weak per-window signal, use `window-hmm` or the LM-guided `mono-hmm` instead.
+
 Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
@@ -435,6 +470,8 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | **`mosaictext.WithRef*` options (`WithRefCharset`, `WithRefFont`, `WithRefFontFile`, `WithRefFontFileBold`, `WithRefLinear`)** | **Configure DecodeReference font/charset/color-space selection** |
 | **`mosaictext.DecodeWindowHMM(ctx, image.Image, ...WHMMOption) (string, error)`** | **Grid-window beam decoder: recovers proportional-font mosaic text via per-cell window MSE scoring; no monospace assumption; exact on grid-aligned fixtures when font is known** |
 | **`mosaictext.WithWHMM*` options (`WithWHMMCharset`, `WithWHMMFont`, `WithWHMMFontFile`, `WithWHMMFontFileBold`, `WithWHMMLinear`, `WithWHMMBeamWidth`, `WithWHMMSeed`)** | **Configure DecodeWindowHMM font/charset/color-space/beam tuning** |
+| **`mosaictext.DecodeTrainedHMM(ctx, image.Image, ...THMMOption) (string, error)`** | **Learned-emission Viterbi HMM decoder: trains on rendered corpus, decodes via single column-anchored Viterbi pass; exact on self-consistent constrained alphabets (digits/PINs), brittle to geometry mismatch on real images** |
+| **`mosaictext.WithTHMM*` options (`WithTHMMCharset`, `WithTHMMFont`, `WithTHMMFontFile`, `WithTHMMFontFileBold`, `WithTHMMLinear`, `WithTHMMK`, `WithTHMMWindow`, `WithTHMMCorpus`, `WithTHMMSeed`)** | **Configure DecodeTrainedHMM font/charset/KMeans-K/window-width/corpus-size/color-space** |
 
 ## Configuration
 
