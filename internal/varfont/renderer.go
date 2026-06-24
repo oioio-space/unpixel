@@ -9,9 +9,12 @@
 // render → pixelate → metric pipeline as the rest of unpixel.
 //
 // Concurrency: [ParseFont] parses the font once and returns a read-only
-// [*Font] that may be shared across goroutines. Each [VarRenderer] and each
-// [FitAxes] call clones a lightweight per-goroutine [*gtfont.Face] so
-// SetVariations never races.
+// [*Font] that may be shared across goroutines. Each [VarRenderer] owns a
+// [sync.Pool] of [*gtfont.Face] objects pre-instanced to its fixed axes.
+// Render borrows one Face per call and returns it to the pool, so concurrent
+// callers never share a Face (SetVariations never races) while the fitter's
+// single-goroutine hot loop reuses the same Face across all evals (zero
+// per-eval alloc after the first get).
 package varfont
 
 import (
@@ -19,6 +22,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"sync"
 
 	gtfont "github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
@@ -69,31 +73,42 @@ func ParseFont(r gtfont.Resource) (*Font, error) {
 //     paddingLeft + the total horizontal advance of the text.
 //   - Glyphs with no outline in the font (missing or .notdef) are skipped
 //     silently: their advance is still counted so the sentinel lands correctly.
-//   - The renderer is safe for concurrent use: each Render call operates on
-//     its own private Face clone.
+//   - The renderer is safe for concurrent use: each Render call borrows a
+//     pre-instanced Face from a per-renderer sync.Pool and returns it when
+//     done, so concurrent callers never share a Face.
 type VarRenderer struct {
 	font *Font
 	axes []Axis
+	// pool holds *gtfont.Face objects pre-instanced to axes.
+	// New() allocates a fresh Face; Get/Put borrow and return without
+	// re-running SetVariations, eliminating the per-Render alloc hot spot.
+	pool sync.Pool
 }
 
 // NewVarRenderer returns a VarRenderer that renders text with the given font
 // at the supplied axis coordinates. r must be a seekable/random-access reader
 // (e.g. *bytes.Reader) of a TrueType variable-font file.
 //
-// axes configures the initial variation instance; use SetAxes (or construct a
-// new VarRenderer) to render at different coordinates.
+// axes configures the variation instance; construct a new VarRenderer to
+// render at different coordinates.
 func NewVarRenderer(r gtfont.Resource, axes []Axis) (*VarRenderer, error) {
 	f, err := ParseFont(r)
 	if err != nil {
 		return nil, err
 	}
-	return &VarRenderer{font: f, axes: axes}, nil
+	return newFontVarRenderer(f, axes), nil
 }
 
 // newFontVarRenderer is an internal constructor used by FitAxes so it can
 // share the already-parsed Font without re-parsing the TTF bytes.
 func newFontVarRenderer(f *Font, axes []Axis) *VarRenderer {
-	return &VarRenderer{font: f, axes: axes}
+	vr := &VarRenderer{font: f, axes: axes}
+	vr.pool.New = func() any {
+		face := gtfont.NewFace(f.raw)
+		applyAxes(face, axes)
+		return face
+	}
+	return vr
 }
 
 // Render draws text on a white RGBA image at the renderer's current axis
@@ -109,15 +124,24 @@ func newFontVarRenderer(f *Font, axes []Axis) *VarRenderer {
 // Missing glyphs are skipped (their advance is still added); Render never
 // returns an error for missing glyphs, only for unrecoverable layout failures.
 func (r *VarRenderer) Render(text string, style unpixel.Style) (*image.RGBA, int, error) {
-	// Clone a fresh Face for this call so SetVariations is goroutine-safe.
-	face := gtfont.NewFace(r.font.raw)
-	applyAxes(face, r.axes)
+	// Borrow a pre-instanced Face from the pool; axes are already applied.
+	// Put it back on every return path so the next call (or the same
+	// goroutine in the single-threaded fitter hot loop) reuses it.
+	face := r.pool.Get().(*gtfont.Face)
+	defer r.pool.Put(face)
+	img, sx := renderWithFace(face, r.font, text, style)
+	return img, sx, nil
+}
 
+// renderWithFace is the infallible rendering kernel shared by Render (pool
+// path) and the fitter's evaluate (single reused face path). face must already
+// have the desired axis coords applied via applyAxes before the call.
+func renderWithFace(face *gtfont.Face, f *Font, text string, style unpixel.Style) (*image.RGBA, int) {
 	ppem := float32(style.FontSize) // points at 72 DPI → px (1 pt = 1 px at 72 DPI)
 	if ppem <= 0 {
 		ppem = 32
 	}
-	scale := ppem / r.font.upem
+	scale := ppem / f.upem
 
 	paddingLeft := style.PaddingLeft
 	if paddingLeft == 0 {
@@ -180,7 +204,7 @@ func (r *VarRenderer) Render(text string, style unpixel.Style) (*image.RGBA, int
 		}
 	}
 
-	return img, sentinelX, nil
+	return img, sentinelX
 }
 
 // applyAxes instances face at the given design-space axis coordinates.

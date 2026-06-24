@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 
+	gtfont "github.com/go-text/typesetting/font"
+
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
 )
@@ -131,9 +133,16 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 	// allocation inside the hot loop.
 	axesScratch := make([]Axis, len(cfg.Axes))
 
+	// faceScratch is a single Face allocated once per FitAxes call and reused
+	// across every evaluate call. The fitter is single-goroutine, so sharing
+	// the Face is safe. We call applyAxes (cheap: normalise + zero extents
+	// cache, no heap alloc for the cache itself) instead of NewFace (expensive:
+	// allocates extentsCache of len(nGlyphs) every call).
+	faceScratch := gtfont.NewFace(cfg.Font.raw)
+
 	// evalFn is the shared objective passed to both optimizer paths.
 	evalFn := func(current []float32) (float64, error) {
-		return evaluate(cfg, current, targetCrop, axesScratch)
+		return evaluate(cfg, current, targetCrop, axesScratch, faceScratch)
 	}
 
 	// current holds the best design-space value per axis.
@@ -220,18 +229,21 @@ func fitCoordDescent(cfg FitConfig, current []float32, initStep float32, maxIter
 
 // evaluate renders cfg.Text at the given axis values, pixelates the result,
 // crops to the target size, and returns the metric distance against target.
+//
 // scratch is a caller-owned []Axis of len(cfg.Axes) reused across calls to
 // avoid a per-evaluation allocation inside the coordinate-descent hot loop.
-func evaluate(cfg FitConfig, current []float32, target *image.RGBA, scratch []Axis) (float64, error) {
+//
+// face is a caller-owned *gtfont.Face allocated once per FitAxes call and
+// reused across all evaluations. applyAxes mutates its coords in-place
+// (cheap: normalise + zero extents cache; no extentsCache heap allocation)
+// instead of NewFace which allocates a fresh extentsCache every call.
+func evaluate(cfg FitConfig, current []float32, target *image.RGBA, scratch []Axis, face *gtfont.Face) (float64, error) {
 	for i, spec := range cfg.Axes {
 		scratch[i] = Axis{Tag: spec.Tag, Value: current[i]}
 	}
 
-	r := newFontVarRenderer(cfg.Font, scratch)
-	img, _, err := r.Render(cfg.Text, cfg.Style)
-	if err != nil {
-		return 1, fmt.Errorf("render: %w", err)
-	}
+	applyAxes(face, scratch)
+	img, _ := renderWithFace(face, cfg.Font, cfg.Text, cfg.Style)
 
 	pixed := cfg.Pixelator.Pixelate(img, 0, 0)
 

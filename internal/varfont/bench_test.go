@@ -9,8 +9,42 @@ import (
 	"github.com/oioio-space/unpixel/internal/varfont"
 )
 
-// sink defeats dead-code elimination for benchmark results.
-var sink varfont.FitResult
+// sinkResult defeats dead-code elimination for FitResult benchmark results.
+var sinkResult varfont.FitResult
+
+// sinkImg defeats dead-code elimination for Render benchmark results.
+var sinkImg any
+
+// BenchmarkVarRenderer_Render measures the per-call cost of VarRenderer.Render.
+// This is the innermost hot-loop operation in the fitter: every FitAxes eval
+// calls Render once. Baseline allocs/op are dominated by gtfont.NewFace +
+// extentsCache (one alloc per glyph). The H1(conc) optimisation replaces that
+// with a sync.Pool get/put, driving allocs/op to near zero for the fitter path.
+//
+// Workflow: mise run bench:baseline → apply H1 → mise run bench:compare
+// (-count ≥ 10, -benchmem); keep only on statistically significant ns/op AND
+// allocs/op reduction.
+func BenchmarkVarRenderer_Render(b *testing.B) {
+	b.ReportAllocs()
+
+	r, err := varfont.NewVarRenderer(bytes.NewReader(nunitoData), []varfont.Axis{
+		{Tag: "wght", Value: 700},
+	})
+	if err != nil {
+		b.Fatalf("NewVarRenderer: %v", err)
+	}
+	style := varfont.DefaultStyle()
+
+	b.ResetTimer()
+	for b.Loop() {
+		img, sx, err := r.Render("the", style)
+		if err != nil {
+			b.Fatalf("Render: %v", err)
+		}
+		sinkImg = img
+		_ = sx
+	}
+}
 
 // BenchmarkFitAxes measures the cost of one complete FitAxes call over wght.
 // It reports ns/op, allocs/op, and evals/fit (render+pixelate+metric evaluations
@@ -69,7 +103,7 @@ func BenchmarkFitAxes(b *testing.B) {
 			b.Fatalf("FitAxes: %v", err)
 		}
 		totalEvals += result.Evals
-		sink = result
+		sinkResult = result
 	}
 	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
 }
@@ -126,7 +160,7 @@ func BenchmarkFitAxes_NelderMead(b *testing.B) {
 			b.Fatalf("FitAxes NelderMead: %v", err)
 		}
 		totalEvals += result.Evals
-		sink = result
+		sinkResult = result
 	}
 	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
 }
@@ -177,7 +211,7 @@ func BenchmarkCalibrateFromVisible(b *testing.B) {
 			b.Fatalf("CalibrateFromVisible: %v", err)
 		}
 		totalEvals += result.Evals
-		sink = result
+		sinkResult = result
 	}
 	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
 }

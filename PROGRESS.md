@@ -925,3 +925,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `4655e51` 2026-06-24 — docs(progress): performance-optimization roadmap (3-agent audit, benchstat-gated) _(1 fichiers)_
 - `8e09cb6` 2026-06-24 — perf(search): wire CachingScorer into GuidedStrategy (default path) — 2.4x warm _(3 fichiers)_
 - `0cf2493` 2026-06-24 — perf(render): replace global glyphMu with per-(bold,size) face pool (lock-free hot path) _(3 fichiers)_
+- `11cbe81` 2026-06-24 — perf(metric,search): early-exit ceiling on the no-AA pixel metric (3.7x rejected) _(9 fichiers)_
