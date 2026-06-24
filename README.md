@@ -4,10 +4,11 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-> **Status:** **v0.11.0** published — pure-Go mosaic and Gaussian-blur recovery with decoding improvements,
-> nine opt-in pure-Go features, and structural answers to font fidelity.
+> **Status:** **v0.11.0** published, with **decode-all-testdata wave** (post-v0.11.0, unreleased) — pure-Go mosaic and Gaussian-blur recovery with decoding improvements, nine opt-in pure-Go features, and structural answers to font fidelity.
 > - **Core:** zero-config auto-detection (block size / blur σ / font / language), bilingual
->   blind recovery (FR/EN), **~86% test coverage**, all gates green. Panel 17/17 exact, no regressions.
+>   blind recovery (FR/EN), **≥85% test coverage**, all gates green. Panel 17/17 exact, no regressions.
+> - **Decode-all wave (6 items):** information-theoretic capacity triage (`internal/capacity`), advance-width pre-filter (−58% pool, 6.8× DecodeLineWhole faster), LM-fused Viterbi (`--decoder did` + trellis DP), calibrate-from-visible + Nelder-Mead (3× vs coordinate descent), non-blind L0 text deblur (`--l0-deblur`, opt-in). All pure-Go, opt-in, panel 17/17, coverage ≥85%.
+> - **Honest scope:** these are capability + perf gains on testdata. **Do NOT move real/wild/sick recovery** — real-world images remain bound by render-alignment (DID boundary emission needs context-aware refinement), absent visible text (for calibration), and information-theoretic limits. Width filter −58% pool, Nelder-Mead 3× carry zero quality loss.
 > - **Quick wins (Q1–Q5):** auto-gamma selector (`--gamma=auto|linear|sRGB`), adaptive word-pool recall,
 >   10k-word frequency-ranked dictionaries (EN/FR), letter-spacing calibration (`--letter-spacing-search`),
 >   French apostrophe elision. All opt-in, `blind` zero-config path.
@@ -16,7 +17,8 @@ A faithful pure-Go port of [Bishop Fox's **unredacter**](https://github.com/bish
 >   upgrades (`--thmm-lang`, `--thmm-jpeg`). All pure-Go, opt-in.
 > - **Decoders:** guided/beam default, LM-guided monospace (`--decoder mono-hmm`), Depix-style
 >   reference-matching (`--decoder ref-match`), grid-window beam for proportional fonts (`--decoder window-hmm`),
->   learned-emission Viterbi HMM (`--decoder trained-hmm`), variable-font fitting (`--decoder varfont`).
+>   learned-emission Viterbi HMM (`--decoder trained-hmm`), variable-font fitting (`--decoder varfont`),
+>   Document-Image-Decoding trellis (`--decoder did`).
 > - **Real captures:** input normalization (`--normalize`), re-mosaic blur error-correction
 >   (`--remosaic`), improved blur-σ estimation, multi-format input (JPEG/GIF/WebP/BMP/TIFF), robust
 >   mosaic-vs-blur auto-detect + best-effort surfacing (`Result.BelowThreshold`).
@@ -171,7 +173,7 @@ unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.p
 unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
 unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 
-# Decoders (v0.11.0):
+# Decoders (v0.11.0+):
 unpixel --decoder mono-hmm --lang en image.png                              # LM-guided monospace decoder
 unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long-text.png  # with specific font
 unpixel --decoder ref-match --font "Liberation Sans" passwords.png          # reference-matching for arbitrary content
@@ -179,7 +181,11 @@ unpixel --decoder window-hmm --lang en image.png                            # wi
 unpixel --decoder trained-hmm image.png                                     # learned-emission Viterbi HMM (digit/PIN codes)
 unpixel --decoder varfont image.png                                         # variable-font fitting (coordinate descent)
 unpixel --decoder varfont --varfont-text "known" image.png                  # varfont with known text (calibration mode)
+unpixel --decoder did image.png                                             # Document-Image-Decoding trellis (boundary-free DP)
 unpixel --normalize --redaction blur real-blur.jpg                          # normalize input + blur recovery on JPEG
+
+# Deblurring (post-v0.11.0):
+unpixel --l0-deblur image.png                                               # non-blind L0 text deblur (Pan CVPR-2014, opt-in)
 
 # Quick wins (v0.11.0):
 unpixel --gamma auto image.png                                              # auto-select sRGB or linear-light
@@ -212,7 +218,7 @@ Key flags (`unpixel --help` for the full list):
 | `--blur-exact` | off | Force the exact Gaussian (default uses the ~3× faster box approx at large σ) |
 | `--deblur` | `0` (off) | Optional Richardson-Lucy deconvolution iterations (exploratory preprocessing) |
 | `--denoise` | `-1` (auto) | Median denoise for `--blind` mode: `-1` auto-detects impulse noise, `0` disables, `N` forces N×N window |
-| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), `ref-match` (reference-matching for known fonts), `window-hmm` (grid-window beam for proportional fonts), `trained-hmm` (learned-emission Viterbi HMM for constrained alphabets), `varfont` (variable-font fitting via coordinate descent) |
+| `--decoder` | `default` | `default` (guided DFS/beam), `mono-hmm` (LM-guided monospace beam), `ref-match` (reference-matching for known fonts), `window-hmm` (grid-window beam for proportional fonts), `trained-hmm` (learned-emission Viterbi HMM for constrained alphabets), `varfont` (variable-font fitting via coordinate descent), `did` (Document-Image-Decoding trellis, boundary-free DP) |
 | `--gamma` | `srgb` | `auto` (choose sRGB or linear-light, keep lower distance), `linear` (force linear-light), `srgb` (force sRGB) |
 | `--letter-spacing-search` | off | Enable letter-spacing sweep (Bishop-Fox method); records `Result.LetterSpacing` |
 | `--varfont-text` | — | Known text for variable-font calibration mode (bypasses blind search) |
@@ -235,6 +241,7 @@ Key flags (`unpixel --help` for the full list):
 | `--deblock` | `0` (off) | Median deblocking radius for JPEG (0 = off, N = force (2N+1)×(2N+1) kernel) |
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
 | `--timeout` | `0` (none) | Max recovery time |
+| `--l0-deblur` | off | Enable non-blind Pan-CVPR-2014 L0 text deblurring (requires known σ from blur-sigma inference) |
 
 The best guess prints to stdout (so it pipes cleanly); the ranked table and live progress go to
 stderr. `--format json` emits a stable schema (`best_guess`, `confidence`, `total_score`, `top`,
@@ -472,6 +479,39 @@ unpixel --decoder trained-hmm --charset "0-9A-Z" image.png               # custo
 - **Not a general decoder for real images.** Font fidelity and geometry drift dominate recovery success. On real captures, supply the exact font via `--font` and ensure block-size consistency. For out-of-sample geometry, `window-hmm` (beam) is currently more robust.
 - **Best suited for:** digits, PINs, check numbers, or other highly constrained codes on self-consistent redactions. For proportional-font text or weak per-window signal, use `window-hmm` or the LM-guided `mono-hmm` instead.
 
+### Document-Image-Decoding trellis decoder (boundary-free DP)
+
+For **variable-width fonts and arbitrary text** (proportional or monospace), the `mosaictext` package offers a **Document-Image-Decoding (DID) trellis decoder** that discovers character boundaries via dynamic programming over glyph start-columns. Unlike reference-matching (which assumes known boundaries), DID jointly optimizes boundary positions and character identity:
+
+```go
+text, err := mosaictext.DecodeDID(ctx, img,
+	mosaictext.WithDIDCharset("abcdefghijklmnopqrstuvwxyz "),
+	mosaictext.WithDIDFont("Liberation Sans"),
+)
+if err != nil {
+	panic(err)
+}
+fmt.Println(text)
+```
+
+On the command line, use `--decoder did` to activate it:
+
+```bash
+unpixel --decoder did image.png                                  # auto-detect font
+unpixel --decoder did --charset "0-9a-z " --font Arial.ttf image.png  # with specific font
+unpixel --decoder did --lang en image.png                        # with language prior
+```
+
+**API**: `mosaictext.DecodeDID(ctx, img, opts...)` with options `WithDIDCharset` (default: lowercase + space), `WithDIDFont` (bundled font by name), `WithDIDFontFile`/`WithDIDFontFileBold` (caller-supplied TTF/OTF bytes), `WithDIDLinear` (tri-state: auto/sRGB/linear-light block averaging), `WithDIDLanguage` (optional bigram LM for tie-breaking).
+
+**Why it matters:** The trellis DP formulation discovers both boundaries and characters in a single pass, allowing exact recovery on **clean monospace and proportional short text** where reference-matching and beam search cannot — a first for UnPixel. The emission is render-glyph→pixelate→distance (exact forward model), and transitions are character-adjacency constraints.
+
+**Honest scope & limitations:**
+- **Recovers clean short text exactly** on self-consistent synthetic fixtures (both monospace and proportional) where the font is known and the text fits cleanly in a grid-aligned band. Achieves 100% on synthetic "hello world" in both Liberation Sans (proportional) and Liberation Mono, with distance near-zero.
+- **Per-glyph-isolated emission breaks on real images**: The DP scores each glyph independently (render+pixelate+distance), but on real redactions, boundaries interact — pixels at the boundary between two glyphs average together post-pixelation, so isolated emissions mismatch the full-line pixelation. This is why real-world recovery remains incomplete on the SICK corpus: the "sick sentence" with complex characters fails on boundary emission, not on the DP itself.
+- **Font fidelity dominates**: Like all approaches, when the exact font is not supplied, accuracy drops sharply. The exact-font path (`--font yourfont.ttf` or `WithDIDFontFile`) is the strength and is expected to recover clean short-text redactions when the font is known.
+- **Best suited for:** clean, short, grid-aligned monospace or proportional text (up to ~5–10 characters) where the exact font is known. For longer, noisier, or real-world images, use `window-hmm` (beam) or `mono-hmm` (LM-guided).
+
 Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 
 | Symbol | Purpose |
@@ -502,6 +542,8 @@ Public API (root package `unpixel` and sub-packages `blind` / `mosaictext`):
 | **`mosaictext.WithWHMM*` options (`WithWHMMCharset`, `WithWHMMFont`, `WithWHMMFontFile`, `WithWHMMFontFileBold`, `WithWHMMLinear`, `WithWHMMBeamWidth`, `WithWHMMSeed`)** | **Configure DecodeWindowHMM font/charset/color-space/beam tuning** |
 | **`mosaictext.DecodeTrainedHMM(ctx, image.Image, ...THMMOption) (string, error)`** | **Learned-emission Viterbi HMM decoder: trains on rendered corpus, decodes via single column-anchored Viterbi pass; exact on self-consistent constrained alphabets (digits/PINs), brittle to geometry mismatch on real images** |
 | **`mosaictext.WithTHMM*` options (`WithTHMMCharset`, `WithTHMMFont`, `WithTHMMFontFile`, `WithTHMMFontFileBold`, `WithTHMMLinear`, `WithTHMMLanguage`, `WithTHMMJPEG`, `WithTHMMK`, `WithTHMMWindow`, `WithTHMMCorpus`, `WithTHMMSeed`)** | **Configure DecodeTrainedHMM font/charset/language-structure/JPEG-augmentation/KMeans-K/window-width/corpus-size/color-space** |
+| **`mosaictext.DecodeDID(ctx, image.Image, ...DIDOption) (string, error)`** | **Document-Image-Decoding trellis decoder: boundary-free DP over glyph start-columns; exact on clean monospace and proportional short text when font is known; per-glyph-isolated emission limits real-world recovery (boundary interaction)** |
+| **`mosaictext.WithDID*` options (`WithDIDCharset`, `WithDIDFont`, `WithDIDFontFile`, `WithDIDFontFileBold`, `WithDIDLinear`, `WithDIDLanguage`)** | **Configure DecodeDID font/charset/language-prior/color-space** |
 | **`mosaictext.DecodeVarFont(ctx, image.Image, ...VarFontOption) (VarFontResult, error)`** | **Variable-font fitting decoder: fits variable-font axes (e.g. weight) via coordinate descent to match the redaction; calibration mode (known text) + best-effort blind mode** |
 | **`mosaictext.WithVarFont*` options (`WithVarFontText`, `WithVarFontAxes`, `WithVarFontLinear`)** | **Configure DecodeVarFont known text / axis bounds / color-space** |
 
