@@ -533,6 +533,50 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - [x] **#2 (HMM émissions k-means/Viterbi complet).** ✅ **Livré (cas chiffres, limites honnêtes)** — `mosaictext.DecodeTrainedHMM(ctx, img, opts...)` (genuine learned-emission HMM avec k-means clusters + Viterbi), API options `WithTHMMCharset` / `WithTHMMFont` / `WithTHMMFontFile`/`WithTHMMFontFileBold` / `WithTHMMLinear` / `WithTHMMK` / `WithTHMMW` / `WithTHMMCorpus` / `WithTHMMSeed`, CLI `--decoder trained-hmm` avec charset/font. Entraîne sur corpus rendu (chaînes aléatoires ~2000 de longueur variable), quantise fenêtres blocs en k-means (K défaut 128), accumule émissions/transitions/départ lissées Laplace, puis décode en **colonne-ancrée aveugles** (fenêtre glissante sur grille bloc, pas de limites caractères) via un seul pass Viterbi global. **Récupération exacte sur synthétique auto-cohérent** (chiffres/codes PIN rendus et repixelisés sur même grille/décalage, ~100 % sur digits). **Limites honnêtes** : (a) **Cas chiffres/codes seulement** — charset très étroit, émissions k-means modestes (~55 %) compensées par optimale Viterbi global, mais cassé hors-domaine (géométrie différente, police différente) ; Fig-14 sensibilité offset du papier observée (< 5 % sur fixtures parity papier indépendantes). (b) **Fragile à mismatch géométrie** — le modèle est entraîné sur tuple exact `(taille bloc, taille police, visage police, phase bloc)` ; images test indépendantes → précision s'effondre même avec même police. (c) **Pas généralisateur aux images réelles** — fidélité police et dérive géométrie dominent ; fournir la police exacte via `--font` obligatoire pour cas réels. (d) Caveats structuraux du papier conservés : observations colonne-ancrées/aveugles vs l'ancienne découverte offset-par-offset (refonte architecture déjà opérationnelle, pas blocage). **Parity numbers (SICK corpus + check digits)** : zéro-config **sick ≈ 28 %** / **digit ≈ 12 %** ; décodeur matched **sick ≈ 15 %** / **digit ≈ 0 %** — révélant gap robustesse offset/géométrie comme prochaine étape roadmap.
 - [x] **#6 (benchmark SICK/MICR parity).** ✅ **Livré (corpus de parité + test journal)** — `testdata/sick/` corpus généré (SICK-corpus phrases FR/EN + chaînes chiffres générées `go generate`) ; `mise run journal` 5ᵉ corpus ajouté ; `paper_parity_test` rapporte défaut vs décodeur matched sur cibles papier. **Nombre actuels honnêtes** : zéro-config SICK ~28 % / digits ~12 % ; décodeurs matchés SICK ~15 % / digits ~0 % — surfaçant gap offset-robustesse/géométrie comme blocage principal P5 suivant.
 
+### 🌐 Vague « décoder tout le testdata » (recherche cross-domaine, v0.12.0) — LIVRÉ
+
+Issu de 4 agents de recherche en parallèle (SOTA depix · problèmes inverses cross-domaine ·
+mur alignement/reconnaissance · out-of-the-box). Les 6 items, **tous opt-in, pur-Go, panel 17/17,
+couverture ≥85 %, zéro nouvelle dépendance runtime** :
+
+- [x] **#1 — Carte de capacité info-théorique** (`internal/capacity`) : classes de glyphes
+      indistinguables après mosaïque, `BitsPerGlyph`, carte de confusion — triage de récupérabilité.
+- [x] **#2 — Pré-filtre par chasse (advance-width)** (`internal/blinddecode`) : élague les
+      candidats dont la largeur ne tient pas dans la bande ±1 bloc, avant le score image.
+      **pool −58 %, DecodeLineWhole ×6.8 plus rapide**. (cf. attaque PDF arXiv 2206.02285 : 81 % via largeur seule).
+- [x] **#3 — Viterbi fusionné au modèle de langue** (`internal/windowhmm` + trained-hmm) :
+      `WithTHMMLMWeight` ; β=0 byte-identique, gate chiffres exact. Aide marginale sur émissions bruitées.
+- [x] **#4 — Décodeur treillis DID** (`internal/did`, `--decoder did`, Kopec-Chou) : DP sur les
+      colonnes-de-début, émission = forward model, frontières découvertes. **Récupère exactement
+      le monospace ET le proportionnel court** (une première). Mur restant : voir ci-dessous.
+- [x] **#5 — Calibrate-from-visible + Nelder-Mead** (`internal/varfont`) : ajuste la police sur le
+      texte net visible ; optimiseur **×3 plus rapide** (8 vs 25 évals). Validé en synthétique.
+- [x] **#6 — Déconvolution L0 texte** (`internal/deblur.TextL0`, `--l0-deblur`, Pan CVPR-2014) :
+      non-aveugle, FFT autonome, MSE 613→45. Opt-in, défaut byte-identique.
+
+### 🔭 Prochaines étapes (post-v0.12.0) — pour *réellement* décoder `real`/`wild`/`sick`
+
+Les 6 items ci-dessus sont du gain **capacité + performance** ; ils ne déplacent **pas encore** les
+corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (cf. mémoire
+`decode-full-corpus-roadmap.md` et la section « Analyse de tendance » de `docs/JOURNAL.md`) :
+
+- [ ] **DID — émission consciente du contexte aux frontières de blocs** *(le vrai déblocage `sick`)*.
+      L'émission DID par-glyphe-isolé ne correspond pas à la pixelisation pleine-ligne quand un bloc
+      chevauche deux glyphes (le mélange inter-frontières resurgit). Rendre le glyphe **avec ses voisins**
+      dans les blocs-frontières (émission dépendante du contexte) ou décoder par paires. `sick` est
+      polices embarquées → c'est le seul mur qui le sépare de la récupération.
+- [ ] **Multi-frame sur captures réelles** (`internal/multiframe` existe) : ajoute de la *vraie*
+      information, mais exige >1 trame ; le testdata est mono-trame → fournir un corpus multi-trames
+      (vidéo / re-rendus à phases sous-bloc différentes) pour exploiter la fusion sous-pixel.
+- [ ] **Élargir le bundle de polices libres** (DejaVu / Noto / Liberation…) + **calibrate-from-visible
+      sur images à texte visible** : les polices GIMP réelles sont des familles libres courantes ;
+      `CalibrateFromVisible` (#5) marche dès qu'une cible porte du clair adjacent (aucun fixture actuel n'en a).
+- [ ] **Limite info-théorique** : certaines `wild` (mono-trame, gros blocs, contenu inconnu) sont
+      proches de l'irrécupérable sans prior fort — utiliser la carte de capacité (#1) pour trier et
+      fixer des attentes plutôt que sur-promettre.
+- [ ] **Émissions HMM robustes au JPEG/offset** (P8 #2 suite) : généraliser le trained-HMM (alnum +
+      augmentation JPEG + balayage de phase) — le gap offset/géométrie reste le blocage `wild`.
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
@@ -740,3 +784,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `4b8e349` 2026-06-24 — feat(deblur): #6 non-blind L0 text deblurring (Pan CVPR-2014, opt-in) _(8 fichiers)_
 - `3a6a69c` 2026-06-24 — test: restore coverage ≥85% for the roadmap wave (#1–#6) _(6 fichiers)_
 - `9262991` 2026-06-24 — docs: document the decode-all-testdata wave (#1–#6) in README + PROGRESS _(2 fichiers)_
+- `3f1be74` 2026-06-24 — docs(release): v0.12.0 — decode-all-testdata wave (#1–#6) + perf _(3 fichiers)_
