@@ -392,3 +392,70 @@ func TestCalibrateAndDecode_E2E(t *testing.T) {
 		t.Logf("blind-start distance: got %.4f > %.4f (calibration warmstart helps when landscape is flat)", got, want)
 	}
 }
+
+// TestCalibrateFromVisible_ValidationErrors verifies that every required-field
+// guard in CalibrateFromVisible returns a non-nil error without panicking.
+func TestCalibrateFromVisible_ValidationErrors(t *testing.T) {
+	font, err := varfont.ParseFont(bytes.NewReader(nunitoData))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+
+	r, err := varfont.NewVarRenderer(bytes.NewReader(nunitoData), []varfont.Axis{
+		{Tag: "wght", Value: 400},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer: %v", err)
+	}
+	img, _, err := r.Render("A", varfont.DefaultStyle())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	m := metric.NewPixelmatchFast(0.1)
+	axes := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}}
+
+	cases := []struct {
+		name string
+		cfg  varfont.CalibrateConfig
+	}{
+		{
+			name: "nil Font",
+			cfg: varfont.CalibrateConfig{
+				Font: nil, Text: "A", Target: img, Metric: m, Axes: axes,
+			},
+		},
+		{
+			name: "nil Target",
+			cfg: varfont.CalibrateConfig{
+				Font: font, Text: "A", Target: nil, Metric: m, Axes: axes,
+			},
+		},
+		{
+			name: "empty Text",
+			cfg: varfont.CalibrateConfig{
+				Font: font, Text: "", Target: img, Metric: m, Axes: axes,
+			},
+		},
+		{
+			name: "empty Axes",
+			cfg: varfont.CalibrateConfig{
+				Font: font, Text: "A", Target: img, Metric: m, Axes: nil,
+			},
+		},
+		{
+			name: "nil Metric",
+			cfg: varfont.CalibrateConfig{
+				Font: font, Text: "A", Target: img, Metric: nil, Axes: axes,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := varfont.CalibrateFromVisible(tc.cfg)
+			if err == nil {
+				t.Errorf("CalibrateFromVisible(%s): got nil error, want non-nil", tc.name)
+			}
+		})
+	}
+}

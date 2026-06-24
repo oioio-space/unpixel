@@ -154,3 +154,47 @@ func TestGlyphAdvancePixels(t *testing.T) {
 		t.Errorf("GlyphAdvancePixels(10, 1.2) = %d, want ≥ 1", adv)
 	}
 }
+
+// TestEmissionCache_PutGetHitMissLen exercises the full EmissionCache contract:
+// New → Put → Get hit → Get miss → Len.
+func TestEmissionCache_PutGetHitMissLen(t *testing.T) {
+	c := NewEmissionCache()
+
+	// Fresh cache: Len is 0, Get on any key is a miss.
+	if got, want := c.Len(), 0; got != want {
+		t.Errorf("Len() after New: got %d, want %d", got, want)
+	}
+	if _, ok := c.Get(0, 0); ok {
+		t.Error("Get(0,0) after New: got hit, want miss")
+	}
+
+	// Put two distinct (gi, col) pairs.
+	c.Put(0, 0, 0.25)
+	c.Put(1, 3, 0.75)
+
+	if got, want := c.Len(), 2; got != want {
+		t.Errorf("Len() after two Puts: got %d, want %d", got, want)
+	}
+
+	// Hit: values must match what was stored.
+	if v, ok := c.Get(0, 0); !ok || v != 0.25 {
+		t.Errorf("Get(0,0): got (%v, %v), want (0.25, true)", v, ok)
+	}
+	if v, ok := c.Get(1, 3); !ok || v != 0.75 {
+		t.Errorf("Get(1,3): got (%v, %v), want (0.75, true)", v, ok)
+	}
+
+	// Miss: key never stored.
+	if _, ok := c.Get(1, 0); ok {
+		t.Error("Get(1,0): got hit, want miss (key not stored)")
+	}
+
+	// Overwrite: Put the same key again — value updates, Len stays the same.
+	c.Put(0, 0, 0.99)
+	if got, want := c.Len(), 2; got != want {
+		t.Errorf("Len() after overwrite: got %d, want %d", got, want)
+	}
+	if v, ok := c.Get(0, 0); !ok || v != 0.99 {
+		t.Errorf("Get(0,0) after overwrite: got (%v, %v), want (0.99, true)", v, ok)
+	}
+}

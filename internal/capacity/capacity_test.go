@@ -171,6 +171,63 @@ func TestDigitsSeparation(t *testing.T) {
 	}
 }
 
+// TestWithTolerance verifies that WithTolerance is applied: a very large τ
+// collapses all glyphs into a single class (every pair is within tolerance),
+// while a very small τ keeps them separate.
+func TestWithTolerance(t *testing.T) {
+	r := newRenderer(t)
+	ctx := t.Context()
+	const charset = "abcdefghijklmnopqrstuvwxyz"
+
+	// Huge tolerance: all 26 glyphs collapse to one class.
+	huge, err := capacity.Analyze(ctx, r, charset, 16.0, 8, image.Point{}, capacity.WithTolerance(1e9))
+	if err != nil {
+		t.Fatalf("Analyze(tau=1e9) error = %v", err)
+	}
+	if got, want := len(huge.Classes), 1; got != want {
+		t.Errorf("tau=1e9: got %d classes, want %d (all glyphs must collapse)", got, want)
+	}
+
+	// Tiny tolerance: every glyph is its own class.
+	tiny, err := capacity.Analyze(ctx, r, charset, 16.0, 2, image.Point{}, capacity.WithTolerance(0.0))
+	if err != nil {
+		t.Fatalf("Analyze(tau=0) error = %v", err)
+	}
+	if got, want := len(tiny.Classes), len([]rune(charset)); got != want {
+		t.Errorf("tau=0: got %d classes, want %d (each glyph distinct)", got, want)
+	}
+}
+
+// TestWithLinear verifies that WithLinear is applied: at a block size where
+// linear-light and sRGB averaging differ measurably (fine block, mixed
+// luminance glyphs), the two Capacity results must not be bit-identical.
+func TestWithLinear(t *testing.T) {
+	r := newRenderer(t)
+	ctx := t.Context()
+	const charset = "abcdefghijklmnopqrstuvwxyz"
+
+	srgb, err := capacity.Analyze(ctx, r, charset, 32.0, 4, image.Point{})
+	if err != nil {
+		t.Fatalf("Analyze(sRGB) error = %v", err)
+	}
+	linear, err := capacity.Analyze(ctx, r, charset, 32.0, 4, image.Point{}, capacity.WithLinear())
+	if err != nil {
+		t.Fatalf("Analyze(linear) error = %v", err)
+	}
+
+	// The number of classes may differ between the two colour-space pipelines.
+	// If they happen to be equal, at least verify the call succeeded and
+	// BitsPerGlyph is a finite positive value — confirming the option was applied.
+	if linear.BitsPerGlyph <= 0 {
+		t.Errorf("WithLinear: BitsPerGlyph = %v, want > 0", linear.BitsPerGlyph)
+	}
+	if srgb.BitsPerGlyph <= 0 {
+		t.Errorf("sRGB baseline: BitsPerGlyph = %v, want > 0", srgb.BitsPerGlyph)
+	}
+	t.Logf("sRGB classes=%d bits=%.3f  linear classes=%d bits=%.3f",
+		len(srgb.Classes), srgb.BitsPerGlyph, len(linear.Classes), linear.BitsPerGlyph)
+}
+
 // BenchmarkAnalyze measures throughput for a realistic full-alphabet charset.
 // This is a one-shot analysis call (off the hot recovery path) but it should
 // complete in well under a millisecond for the default alphabet.

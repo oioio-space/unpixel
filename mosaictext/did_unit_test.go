@@ -11,6 +11,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 
@@ -149,5 +150,80 @@ func TestColumnEmissionDID_InfOnDegenerate(t *testing.T) {
 	}
 	if cost := columnEmissionDID(target, nil, 0, 0, 8, 0, 8, pix); !math.IsInf(cost, 1) {
 		t.Errorf("glyphAdv=0: cost=%v, want +Inf", cost)
+	}
+}
+
+// applyDIDOptions builds a didConfig from defaultDIDConfig and applies opts,
+// mirroring the logic in DecodeDID so option-setter tests stay honest.
+func applyDIDOptions(opts ...DIDOption) didConfig {
+	cfg := defaultDIDConfig()
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return cfg
+}
+
+// TestWithDIDFontFile verifies that supplying non-empty font bytes sets
+// fontData, and that an empty slice is ignored (guard branch).
+func TestWithDIDFontFile(t *testing.T) {
+	sentinel := []byte("FONT")
+	cfg := applyDIDOptions(WithDIDFontFile(sentinel))
+	if got, want := string(cfg.fontData), string(sentinel); got != want {
+		t.Errorf("fontData: got %q, want %q", got, want)
+	}
+
+	// Empty slice must be ignored — fontData stays nil.
+	cfg2 := applyDIDOptions(WithDIDFontFile(nil))
+	if cfg2.fontData != nil {
+		t.Errorf("fontData after nil arg: got %v, want nil", cfg2.fontData)
+	}
+	cfg3 := applyDIDOptions(WithDIDFontFile([]byte{}))
+	if cfg3.fontData != nil {
+		t.Errorf("fontData after empty arg: got %v, want nil", cfg3.fontData)
+	}
+}
+
+// TestWithDIDFontFileBold verifies that supplying non-empty bold bytes sets
+// fontBold, and that an empty slice is ignored.
+func TestWithDIDFontFileBold(t *testing.T) {
+	sentinel := []byte("BOLD")
+	cfg := applyDIDOptions(WithDIDFontFileBold(sentinel))
+	if got, want := string(cfg.fontBold), string(sentinel); got != want {
+		t.Errorf("fontBold: got %q, want %q", got, want)
+	}
+
+	cfg2 := applyDIDOptions(WithDIDFontFileBold(nil))
+	if cfg2.fontBold != nil {
+		t.Errorf("fontBold after nil arg: got %v, want nil", cfg2.fontBold)
+	}
+}
+
+// TestWithDIDLambda verifies that a non-negative lambda is stored and that a
+// negative value is ignored (guard branch).
+func TestWithDIDLambda(t *testing.T) {
+	cfg := applyDIDOptions(WithDIDLambda(0.5))
+	if got, want := cfg.lambda, 0.5; got != want {
+		t.Errorf("lambda: got %v, want %v", got, want)
+	}
+
+	// Negative lambda must be ignored — field stays at zero value.
+	cfg2 := applyDIDOptions(WithDIDLambda(-1.0))
+	if cfg2.lambda != 0 {
+		t.Errorf("lambda after negative arg: got %v, want 0 (ignored)", cfg2.lambda)
+	}
+}
+
+// TestWithDIDLanguage verifies that the language field is updated to the
+// supplied value (French, distinct from the English default).
+func TestWithDIDLanguage(t *testing.T) {
+	cfg := applyDIDOptions(WithDIDLanguage(lang.French))
+	if got, want := cfg.language, lang.French; got != want {
+		t.Errorf("language: got %v, want %v", got, want)
+	}
+
+	// Default must be English.
+	dflt := applyDIDOptions()
+	if got, want := dflt.language, lang.English; got != want {
+		t.Errorf("default language: got %v, want %v", got, want)
 	}
 }
