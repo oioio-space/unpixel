@@ -928,3 +928,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `11cbe81` 2026-06-24 — perf(metric,search): early-exit ceiling on the no-AA pixel metric (3.7x rejected) _(9 fichiers)_
 - `73c9206` 2026-06-24 — perf(varfont): reuse the font Face instead of allocating per Render (fitter hot loop) _(4 fichiers)_
 - `1cfb4bb` 2026-06-24 — refactor: apply /simplify findings on the post-v0.12.0 changes (reuse/dedupe) _(3 fichiers)_
+- `8ed0504` 2026-06-24 — test: restore coverage ≥85% for the perf + C1b wave _(7 fichiers)_

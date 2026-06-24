@@ -114,6 +114,13 @@ type Options struct {
 	// DecodeLineWhole. Set to true to restore byte-identical behaviour to
 	// the pre-filter code path (e.g. for ablation benchmarks).
 	DisableWidthFilter bool
+
+	// Workers is the number of goroutines used for the Cartesian-product image
+	// scoring loop in DecodeLineWhole. Zero (the default) uses
+	// runtime.GOMAXPROCS(0). Set to 1 to force serial execution (e.g. for
+	// benchmarking the single-core baseline or in memory-constrained callers).
+	// Values greater than GOMAXPROCS are clamped to GOMAXPROCS.
+	Workers int
 }
 
 // WordCandidate is one scored dictionary candidate for a word band.

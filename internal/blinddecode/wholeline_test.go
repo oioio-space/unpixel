@@ -257,6 +257,76 @@ func TestRecover_FontSweep(t *testing.T) {
 	}
 }
 
+// TestDecodeLineWhole_Determinism verifies that the parallel scoring loop
+// produces byte-identical output to the serial baseline (Workers=1) for a
+// known two-word English phrase. Byte identity is defined as identical Text,
+// Dist, Prior, and Cost for every returned candidate in the same order.
+//
+// This is the mandatory correctness gate for the H3(conc) parallelisation:
+// the flat-index decode + disjoint-slot write + stable sort must reproduce
+// exactly the same ranking as the serial index walk.
+func TestDecodeLineWhole_Determinism(t *testing.T) {
+	if testing.Short() {
+		t.Skip("~235^2 combinations; skipping in short mode")
+	}
+	const (
+		phrase  = "the cat"
+		offsetX = 0
+	)
+	r := wholeLineRenderer(t)
+	band := syntheticLineBand(t, r, phrase, testBlock, testFontSize, offsetX)
+
+	makeDecoder := func(workers int) *blinddecode.Decoder {
+		r2, err := render.NewXImage()
+		if err != nil {
+			t.Fatalf("NewXImage: %v", err)
+		}
+		return blinddecode.New(blinddecode.Options{
+			Renderer:  r2,
+			Pixelator: pixelate.NewLinearBlockAverage(testBlock),
+			Metric:    metric.NewSSIM(0),
+			Dict:      lang.DictionaryFor(lang.English),
+			Prior:     lang.PriorFor(lang.English),
+			Block:     testBlock,
+			FontSize:  testFontSize,
+			Alpha:     1.0,
+			Beta:      0.005,
+			TopK:      0,
+			BeamWidth: 8,
+			Workers:   workers,
+		})
+	}
+
+	serial := makeDecoder(1).DecodeLineWhole(band)
+	parallel := makeDecoder(0).DecodeLineWhole(band) // 0 = GOMAXPROCS
+
+	if len(serial) == 0 {
+		t.Fatal("serial DecodeLineWhole returned no candidates")
+	}
+	if got, want := len(parallel), len(serial); got != want {
+		t.Fatalf("parallel returned %d candidates, serial returned %d", got, want)
+	}
+	for i := range serial {
+		s, p := serial[i], parallel[i]
+		if s.Text != p.Text {
+			t.Errorf("candidate[%d].Text: serial=%q parallel=%q", i, s.Text, p.Text)
+		}
+		if s.Dist != p.Dist {
+			t.Errorf("candidate[%d].Dist: serial=%v parallel=%v", i, s.Dist, p.Dist)
+		}
+		if s.Prior != p.Prior {
+			t.Errorf("candidate[%d].Prior: serial=%v parallel=%v", i, s.Prior, p.Prior)
+		}
+		if s.Cost != p.Cost {
+			t.Errorf("candidate[%d].Cost: serial=%v parallel=%v", i, s.Cost, p.Cost)
+		}
+	}
+	if t.Failed() {
+		return
+	}
+	t.Logf("byte-identical: %d candidates, top-1 %q dist=%.6f", len(serial), serial[0].Text, serial[0].Dist)
+}
+
 // sinkLineCandidates prevents dead-code elimination of benchmark results.
 var sinkLineCandidates []blinddecode.LineCandidate
 
@@ -300,14 +370,21 @@ func BenchmarkDecodeLineWhole(b *testing.B) {
 	}
 
 	for _, bc := range []struct {
-		name   string
-		phrase string
+		name    string
+		phrase  string
+		workers int // 0 = GOMAXPROCS (parallel), 1 = serial
 	}{
-		{"2word_k235", "the cat"},       // k≈235 → ~(3·235)^2 ≈ 495 K combinations
-		{"4word_k9", "the not for and"}, // k≈9   → ~(3·9)^4   ≈ 531 K combinations; all words rank ≤ 7
+		// workers=0 cases: measured by -cpu flag in the benchstat sweep.
+		{"2word_k235", "the cat", 0},       // k≈235 → ~(3·235)^2 ≈ 495 K combinations
+		{"4word_k9", "the not for and", 0}, // k≈9   → ~(3·9)^4   ≈ 531 K combinations; all words rank ≤ 7
+		// workers=1 cases: serial baseline for within-run A/B comparison.
+		{"2word_k235_serial", "the cat", 1},
+		{"4word_k9_serial", "the not for and", 1},
 	} {
 		b.Run(bc.name, func(b *testing.B) {
-			d := blinddecode.New(baseOpts)
+			opts := baseOpts
+			opts.Workers = bc.workers
+			d := blinddecode.New(opts)
 			band := makeBand(bc.phrase)
 			b.ReportAllocs()
 			for b.Loop() {

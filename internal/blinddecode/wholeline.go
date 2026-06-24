@@ -42,8 +42,10 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	xdraw "golang.org/x/image/draw"
 
@@ -172,48 +174,118 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 	alpha := d.opts.Alpha
 	beta := d.opts.Beta
 
-	// Iterative index-based Cartesian product (avoids deep recursion).
+	// Compute per-pool sizes and total N = ∏ sizes.
 	sizes := make([]int, nWords)
 	for i, p := range pools {
 		sizes[i] = len(p)
 	}
-	indices := make([]int, nWords)
-	words := make([]string, nWords) // reused across iterations
+	total := 1
+	for _, s := range sizes {
+		total *= s
+	}
+
+	// Resolve the effective worker count.
+	workers := d.opts.Workers
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	} else {
+		workers = min(workers, runtime.GOMAXPROCS(0))
+	}
 
 	var results []LineCandidate
-	for {
-		for i := range nWords {
-			words[i] = pools[i][indices[i]]
-		}
-		text := strings.Join(words, " ")
-		dist := d.scoreWholeLine(text, line)
-		prior := d.opts.Prior(text)
-		// Cost uses the caller's Beta for informational purposes, but the
-		// final sort is by Dist alone: at whole-line resolution the image
-		// signal is the dominant discriminator (correct phrase scores ≈0,
-		// near-misses score 0.002–0.01) and prior weighting calibrated for
-		// per-word scoring would incorrectly penalise low-frequency but
-		// correct words (e.g. "dort", "cat").
-		cost := alpha*dist + beta*(-prior)
-		results = append(results, LineCandidate{
-			Text:  text,
-			Dist:  dist,
-			Prior: prior,
-			Cost:  cost,
-		})
-
-		// Advance indices (rightmost position increments first).
-		carry := true
-		for i := nWords - 1; i >= 0 && carry; i-- {
-			indices[i]++
-			if indices[i] < sizes[i] {
-				carry = false
-			} else {
-				indices[i] = 0
+	if workers <= 1 || total <= 1 {
+		// Serial path: original single-pass loop — zero extra allocations.
+		// Prior and scoreWholeLine run in the same iteration, no intermediate slices.
+		results = make([]LineCandidate, 0, total)
+		words := make([]string, nWords)
+		indices := make([]int, nWords)
+		for {
+			for i := range nWords {
+				words[i] = pools[i][indices[i]]
+			}
+			text := strings.Join(words, " ")
+			dist := d.scoreWholeLine(text, line)
+			prior := d.opts.Prior(text)
+			// Cost uses the caller's Beta for informational purposes, but the
+			// final sort is by Dist alone: at whole-line resolution the image
+			// signal is the dominant discriminator (correct phrase scores ≈0,
+			// near-misses score 0.002–0.01) and prior weighting calibrated for
+			// per-word scoring would incorrectly penalise low-frequency but
+			// correct words (e.g. "dort", "cat").
+			results = append(results, LineCandidate{
+				Text:  text,
+				Dist:  dist,
+				Prior: prior,
+				Cost:  alpha*dist + beta*(-prior),
+			})
+			carry := true
+			for i := nWords - 1; i >= 0 && carry; i-- {
+				indices[i]++
+				if indices[i] < sizes[i] {
+					carry = false
+				} else {
+					indices[i] = 0
+				}
+			}
+			if carry {
+				break
 			}
 		}
-		if carry {
-			break
+	} else {
+		// Parallel path (workers > 1):
+		//
+		// Phase 1 (serial): enumerate all N combinations and compute priors.
+		// d.opts.Prior (backed by Infini) is NOT safe for concurrent calls
+		// (unsynchronised map cache), so it MUST run here, before the parallel
+		// phase. widthCache was fully populated by wordPool's filter pass above,
+		// so the parallel phase only reads it — no race.
+		texts := make([]string, total)
+		priors := make([]float64, total)
+		{
+			words := make([]string, nWords)
+			for flat := range total {
+				// Decode flat index → per-word indices (rightmost word fastest).
+				rem := flat
+				for i := nWords - 1; i >= 0; i-- {
+					words[i] = pools[i][rem%sizes[i]]
+					rem /= sizes[i]
+				}
+				texts[flat] = strings.Join(words, " ")
+				priors[flat] = d.opts.Prior(texts[flat])
+			}
+		}
+
+		// Phase 2 (parallel): score each combination with scoreWholeLine.
+		// scoreWholeLine calls Renderer.Render, Pixelator.Pixelate, and
+		// Metric.Compare — all concurrent-safe (face-pooled renderer,
+		// sync.Pool-backed pixelator and metric). Each goroutine writes to
+		// its own disjoint dists[i] slot, so no additional synchronisation
+		// beyond the WaitGroup is needed.
+		dists := make([]float64, total)
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
+		for i, text := range texts {
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-sem }()
+				dists[i] = d.scoreWholeLine(text, line)
+			})
+		}
+		wg.Wait()
+
+		// Phase 3 (serial): assemble LineCandidate results.
+		// Cost uses the caller's Beta for informational purposes; see serial
+		// path comment for the rationale.
+		results = make([]LineCandidate, total)
+		for i := range total {
+			dist := dists[i]
+			prior := priors[i]
+			results[i] = LineCandidate{
+				Text:  texts[i],
+				Dist:  dist,
+				Prior: prior,
+				Cost:  alpha*dist + beta*(-prior),
+			}
 		}
 	}
 
