@@ -577,6 +577,66 @@ corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (
 - [ ] **Émissions HMM robustes au JPEG/offset** (P8 #2 suite) : généraliser le trained-HMM (alnum +
       augmentation JPEG + balayage de phase) — le gap offset/géométrie reste le blocage `wild`.
 
+### 🧩 Décodage assisté par contexte — exploiter ce qui entoure la rédaction
+
+Le mur dominant sur `real`/`wild` est la **fidélité de police** : on ne possède pas la fonte exacte,
+donc le render→re-pixelise→compare ne matche jamais (journal v0.12.0 : `real` conf 1.000 /
+fidélité 0.000 = « faux avec assurance »). La parade la plus puissante n'est pas un meilleur
+score image, c'est d'**injecter du contexte présent dans l'image** pour *déterminer* ou
+*reconstituer* la police, puis verrouiller cette police pour la zone rédigée. Briques déjà en
+place à exploiter : `varfont.CalibrateFromVisible` (#5), `varfont.FitAxes`/VarRenderer (B1),
+`fontrank` (B3), `internal/capacity` (#1).
+
+**Fondé sur les signaux du journal (`docs/JOURNAL.md`, run v0.12.0) :**
+- `real` **conf 1.000 / fidélité 0.000** + échecs `wrong-glyphs ×2` → mauvaise police, pas
+  mauvaise géométrie : motive **C1** (déterminer la police par le clair) et **C2** (reconstituer).
+- `sick` mode d'échec **`wrong-length ×9`** → frontières mal calées sur phrases proportionnelles :
+  motive **C3** (contexte/format) en complément du DID context-aware.
+- Table décodeurs : **`ref-match` 4/10 exact sur `sick`** (meilleur, 5 s) alors que le chemin cœur
+  fait 0/10 → un **routage par contexte** vers le bon décodeur (et son renforcement) est un levier
+  immédiat, traçable via la table décodeurs.
+- `wild` **below-threshold ×3** (conf 0.527) → contenu/police inconnus : C2 + C4 (élagage) d'abord.
+
+Propositions, par levier :
+
+- [ ] **C1 — Police déterminée par le texte clair adjacent (calibrate-from-visible auto).**
+      *La demande directe.* Beaucoup de captures réelles montrent du texte **net** à côté du
+      caviardage (libellé « Mot de passe : ●●●● », légende, en-tête). Pipeline : (a) détecter la
+      région de texte net + la région mosaïque (segmentation/`LocateRedaction`) ; (b) ajuster la
+      police sur les **glyphes nets connus** via `CalibrateFromVisible` (objectif fort, sans
+      ambiguïté — méthode Bishop Fox/Kopec) ; (c) verrouiller (police, taille, étirement-x,
+      graisse, espacement) et décoder la mosaïque avec. Manque aujourd'hui : la **détection auto
+      des deux régions** + une API/CLI bout-en-bout (`--visible-text "…"` ou OCR du clair), et
+      surtout **un corpus de test** (cf. testdata ci-dessous). Impact : `real`/`wild` à texte
+      visible. Pur-Go, briques #5 prêtes.
+- [ ] **C2 — Reconstitution de la police (font reconstruction).** Quand aucun clair n'est
+      disponible mais la police est « courante » : (a) `fontrank` (B3) classe la **famille libre**
+      la plus proche par empreinte glyphique ; (b) `FitAxes`/Nelder-Mead (B1/#5) **déforme une
+      fonte variable** (wght/wdth/opsz/slnt) pour matcher la rédaction ; (c) on fige l'instance
+      reconstituée comme renderer pour le décodage. Étendre : ajouter les axes `opsz`/`slnt`,
+      élargir le bundle variable (Roboto Flex / Source Sans 3 VF), et calibrer sur le clair (C1)
+      quand il existe. Manque : corpus de polices non-embarquées mais atteignables par axes.
+- [ ] **C3 — Contexte linguistique partiel (cleartext partiel → contrainte).** Quand une partie
+      du texte est connue (préfixe « https:// », libellé, mots voisins visibles, format
+      « IBAN/UUID/date »), contraindre la recherche/le LM : préfixe figé, gabarit de format,
+      n-grammes conditionnés au voisinage. Impact : `real` phrases, secrets structurés. Briques :
+      `internal/lang` + les priors structurés existants.
+- [ ] **C4 — Empreinte glyphique métrique depuis le clair → élagage du bundle (B3 piloté par
+      le contexte).** Mesurer x-height/cap-height/chasse/serif sur les glyphes **nets** pour
+      classer/élaguer les polices candidates *avant* le fit C2 (probe ~310× moins cher que décoder).
+
+#### 🗂️ Testdata à compléter pour C1/C2 (corpus `context`)
+
+- [ ] **Nouveau corpus `testdata/context/`** : images contenant **du texte clair + une zone
+      caviardée dans la MÊME police/taille**, avec un manifeste donnant : texte visible + son
+      rectangle, vérité-terrain du secret + son rectangle, police, taille, bloc, gamma. Générateur
+      `internal/fixture/gencontext` (sur le modèle de `gensick`). Permet de **mesurer C1** :
+      calibrer sur le clair → décoder le caviardé → comparer au secret. Quelques variantes :
+      même-ligne (« User: ▓▓▓▓ »), libellé au-dessus, polices embarquées ET une variable
+      (Nunito) pour C2.
+- [ ] **Ajouter ce corpus au journal** (table décodeurs : `calibrate→context`) pour tracer C1/C2
+      dans le temps comme les autres.
+
 ## 🧭 Décisions clés
 
 - **Repo public** ; **v0.1.0** (premier module public), **v0.2.0** (Phase 2 + CLI), **v0.3.0**
@@ -788,3 +848,4 @@ corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (
 - `2273387` 2026-06-24 — docs(progress): add forward-looking roadmap — v0.12.0 wave done + remaining blockers _(1 fichiers)_
 - `3ddf48a` 2026-06-24 — feat(journal): track opt-in decoders over time (second evolution table) _(5 fichiers)_
 - `4fdc373` 2026-06-24 — feat(journal): track failure-mode + confidence/fidelity/timing signals for analysis _(4 fichiers)_
+- `d5fc8fa` 2026-06-24 — docs(journal): v0.12.0 run — decoder table + analysis signals populated _(2 fichiers)_
