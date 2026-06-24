@@ -599,16 +599,20 @@ place à exploiter : `varfont.CalibrateFromVisible` (#5), `varfont.FitAxes`/VarR
 
 Propositions, par levier :
 
-- [ ] **C1 — Police déterminée par le texte clair adjacent (calibrate-from-visible auto).**
-      *La demande directe.* Beaucoup de captures réelles montrent du texte **net** à côté du
-      caviardage (libellé « Mot de passe : ●●●● », légende, en-tête). Pipeline : (a) détecter la
-      région de texte net + la région mosaïque (segmentation/`LocateRedaction`) ; (b) ajuster la
-      police sur les **glyphes nets connus** via `CalibrateFromVisible` (objectif fort, sans
-      ambiguïté — méthode Bishop Fox/Kopec) ; (c) verrouiller (police, taille, étirement-x,
-      graisse, espacement) et décoder la mosaïque avec. Manque aujourd'hui : la **détection auto
-      des deux régions** + une API/CLI bout-en-bout (`--visible-text "…"` ou OCR du clair), et
-      surtout **un corpus de test** (cf. testdata ci-dessous). Impact : `real`/`wild` à texte
-      visible. Pur-Go, briques #5 prêtes.
+- [ ] **C1 — Police déterminée par un échantillon de texte net (calibrate-from-visible).**
+      *La demande directe.* `varfont.CalibrateFromVisible` accepte **n'importe quel crop net +
+      son texte connu** → deux sources de calibration, même moteur (objectif fort, méthode
+      Bishop Fox/Kopec) :
+      - **C1a — texte clair ADJACENT** (même image) : libellé/légende à côté du caviardage.
+        Pipeline : détecter région nette + région mosaïque (`LocateRedaction`/segmentation) →
+        calibrer sur les glyphes nets connus → verrouiller (police/taille/étirement-x/graisse/
+        espacement) → décoder. Manque : détection auto des deux régions + CLI `--visible-text`.
+      - **C1b — police fournie dans une AUTRE image** (échantillon séparé) : l'utilisateur donne
+        une image rendant du texte dans la police cible + son texte ; on calibre dessus puis on
+        décode le caviardage d'une image distincte. CLI `--font-sample <img> --font-sample-text`.
+        C'est C1a avec un crop d'un fichier séparé — le moteur ne fait pas la différence.
+      Manque surtout **un corpus de test** (cf. testdata ci-dessous, dont une paire
+      échantillon↔caviardage). Impact : `real`/`wild`. Pur-Go, briques #5 prêtes.
 - [ ] **C2 — Reconstitution de la police (font reconstruction).** Quand aucun clair n'est
       disponible mais la police est « courante » : (a) `fontrank` (B3) classe la **famille libre**
       la plus proche par empreinte glyphique ; (b) `FitAxes`/Nelder-Mead (B1/#5) **déforme une
@@ -850,3 +854,4 @@ Propositions, par levier :
 - `4fdc373` 2026-06-24 — feat(journal): track failure-mode + confidence/fidelity/timing signals for analysis _(4 fichiers)_
 - `d5fc8fa` 2026-06-24 — docs(journal): v0.12.0 run — decoder table + analysis signals populated _(2 fichiers)_
 - `c9a914e` 2026-06-24 — docs(progress): propose context-assisted decoding (C1–C4), grounded in the journal _(1 fichiers)_
+- `8f09a3a` 2026-06-24 — test(context): add testdata/context corpus for context-assisted decoding (C1/C2) _(16 fichiers)_
