@@ -103,7 +103,7 @@ type flagParams struct {
 	blind               bool
 	lang                string
 	denoise             int
-	decoder             string // "default" or "mono-hmm"
+	decoder             string // "default", "mono-hmm", or "did"
 	normalize           bool
 	normalizeBg         string // "divide", "subtract", "none"
 	normalizeBin        bool
@@ -222,10 +222,10 @@ func validateParams(p flagParams) error {
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	switch p.decoder {
-	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont": // "" is equivalent to "default"
+	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did": // "" is equivalent to "default"
 	default:
-		return fmt.Errorf("--decoder must be %q, %q, %q, %q, %q, or %q, got %q",
-			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", p.decoder)
+		return fmt.Errorf("--decoder must be %q, %q, %q, %q, %q, %q, or %q, got %q",
+			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did", p.decoder)
 	}
 	return nil
 }
@@ -957,6 +957,126 @@ func runHMM(ctx context.Context, imgPath string, p flagParams) error {
 			CharCount:  res.CharCount,
 			GridPhaseX: res.GridPhaseX,
 			Distance:   res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
+// runDID runs the Document Image Decoding trellis decoder (mosaictext.DecodeDID)
+// when --decoder did is set. It reuses --lang, --font-size, --gamma (linear),
+// --charset, --quiet, --format, and --block-size from the standard flags. The
+// result is printed in the same text/JSON format as the other decoders so
+// tooling is consistent.
+func runDID(ctx context.Context, imgPath string, p flagParams) error {
+	l, ok := lang.ParseLanguage(p.lang)
+	if !ok {
+		return fmt.Errorf("--lang: unknown language %q (supported: en, fr)", p.lang)
+	}
+
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	charset := p.charset
+	if charset == "" {
+		charset = mosaictext.DefaultDIDCharset
+	}
+
+	opts := []mosaictext.DIDOption{
+		mosaictext.WithDIDLanguage(l),
+		mosaictext.WithDIDCharset(charset),
+	}
+	if p.fontSize > 0 {
+		opts = append(opts, mosaictext.WithDIDFontSize(p.fontSize))
+	}
+	if p.blockSize > 0 {
+		opts = append(opts, mosaictext.WithDIDBlockSize(p.blockSize))
+	}
+
+	// Font selection: when --font names a file that exists on disk, read its
+	// bytes and pass WithDIDFontFile. When the path does not exist on disk,
+	// treat it as a bundled font name and use WithDIDFont.
+	fontSource := "bundled sweep"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		switch {
+		case readErr == nil:
+			opts = append(opts, mosaictext.WithDIDFontFile(data))
+			fontSource = "file:" + filepath.Base(fontPath)
+			if p.fontBoldPath != "" {
+				boldData, boldErr := os.ReadFile(p.fontBoldPath) // #nosec G304 -- user-supplied path
+				if boldErr != nil {
+					return fmt.Errorf("--font-bold: %w", boldErr)
+				}
+				opts = append(opts, mosaictext.WithDIDFontFileBold(boldData))
+			}
+		case os.IsNotExist(readErr):
+			opts = append(opts, mosaictext.WithDIDFont(fontPath))
+			fontSource = "bundled:" + fontPath
+		default:
+			return fmt.Errorf("--font: %w", readErr)
+		}
+	}
+
+	// Linear-light mode: --gamma maps to WithDIDLinear.
+	// "linear" → linear-light only (1); "srgb" → sRGB only (0); "auto"/""→ sweep (-1).
+	switch p.gamma {
+	case "linear":
+		opts = append(opts, mosaictext.WithDIDLinear(1))
+	case "srgb":
+		opts = append(opts, mosaictext.WithDIDLinear(0))
+	default:
+		opts = append(opts, mosaictext.WithDIDLinear(-1))
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: did (lang=%s charset=%d chars font=%s)\n",
+			l, len([]rune(charset)), fontSource)
+	}
+
+	res, err := mosaictext.DecodeDID(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodeDID: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Font: %s  linear: %v  block: %d  phaseX: %d  evals: %d  dist: %.4f\n",
+			res.Font, res.Linear, res.BlockSize, res.GridPhaseX, res.EmissionEvals, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess     string  `json:"best_guess"`
+			Font          string  `json:"font,omitempty"`
+			Linear        bool    `json:"linear"`
+			BlockSize     int     `json:"block_size"`
+			GridPhaseX    int     `json:"grid_phase_x"`
+			EmissionEvals int     `json:"emission_evals"`
+			Distance      float64 `json:"distance"`
+		}{
+			BestGuess:     res.Text,
+			Font:          res.Font,
+			Linear:        res.Linear,
+			BlockSize:     res.BlockSize,
+			GridPhaseX:    res.GridPhaseX,
+			EmissionEvals: res.EmissionEvals,
+			Distance:      res.Distance,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1816,6 +1936,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return runVarFont(ctx, imgPath, p)
 	case "trained-hmm":
 		return runTrainedHMM(ctx, imgPath, p)
+	case "did":
+		return runDID(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {
