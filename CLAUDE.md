@@ -2,8 +2,12 @@
 
 State & roadmap: see `PROGRESS.md`. Tooling is managed by **mise** — run everything with
 `mise run …` (lint, test, ci, fmt, scan:*, sbom, gh, …). Commits go through git hooks
-(secrets → vulns → style) and Claude PreToolUse hooks (style/simplify/secret/vuln review,
-modern-Go injection on `.go` edits).
+(janitor → secrets → vulns → style → cgo → **/simplify review attestation**) and Claude
+PreToolUse hooks (style/simplify/secret/vuln review, modern-Go injection on `.go` edits).
+The `/simplify` review is a **mandatory gate on every commit path**: `.githooks/pre-commit`
+requires the approval marker (`$GIT_DIR/claude-simplify-ok`, keyed to the exact staged
+diff) — arm it only after genuinely completing the review; `--no-verify` bypasses (emergency
+only).
 
 ## Commands (all via mise; `CGO_ENABLED=0` pinned)
 

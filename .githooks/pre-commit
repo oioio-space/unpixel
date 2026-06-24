@@ -3,11 +3,18 @@
 # Installed via `git config core.hooksPath .githooks`, so it is versioned and fires for
 # everyone on every `git commit`.
 #
-# Four gates, in order:
+# Gates, in order:
 #   0. Repo janitor — tidy regenerable artifacts + block any staged artifact.
 #   1. Secret scan (gitleaks) on staged changes — block leaks before they exist.
 #   2. Code vuln scan (gosec + govulncheck) on staged Go — block insecure code.
 #   3. Google Go style-guide gate (gofmt/vet/golangci-lint/build/test) on staged Go.
+#   4. Pure-Go (no CGO) gate.
+#   5. /simplify review attestation — the AI-judgment review dimensions (reuse /
+#      simplification / efficiency / altitude, plus secrets/vulns/style/cleanup/
+#      ergonomics/docs) cannot be checked deterministically, so this gate requires the
+#      approval marker keyed to the EXACT staged diff. It makes /simplify a MANDATORY
+#      gate on every commit path (humans, other tools, or with Claude hooks off), not
+#      only Claude's PreToolUse hook. Bypass (emergency only): git commit --no-verify.
 # A non-zero exit from any of them aborts the commit.
 set -euo pipefail
 
@@ -53,3 +60,21 @@ gate "Running Google Go style-guide checks…" \
 gate "Checking the project stays pure Go (no CGO)…" \
   "Commit blocked: CGO is forbidden in this project (see CLAUDE.md)." \
   "cgo:check" "$repo_root/scripts/cgo-check.sh"
+
+# Gate 5: /simplify review attestation (keyed to the exact staged diff).
+# Runs last: objective gates surface actionable fixes first; this records that the
+# AI-judgment review was completed on the final staged content. git skips this hook
+# entirely under `git commit --no-verify`, so no explicit bypass handling is needed.
+printf '\033[34m▶ %s\033[0m\n' "Checking the /simplify review attestation…"
+marker="$(git rev-parse --git-dir)/claude-simplify-ok"
+staged_hash="$(git diff --cached | sha1sum | cut -d' ' -f1)"
+if [[ ! -f "$marker" || "$(cat "$marker" 2>/dev/null)" != "$staged_hash" ]]; then
+  printf '\033[31m✗ %s\033[0m\n' "Commit blocked: the /simplify review is not recorded for this staged diff." >&2
+  printf '  Complete the full pre-commit review (reuse / simplification / efficiency / altitude,\n' >&2
+  printf '  plus secrets / vulns / style / cleanup / ergonomics / docs), then record approval\n' >&2
+  printf '  for the exact staged set and re-run the commit:\n' >&2
+  printf '      git diff --cached | sha1sum | cut -d" " -f1 > %s\n' "\"$marker\"" >&2
+  printf '  (Emergency bypass only: git commit --no-verify)\n' >&2
+  exit 1
+fi
+printf '\033[32m✓ %s\033[0m\n' "/simplify review attestation present"
