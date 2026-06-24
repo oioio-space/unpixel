@@ -17,6 +17,160 @@ import (
 	"github.com/oioio-space/unpixel/mosaictext"
 )
 
+// TestParseRegion exercises the "x,y,w,h" region parser with valid and invalid inputs.
+func TestParseRegion(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    image.Rectangle
+		wantErr bool
+	}{
+		{
+			name:  "simple origin",
+			input: "0,0,10,20",
+			want:  image.Rect(0, 0, 10, 20),
+		},
+		{
+			name:  "non-zero origin",
+			input: "5,3,100,50",
+			want:  image.Rect(5, 3, 105, 53),
+		},
+		{
+			name:  "negative x y allowed",
+			input: "-4,-2,8,4",
+			want:  image.Rect(-4, -2, 4, 2),
+		},
+		{
+			name:  "spaces around values",
+			input: " 1 , 2 , 3 , 4 ",
+			want:  image.Rect(1, 2, 4, 6),
+		},
+		{
+			name:    "wrong field count — three parts",
+			input:   "1,2,3",
+			wantErr: true,
+		},
+		{
+			name:    "wrong field count — five parts",
+			input:   "1,2,3,4,5",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric x",
+			input:   "a,0,10,10",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric h",
+			input:   "0,0,10,abc",
+			wantErr: true,
+		},
+		{
+			name:    "negative width",
+			input:   "0,0,-1,10",
+			wantErr: true,
+		},
+		{
+			name:    "negative height",
+			input:   "0,0,10,-5",
+			wantErr: true,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseRegion(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("parseRegion(%q): got nil error, want error", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("parseRegion(%q): unexpected error: %v", tc.input, err)
+				return
+			}
+			if got != tc.want {
+				t.Errorf("parseRegion(%q): got %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// writeTinyPNG writes a 4×4 white PNG to path and returns the path.
+func writeTinyPNG(t *testing.T, path string) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := range 4 {
+		for x := range 4 {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		_ = f.Close()
+		t.Fatalf("encode PNG: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close %s: %v", path, err)
+	}
+	return path
+}
+
+// TestLoadVisibleCrop covers the main branches of loadVisibleCrop.
+func TestLoadVisibleCrop(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := writeTinyPNG(t, filepath.Join(dir, "tiny.png"))
+
+	t.Run("no region returns full image", func(t *testing.T) {
+		got, err := loadVisibleCrop(imgPath, "")
+		if err != nil {
+			t.Fatalf("loadVisibleCrop: unexpected error: %v", err)
+		}
+		if got.Bounds().Dx() != 4 || got.Bounds().Dy() != 4 {
+			t.Errorf("got dims %dx%d, want 4x4", got.Bounds().Dx(), got.Bounds().Dy())
+		}
+	})
+
+	t.Run("region crops correctly", func(t *testing.T) {
+		got, err := loadVisibleCrop(imgPath, "1,1,2,2")
+		if err != nil {
+			t.Fatalf("loadVisibleCrop with region: unexpected error: %v", err)
+		}
+		if got.Bounds().Dx() != 2 || got.Bounds().Dy() != 2 {
+			t.Errorf("got dims %dx%d, want 2x2", got.Bounds().Dx(), got.Bounds().Dy())
+		}
+	})
+
+	t.Run("bad path returns error", func(t *testing.T) {
+		_, err := loadVisibleCrop(filepath.Join(dir, "nonexistent.png"), "")
+		if err == nil {
+			t.Error("loadVisibleCrop(bad path): got nil error, want error")
+		}
+	})
+
+	t.Run("bad region string returns error", func(t *testing.T) {
+		_, err := loadVisibleCrop(imgPath, "not-a-region")
+		if err == nil {
+			t.Error("loadVisibleCrop(bad region): got nil error, want error")
+		}
+	})
+
+	t.Run("region outside image bounds returns error", func(t *testing.T) {
+		_, err := loadVisibleCrop(imgPath, "100,100,10,10")
+		if err == nil {
+			t.Error("loadVisibleCrop(out-of-bounds region): got nil error, want error")
+		}
+	})
+}
+
 // TestBuildConfig verifies that buildConfig maps flag values to unpixel.Config
 // correctly, including the TopN and Threshold fields.
 func TestBuildConfig(t *testing.T) {

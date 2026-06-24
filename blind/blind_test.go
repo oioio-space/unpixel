@@ -413,3 +413,38 @@ func BenchmarkRecoverLetterSpacingSearch(b *testing.B) {
 		}
 	})
 }
+
+// TestWithGamma_returnsNonNilOption verifies that WithGamma returns a non-nil
+// Option for each GammaMode constant. The option body is exercised here so that
+// coverage is recorded without requiring the slow Recover pipeline.
+func TestWithGamma_returnsNonNilOption(t *testing.T) {
+	modes := []blind.GammaMode{blind.GammaAuto, blind.GammaLinear, blind.GammaSRGB}
+	for _, m := range modes {
+		opt := blind.WithGamma(m)
+		if opt == nil {
+			t.Errorf("WithGamma(%v) returned nil Option", m)
+		}
+	}
+}
+
+// TestWithLetterSpacingSearch_returnsNonNilOption verifies that
+// WithLetterSpacingSearch returns a non-nil Option both with and without
+// explicit values.
+func TestWithLetterSpacingSearch_returnsNonNilOption(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []float64
+	}{
+		{name: "no values (no-op)", values: nil},
+		{name: "single value", values: []float64{-0.2}},
+		{name: "multiple values", values: []float64{-0.4, 0, 0.4}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := blind.WithLetterSpacingSearch(tc.values...)
+			if opt == nil {
+				t.Errorf("WithLetterSpacingSearch(%v) returned nil Option", tc.values)
+			}
+		})
+	}
+}

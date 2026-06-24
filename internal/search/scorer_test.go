@@ -380,3 +380,85 @@ func TestGuidedStrategy_searchFindsCandidate(t *testing.T) {
 		t.Logf("correctly recovered plaintext 'ab'")
 	}
 }
+
+// TestPipelineScorer_EvalBounded_looseCeilMatchesEval verifies that
+// EvalBounded with a loose ceiling (1.0) returns the same result as Eval for
+// both the correct guess and a wrong guess.
+func TestPipelineScorer_EvalBounded_looseCeilMatchesEval(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	cases := []struct{ guess, prev string }{
+		{"ab", "a"},
+		{"zz", "z"},
+		{"a", ""},
+	}
+	for _, tc := range cases {
+		want := scorer.Eval(t.Context(), tc.guess, tc.prev, offset)
+		got := scorer.EvalBounded(t.Context(), tc.guess, tc.prev, offset, 1.0)
+		if got != want {
+			t.Errorf("EvalBounded(%q,%q, ceil=1.0): got %+v, want %+v", tc.guess, tc.prev, got, want)
+		}
+	}
+}
+
+// TestPipelineScorer_EvalBounded_zeroCeilMatchesEval verifies that
+// EvalBounded with ceiling=0 (disabled) returns the same result as Eval.
+func TestPipelineScorer_EvalBounded_zeroCeilMatchesEval(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	want := scorer.Eval(t.Context(), "ab", "a", offset)
+	got := scorer.EvalBounded(t.Context(), "ab", "a", offset, 0)
+	if got != want {
+		t.Errorf("EvalBounded(%q,%q, ceil=0): got %+v, want %+v", "ab", "a", got, want)
+	}
+}
+
+// TestPipelineScorer_EvalBounded_tightCeilRejectsWrongGuess verifies that a
+// tight ceiling that the correct guess passes is also respected: a wrong guess
+// whose true score exceeds the ceiling must return Score >= ceiling.
+func TestPipelineScorer_EvalBounded_tightCeilRejectsWrongGuess(t *testing.T) {
+	scorer, cfg, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	correctScore := scorer.Eval(t.Context(), "ab", "a", offset).Score
+	// The ceiling sits just above the correct score — the correct guess is
+	// accepted; a clearly wrong guess should be rejected (score >= ceiling).
+	ceil := correctScore + 0.1
+	if ceil >= cfg.Threshold {
+		// If somehow the correct score is already near threshold, widen to threshold.
+		ceil = cfg.Threshold
+	}
+
+	wrongBounded := scorer.EvalBounded(t.Context(), "zz", "z", offset, ceil)
+	wrongFull := scorer.Eval(t.Context(), "zz", "z", offset)
+
+	// For accepted candidates (score < ceiling) EvalBounded == Eval.
+	// For rejected candidates score >= ceiling.  wrongFull > ceil means rejected.
+	if wrongFull.Score < ceil {
+		// Wrong guess happened to fit under the ceiling — just verify valid range.
+		if wrongBounded.Score < 0 || wrongBounded.Score > 1 {
+			t.Errorf("EvalBounded wrong guess accepted: Score=%v out of [0,1]", wrongBounded.Score)
+		}
+	} else {
+		if wrongBounded.Score < ceil {
+			t.Errorf("EvalBounded wrong guess rejected: Score=%v, want >= ceil %.4f", wrongBounded.Score, ceil)
+		}
+	}
+}
+
+// TestPipelineScorer_EvalBounded_cancelledContext verifies that a pre-cancelled
+// context causes EvalBounded to return score=1 without rendering.
+func TestPipelineScorer_EvalBounded_cancelledContext(t *testing.T) {
+	scorer, _, _, _ := buildScorerFixture(t)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	got := scorer.EvalBounded(ctx, "ab", "a", offset, 0.5)
+	if got.Score != 1 {
+		t.Errorf("EvalBounded cancelled ctx: Score = %v, want 1", got.Score)
+	}
+}

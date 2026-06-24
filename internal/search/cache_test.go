@@ -1,6 +1,7 @@
 package search_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -113,5 +114,81 @@ func TestCachingScorer_disabled(t *testing.T) {
 	_, misses := cs.Stats()
 	if misses != 2 {
 		t.Errorf("maxEntries=0: got %d misses, want 2 (no caching)", misses)
+	}
+}
+
+// TestCachingScorer_EvalBounded_looseCeilMatchesEval verifies that
+// CachingScorer.EvalBounded with a loose ceiling (1.0) returns the same result
+// as Eval — the invariant that accepted candidates score identically to the
+// full-scan path.
+func TestCachingScorer_EvalBounded_looseCeilMatchesEval(t *testing.T) {
+	cs, _ := buildCachingFixture(t, 64)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	cases := []struct{ guess, prev string }{
+		{"ab", "a"},
+		{"zz", "z"},
+		{"a", ""},
+	}
+	for _, tc := range cases {
+		want := cs.Eval(t.Context(), tc.guess, tc.prev, offset)
+		got := cs.EvalBounded(t.Context(), tc.guess, tc.prev, offset, 1.0)
+		if got != want {
+			t.Errorf("CachingScorer.EvalBounded(%q,%q, ceil=1.0): got %+v, want %+v",
+				tc.guess, tc.prev, got, want)
+		}
+	}
+}
+
+// TestCachingScorer_EvalBounded_zeroCeilMatchesEval verifies that
+// CachingScorer.EvalBounded with ceiling=0 (disabled) returns the same result
+// as Eval.
+func TestCachingScorer_EvalBounded_zeroCeilMatchesEval(t *testing.T) {
+	cs, _ := buildCachingFixture(t, 64)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	want := cs.Eval(t.Context(), "ab", "a", offset)
+	got := cs.EvalBounded(t.Context(), "ab", "a", offset, 0)
+	if got != want {
+		t.Errorf("CachingScorer.EvalBounded(%q,%q, ceil=0): got %+v, want %+v",
+			"ab", "a", got, want)
+	}
+}
+
+// TestCachingScorer_EvalBounded_hitMatchesMiss verifies that the second
+// EvalBounded call (LRU cache hit) returns an identical result to the first
+// (cache miss), proving the cache-hit path of EvalBounded is correct.
+func TestCachingScorer_EvalBounded_hitMatchesMiss(t *testing.T) {
+	cs, _ := buildCachingFixture(t, 64)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	first := cs.EvalBounded(t.Context(), "ab", "a", offset, 1.0)
+	second := cs.EvalBounded(t.Context(), "ab", "a", offset, 1.0)
+	if first != second {
+		t.Errorf("CachingScorer.EvalBounded cache hit differs from miss: first=%+v second=%+v",
+			first, second)
+	}
+	_, misses := cs.Stats()
+	if misses != 1 {
+		t.Errorf("EvalBounded: got %d misses, want 1 (first call only)", misses)
+	}
+	hits, _ := cs.Stats()
+	if hits != 1 {
+		t.Errorf("EvalBounded: got %d hits, want 1 (second call)", hits)
+	}
+}
+
+// TestCachingScorer_EvalBounded_cancelledContext verifies that a pre-cancelled
+// context causes EvalBounded to return score=1 without rendering.
+func TestCachingScorer_EvalBounded_cancelledContext(t *testing.T) {
+	cs, _ := buildCachingFixture(t, 64)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	got := cs.EvalBounded(ctx, "ab", "a", offset, 0.5)
+	if got.Score != 1 {
+		t.Errorf("CachingScorer.EvalBounded cancelled ctx: Score = %v, want 1", got.Score)
 	}
 }

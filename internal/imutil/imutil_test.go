@@ -241,3 +241,62 @@ func TestMargins_noRedReturnsZero(t *testing.T) {
 		t.Errorf("Margins no-red = %d, want 0", got)
 	}
 }
+
+// --- ToRGBA ---
+
+// TestToRGBA_alreadyRGBA verifies that ToRGBA returns the same pointer when
+// the input is already *image.RGBA (zero allocation, no copy).
+func TestToRGBA_alreadyRGBA(t *testing.T) {
+	img := newWhite(4, 4)
+	got := imutil.ToRGBA(img)
+	if got != img {
+		t.Error("ToRGBA(*image.RGBA): expected same pointer, got a copy")
+	}
+}
+
+// TestToRGBA_nonRGBA verifies that ToRGBA converts a non-RGBA image into a
+// fresh *image.RGBA with the same pixel content.
+func TestToRGBA_nonRGBA(t *testing.T) {
+	// image.NRGBA is not *image.RGBA, so ToRGBA must convert it.
+	src := image.NewNRGBA(image.Rect(0, 0, 3, 2))
+	src.SetNRGBA(1, 0, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
+
+	got := imutil.ToRGBA(src)
+
+	if got == nil {
+		t.Fatal("ToRGBA returned nil")
+	}
+	if got.Bounds().Dx() != 3 || got.Bounds().Dy() != 2 {
+		t.Errorf("ToRGBA dims: got %dx%d, want 3x2", got.Bounds().Dx(), got.Bounds().Dy())
+	}
+	// The converted pixel at (1,0) must match the source.
+	c := got.RGBAAt(1, 0)
+	if c.R != 10 || c.G != 20 || c.B != 30 || c.A != 255 {
+		t.Errorf("ToRGBA pixel (1,0): got %v, want {10,20,30,255}", c)
+	}
+}
+
+// --- Lum601 ---
+
+// TestLum601 verifies the BT.601 luminance formula for known reference values.
+func TestLum601(t *testing.T) {
+	tests := []struct {
+		name       string
+		r, g, b    uint8
+		wantApprox int // expected value ± 1 (integer rounding)
+	}{
+		{name: "black", r: 0, g: 0, b: 0, wantApprox: 0},
+		{name: "white", r: 255, g: 255, b: 255, wantApprox: 255},
+		{name: "pure red", r: 255, g: 0, b: 0, wantApprox: 76},    // 299*255/1000 = 76
+		{name: "pure green", r: 0, g: 255, b: 0, wantApprox: 149}, // 587*255/1000 = 149
+		{name: "pure blue", r: 0, g: 0, b: 255, wantApprox: 29},   // 114*255/1000 = 29
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := imutil.Lum601(tc.r, tc.g, tc.b)
+			if got < tc.wantApprox-1 || got > tc.wantApprox+1 {
+				t.Errorf("Lum601(%d,%d,%d) = %d, want ~%d", tc.r, tc.g, tc.b, got, tc.wantApprox)
+			}
+		})
+	}
+}

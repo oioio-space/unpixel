@@ -2,6 +2,7 @@ package windowhmm
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -255,6 +256,51 @@ func TestBuildModelLaplace(t *testing.T) {
 			if math.IsInf(m.LogB[s][o], -1) {
 				t.Errorf("LogB[%d][%d] is -∞ after Laplace (want finite)", s, o)
 			}
+		}
+	}
+}
+
+// TestBuildModel_emptyTransRow verifies that BuildModel handles a state with no
+// observed transitions (empty transCounts row) by setting LogTrans[s] to nil
+// rather than panicking or producing a non-nil empty map.
+func TestBuildModel_emptyTransRow(t *testing.T) {
+	t.Parallel()
+	states := []string{"A", "B"}
+	stateID := map[string]int{"A": 0, "B": 1}
+	startCounts := []float64{1, 0}
+	// State 0 has no observed transitions; state 1 has one.
+	transCounts := []map[int]float64{{}, {1: 1}}
+	emitCounts := [][]float64{{1, 0}, {0, 1}}
+	m := BuildModel(states, stateID, 2, startCounts, transCounts, emitCounts, nil, 1)
+
+	if m.LogTrans[0] != nil {
+		t.Errorf("LogTrans[0] = %v, want nil (no transitions observed)", m.LogTrans[0])
+	}
+	if m.LogTrans[1] == nil {
+		t.Error("LogTrans[1] = nil, want non-nil (one transition observed)")
+	}
+}
+
+// TestModel_Describe verifies that Describe returns a non-empty string
+// containing the state count and K/W parameters.
+func TestModel_Describe(t *testing.T) {
+	states := []string{"a", "b"}
+	stateID := map[string]int{"a": 0, "b": 1}
+	startCounts := []float64{1, 0}
+	transCounts := []map[int]float64{{0: 1, 1: 0}, {0: 0, 1: 1}}
+	emitCounts := [][]float64{{1, 0}, {0, 1}}
+	m := BuildModel(states, stateID, 2, startCounts, transCounts, emitCounts, nil, 1)
+	m.K = 3
+	m.W = 5
+
+	got := m.Describe()
+	if got == "" {
+		t.Error("Describe: got empty string, want non-empty")
+	}
+	// Must mention the state count, K, and W.
+	for _, want := range []string{"2", "3", "5"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Describe: got %q, want it to contain %q", got, want)
 		}
 	}
 }
