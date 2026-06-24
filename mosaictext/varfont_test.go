@@ -202,6 +202,129 @@ func TestDecodeVarFont_BlindMode(t *testing.T) {
 	}
 }
 
+// TestDecodeVarFont_WithVisible tests the WithVarFontVisible calibration path:
+//
+//  1. Render "Hello" at wght=710 (sharp) — the visible-text crop.
+//  2. Render "test" at wght=710 and pixelate it — the redaction.
+//  3. Call DecodeVarFont with WithVarFontVisible("Hello" crop, "Hello") so
+//     the calibration step warm-starts the axis fit.
+//  4. Expect the decode to achieve a near-zero distance.
+//
+// This is the primary end-to-end test for the new calibration-from-visible
+// feature wired into mosaictext.
+func TestDecodeVarFont_WithVisible(t *testing.T) {
+	const (
+		trueWght  = float32(710)
+		blockSize = 8
+		visText   = "Hello"
+		decText   = "test"
+	)
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+	axes := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}}
+
+	// Build the sharp visible crop (no pixelation).
+	rVis, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: trueWght},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer visible: %v", err)
+	}
+	visSharp, _, err := rVis.Render(visText, style)
+	if err != nil {
+		t.Fatalf("render visible: %v", err)
+	}
+
+	// Build the pixelated redaction of the decode target.
+	rDec, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: trueWght},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer dec: %v", err)
+	}
+	decSharp, _, err := rDec.Render(decText, style)
+	if err != nil {
+		t.Fatalf("render dec: %v", err)
+	}
+	redaction := pix.Pixelate(decSharp, 0, 0)
+
+	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontStyle(style),
+		mosaictext.WithVarFontBlockSize(blockSize),
+		mosaictext.WithVarFontLinear(true),
+		mosaictext.WithVarFontText(decText),
+		mosaictext.WithVarFontAxes(axes),
+		mosaictext.WithVarFontVisible(visSharp, visText),
+	)
+	if err != nil {
+		t.Fatalf("DecodeVarFont (WithVisible): %v", err)
+	}
+
+	t.Logf("WithVisible: text=%q wght=%.1f (true %.1f) dist=%.4f evals=%d",
+		got.Text, got.FittedAxes[0].Value, trueWght, got.Distance, got.Evals)
+
+	if got, want := got.Distance, 0.05; got > want {
+		t.Errorf("distance: got %.4f, want <= %.4f", got, want)
+	}
+}
+
+// TestDecodeVarFont_WithOptimizer verifies that WithVarFontOptimizer(NelderMead)
+// is accepted and still converges to a small distance.
+func TestDecodeVarFont_WithOptimizer(t *testing.T) {
+	const (
+		trueWght  = float32(680)
+		blockSize = 8
+		knownText = "Go"
+	)
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+
+	rTarget, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), []varfont.Axis{
+		{Tag: "wght", Value: trueWght},
+	})
+	if err != nil {
+		t.Fatalf("NewVarRenderer: %v", err)
+	}
+	targetImg, _, err := rTarget.Render(knownText, style)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	redaction := pix.Pixelate(targetImg, 0, 0)
+
+	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontStyle(style),
+		mosaictext.WithVarFontBlockSize(blockSize),
+		mosaictext.WithVarFontLinear(true),
+		mosaictext.WithVarFontText(knownText),
+		mosaictext.WithVarFontAxes([]varfont.AxisSpec{
+			{Tag: "wght", Min: 200, Max: 900, Start: 400},
+		}),
+		mosaictext.WithVarFontOptimizer(varfont.OptimizerNelderMead),
+	)
+	if err != nil {
+		t.Fatalf("DecodeVarFont (NelderMead): %v", err)
+	}
+
+	t.Logf("NelderMead: wght=%.1f (true %.1f) dist=%.4f evals=%d",
+		got.FittedAxes[0].Value, trueWght, got.Distance, got.Evals)
+
+	if got, want := got.Distance, 0.05; got > want {
+		t.Errorf("distance: got %.4f, want <= %.4f", got, want)
+	}
+}
+
 // BenchmarkDecodeVarFont measures one calibration-mode decode call end-to-end
 // (detect grid → FitAxes → report). Reports ns/op and eval count so the axis
 // dimension cost is visible in benchstat output.

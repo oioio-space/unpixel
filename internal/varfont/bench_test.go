@@ -73,3 +73,111 @@ func BenchmarkFitAxes(b *testing.B) {
 	}
 	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
 }
+
+// BenchmarkFitAxes_NelderMead measures the Nelder-Mead optimizer on the same
+// single-axis wght landscape as BenchmarkFitAxes so benchstat can compare them
+// directly. Reports ns/op, allocs/op, and evals/fit.
+func BenchmarkFitAxes_NelderMead(b *testing.B) {
+	const (
+		targetWght = float32(700)
+		blockSize  = 8
+	)
+
+	b.ReportAllocs()
+
+	style := varfont.DefaultStyle()
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+	m := metric.NewPixelmatchFast(0.1)
+
+	font, err := varfont.ParseFont(bytes.NewReader(nunitoData))
+	if err != nil {
+		b.Fatalf("ParseFont: %v", err)
+	}
+
+	rTarget, err := varfont.NewVarRenderer(bytes.NewReader(nunitoData), []varfont.Axis{
+		{Tag: "wght", Value: targetWght},
+	})
+	if err != nil {
+		b.Fatalf("NewVarRenderer: %v", err)
+	}
+	targetImg, _, err := rTarget.Render("the", style)
+	if err != nil {
+		b.Fatalf("render target: %v", err)
+	}
+	targetPix := pix.Pixelate(targetImg, 0, 0)
+
+	cfg := varfont.FitConfig{
+		Font:      font,
+		Text:      "the",
+		Style:     style,
+		Target:    targetPix,
+		Pixelator: pix,
+		Metric:    m,
+		BlockSize: blockSize,
+		Axes:      []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}},
+		Optimizer: varfont.OptimizerNelderMead,
+	}
+
+	b.ResetTimer()
+	var totalEvals int
+	for b.Loop() {
+		result, err := varfont.FitAxes(cfg)
+		if err != nil {
+			b.Fatalf("FitAxes NelderMead: %v", err)
+		}
+		totalEvals += result.Evals
+		sink = result
+	}
+	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
+}
+
+// BenchmarkCalibrateFromVisible measures the CalibrateFromVisible call on a
+// sharp (un-pixelated) wght fit. This is the hot path for the calibration
+// phase when the user supplies a visible-text crop adjacent to the redaction.
+func BenchmarkCalibrateFromVisible(b *testing.B) {
+	const (
+		trueWght = float32(700)
+		text     = "the"
+	)
+
+	b.ReportAllocs()
+
+	font, err := varfont.ParseFont(bytes.NewReader(nunitoData))
+	if err != nil {
+		b.Fatalf("ParseFont: %v", err)
+	}
+	style := varfont.DefaultStyle()
+	m := metric.NewPixelmatchFast(0.1)
+
+	rTrue, err := varfont.NewVarRenderer(bytes.NewReader(nunitoData), []varfont.Axis{
+		{Tag: "wght", Value: trueWght},
+	})
+	if err != nil {
+		b.Fatalf("NewVarRenderer: %v", err)
+	}
+	visibleCrop, _, err := rTrue.Render(text, style)
+	if err != nil {
+		b.Fatalf("render visible: %v", err)
+	}
+
+	cfg := varfont.CalibrateConfig{
+		Font:   font,
+		Text:   text,
+		Style:  style,
+		Target: visibleCrop,
+		Metric: m,
+		Axes:   []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}},
+	}
+
+	b.ResetTimer()
+	var totalEvals int
+	for b.Loop() {
+		result, err := varfont.CalibrateFromVisible(cfg)
+		if err != nil {
+			b.Fatalf("CalibrateFromVisible: %v", err)
+		}
+		totalEvals += result.Evals
+		sink = result
+	}
+	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
+}

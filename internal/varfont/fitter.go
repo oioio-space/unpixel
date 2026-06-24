@@ -41,15 +41,20 @@ type FitConfig struct {
 	// Axes specifies which axes to optimise and their search ranges.
 	// Each axis is optimised independently in round-robin (coordinate descent).
 	Axes []AxisSpec
-	// MaxIter is the maximum number of coordinate-descent rounds (full passes
-	// over all axes). Zero uses [DefaultMaxIter].
+	// MaxIter is the maximum number of optimiser rounds (meaning varies by
+	// Optimizer: full axis passes for coordinate descent, simplex operations
+	// for Nelder-Mead). Zero uses [DefaultMaxIter].
 	MaxIter int
 	// InitStep is the initial step size in design-space units for the first
-	// axis probe. Zero uses [DefaultInitStep].
+	// axis probe (coordinate descent) or simplex perturbation (Nelder-Mead).
+	// Zero uses [DefaultInitStep].
 	InitStep float32
 	// ShrinkFactor is the factor by which the step size is reduced after each
-	// round. Must be in (0,1); zero uses [DefaultShrinkFactor].
+	// round (coordinate descent only). Must be in (0,1); zero uses
+	// [DefaultShrinkFactor].
 	ShrinkFactor float32
+	// Optimizer selects the search strategy. Zero uses [OptimizerCoordDescent].
+	Optimizer OptimizerKind
 }
 
 // FitResult is the output of [FitAxes].
@@ -117,9 +122,18 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 	if initStep <= 0 {
 		initStep = DefaultInitStep
 	}
-	shrink := cfg.ShrinkFactor
-	if shrink <= 0 || shrink >= 1 {
-		shrink = DefaultShrinkFactor
+
+	// Crop target to its own bounds once — compare always against exactly this.
+	// imutil.ToRGBA returns img as-is when it is already *image.RGBA at (0,0).
+	targetCrop := imutil.ToRGBA(cfg.Target)
+
+	// axesScratch is a reusable slice passed to evalFn to avoid a per-eval
+	// allocation inside the hot loop.
+	axesScratch := make([]Axis, len(cfg.Axes))
+
+	// evalFn is the shared objective passed to both optimizer paths.
+	evalFn := func(current []float32) (float64, error) {
+		return evaluate(cfg, current, targetCrop, axesScratch)
 	}
 
 	// current holds the best design-space value per axis.
@@ -128,18 +142,37 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 		current[i] = clampAxis(a.Start, a.Min, a.Max)
 	}
 
-	// Crop target to its own bounds once — compare always against exactly this.
-	// imutil.ToRGBA returns img as-is when it is already *image.RGBA at (0,0).
-	targetCrop := imutil.ToRGBA(cfg.Target)
+	if cfg.Optimizer == OptimizerNelderMead {
+		return fitNelderMead(cfg, current, initStep, maxIter, evalFn)
+	}
+	return fitCoordDescent(cfg, current, initStep, maxIter, evalFn)
+}
 
-	// axesScratch is a reusable slice passed to evaluate to avoid a per-eval
-	// allocation inside the hot coordinate-descent loop.
-	axesScratch := make([]Axis, len(cfg.Axes))
+// fitNelderMead delegates to the Nelder-Mead simplex optimizer and packages
+// the result into a [FitResult].
+func fitNelderMead(cfg FitConfig, start []float32, initStep float32, maxIter int, f func([]float32) (float64, error)) (FitResult, error) {
+	best, bestDist, evals, err := nelderMead(cfg.Axes, start, initStep, maxIter, f)
+	if err != nil {
+		return FitResult{}, fmt.Errorf("varfont.FitAxes (nelder-mead): %w", err)
+	}
+	result := make([]Axis, len(cfg.Axes))
+	for i, spec := range cfg.Axes {
+		result[i] = Axis{Tag: spec.Tag, Value: best[i]}
+	}
+	return FitResult{Axes: result, Distance: bestDist, Evals: evals}, nil
+}
+
+// fitCoordDescent runs the original per-axis coordinate-descent optimizer.
+func fitCoordDescent(cfg FitConfig, current []float32, initStep float32, maxIter int, evalFn func([]float32) (float64, error)) (FitResult, error) {
+	shrink := cfg.ShrinkFactor
+	if shrink <= 0 || shrink >= 1 {
+		shrink = DefaultShrinkFactor
+	}
 
 	var totalEvals int
 
 	// Initial evaluation at the start point.
-	bestDist, err := evaluate(cfg, current, targetCrop, axesScratch)
+	bestDist, err := evalFn(current)
 	if err != nil {
 		return FitResult{}, fmt.Errorf("varfont.FitAxes: initial eval: %w", err)
 	}
@@ -163,7 +196,7 @@ func FitAxes(cfg FitConfig) (FitResult, error) {
 				}
 				prev := current[ai]
 				current[ai] = v
-				d, err := evaluate(cfg, current, targetCrop, axesScratch)
+				d, err := evalFn(current)
 				if err != nil {
 					return FitResult{}, fmt.Errorf("varfont.FitAxes: eval axis %s=%.1f: %w", spec.Tag, v, err)
 				}

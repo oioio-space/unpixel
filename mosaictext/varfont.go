@@ -96,18 +96,21 @@ type VarFontResult struct {
 
 // VarFontOption configures [DecodeVarFont]. Use [WithVarFont],
 // [WithVarFontStyle], [WithVarFontBlockSize], [WithVarFontText],
-// [WithVarFontAxes], [WithVarFontLinear], and [WithVarFontCharset] to
-// customise the decoder.
+// [WithVarFontAxes], [WithVarFontLinear], [WithVarFontCharset],
+// [WithVarFontVisible], and [WithVarFontOptimizer] to customise the decoder.
 type VarFontOption func(*varFontConfig)
 
 type varFontConfig struct {
-	font      *varfont.Font
-	style     unpixel.Style
-	blockSize int
-	linear    bool
-	knownText string // empty → blind mode
-	axes      []varfont.AxisSpec
-	charset   string
+	font        *varfont.Font
+	style       unpixel.Style
+	blockSize   int
+	linear      bool
+	knownText   string // empty → blind mode
+	axes        []varfont.AxisSpec
+	charset     string
+	visibleCrop *image.RGBA // sharp crop for calibration; nil → skip
+	visibleText string      // cleartext matching visibleCrop
+	optimizer   varfont.OptimizerKind
 }
 
 // WithVarFont sets the parsed variable font to use. Required; DecodeVarFont
@@ -153,6 +156,40 @@ func WithVarFontAxes(axes []varfont.AxisSpec) VarFontOption {
 // Ignored in calibration mode (WithVarFontText). Defaults to [defaultCharset].
 func WithVarFontCharset(cs string) VarFontOption {
 	return func(c *varFontConfig) { c.charset = cs }
+}
+
+// WithVarFontVisible enables calibration-from-visible: before fitting the
+// redaction, DecodeVarFont calls [varfont.CalibrateFromVisible] on the
+// supplied sharp crop (visibleCrop) of the known text (visibleText) to find
+// the best-fit axis values. Those fitted values are then used as warm-start
+// [varfont.AxisSpec.Start] values when fitting the redaction, replacing the
+// AxisSpec.Start values provided via [WithVarFontAxes].
+//
+// visibleCrop must be a sharp (un-pixelated) crop of the text adjacent to the
+// redaction. The string visibleText must match the content of visibleCrop
+// exactly (case-sensitive). Both arguments are required; passing a nil crop or
+// an empty string is a no-op (calibration step is skipped).
+//
+// This is the high-value path: a strong, unambiguous objective on sharp glyphs
+// resolves axis values much more precisely than fitting on a pixelated block.
+// Non-regressive: existing calls without this option are unaffected.
+func WithVarFontVisible(visibleCrop *image.RGBA, visibleText string) VarFontOption {
+	return func(c *varFontConfig) {
+		if visibleCrop != nil && visibleText != "" {
+			c.visibleCrop = visibleCrop
+			c.visibleText = visibleText
+		}
+	}
+}
+
+// WithVarFontOptimizer selects the search strategy used by FitAxes (and the
+// calibration step when [WithVarFontVisible] is supplied). The default
+// ([varfont.OptimizerCoordDescent]) is stable and fast for a single axis;
+// [varfont.OptimizerNelderMead] is better suited to coupled multi-axis
+// landscapes. Non-regressive: existing calls without this option use the
+// default (coordinate descent).
+func WithVarFontOptimizer(opt varfont.OptimizerKind) VarFontOption {
+	return func(c *varFontConfig) { c.optimizer = opt }
 }
 
 // DecodeVarFont recovers text from a mosaic-pixelated redaction using a
@@ -224,15 +261,42 @@ func DecodeVarFont(ctx context.Context, img image.Image, opts ...VarFontOption) 
 	}
 	m := metric.NewPixelmatchFast(0.1)
 
-	if cfg.knownText != "" {
-		return fitKnownText(ctx, font, cfg, target, pix, m, blockSize)
+	// Calibration-from-visible: when the caller supplies a sharp visible crop
+	// alongside its known text, run CalibrateFromVisible first to warm-start
+	// the axis values before fitting the redaction.
+	axes := cfg.axes
+	if cfg.visibleCrop != nil && cfg.visibleText != "" {
+		calResult, calErr := varfont.CalibrateFromVisible(varfont.CalibrateConfig{
+			Font:      font,
+			Text:      cfg.visibleText,
+			Style:     cfg.style,
+			Target:    cfg.visibleCrop,
+			Pixelator: nil, // sharp text — compare directly
+			Metric:    m,
+			Axes:      cfg.axes,
+			Optimizer: cfg.optimizer,
+		})
+		if calErr == nil {
+			// Promote fitted values to warm-start positions for the redaction fit.
+			warmed := make([]varfont.AxisSpec, len(axes))
+			copy(warmed, axes)
+			for i, a := range calResult.Axes {
+				warmed[i].Start = a.Value
+			}
+			axes = warmed
+		}
+		// Non-fatal: if calibration fails we fall through with the original axes.
 	}
-	return fitBlind(ctx, font, cfg, target, pix, m, blockSize)
+
+	if cfg.knownText != "" {
+		return fitKnownText(ctx, font, cfg, axes, target, pix, m, blockSize)
+	}
+	return fitBlind(ctx, font, cfg, axes, target, pix, m, blockSize)
 }
 
 // mkFitConfig builds a varfont.FitConfig from the shared decoder inputs.
 // Only Text varies between the known-text and blind-mode call sites.
-func mkFitConfig(font *varfont.Font, text string, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) varfont.FitConfig {
+func mkFitConfig(font *varfont.Font, text string, cfg *varFontConfig, axes []varfont.AxisSpec, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) varfont.FitConfig {
 	return varfont.FitConfig{
 		Font:      font,
 		Text:      text,
@@ -241,14 +305,15 @@ func mkFitConfig(font *varfont.Font, text string, cfg *varFontConfig, target *im
 		Pixelator: pix,
 		Metric:    m,
 		BlockSize: blockSize,
-		Axes:      cfg.axes,
+		Axes:      axes,
+		Optimizer: cfg.optimizer,
 	}
 }
 
 // fitKnownText runs FitAxes for the caller-supplied text and returns the
 // fitted result. This is the fast, reliable calibration-mode path.
-func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
-	res, err := varfont.FitAxes(mkFitConfig(font, cfg.knownText, cfg, target, pix, m, blockSize))
+func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, axes []varfont.AxisSpec, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
+	res, err := varfont.FitAxes(mkFitConfig(font, cfg.knownText, cfg, axes, target, pix, m, blockSize))
 	if err != nil {
 		return VarFontResult{}, fmt.Errorf("mosaictext: FitAxes: %w", err)
 	}
@@ -266,7 +331,7 @@ func fitKnownText(_ context.Context, font *varfont.Font, cfg *varFontConfig, tar
 // candidate text it runs FitAxes and keeps the (text, axes) pair with the
 // lowest distance. Returns [ErrVarFontNoFit] when no candidate clears
 // [BlindDistanceGate].
-func fitBlind(ctx context.Context, font *varfont.Font, cfg *varFontConfig, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
+func fitBlind(ctx context.Context, font *varfont.Font, cfg *varFontConfig, axes []varfont.AxisSpec, target *image.RGBA, pix unpixel.Pixelator, m unpixel.Metric, blockSize int) (VarFontResult, error) {
 	charset := []rune(cfg.charset)
 	// Cap the search to MaxBlindCandidates single-character candidates (the
 	// tractable case for blind mode).
@@ -287,7 +352,7 @@ func fitBlind(ctx context.Context, font *varfont.Font, cfg *varFontConfig, targe
 		if err := ctx.Err(); err != nil {
 			return VarFontResult{}, fmt.Errorf("mosaictext: fitBlind: %w", err)
 		}
-		res, err := varfont.FitAxes(mkFitConfig(font, cand, cfg, target, pix, m, blockSize))
+		res, err := varfont.FitAxes(mkFitConfig(font, cand, cfg, axes, target, pix, m, blockSize))
 		if err != nil {
 			continue
 		}
