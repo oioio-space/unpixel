@@ -8,15 +8,21 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 
 ## Évolution
 
-| Date (UTC) | Version     | Commit  | fix·zero   | fix·best      | blur·zero    | blur·best    | real·zero | real·best | wild·zero | wild·best | sick·zero  | sick·best  | Total | Dur (s) |
-|------------|-------------|---------|------------|---------------|--------------|--------------|-----------|-----------|-----------|-----------|------------|------------|-------|---------|
-| 2026-06-22 | v0.10.0-dev | 366aac6 | 8/17/—/—   | 17/17/—/—     | 12/14/—/—    | 11/14/—/—    | 0/3/—/—   | 0/3/—/—   | 0/5/—/—   | 0/5/—/—   | —          | —          | 44    | 1135    |
-| 2026-06-22 | v0.10.0-dev | 15a0c4c | 8/17/—/—   | 17/17/—/—     | 13/14/—/—    | 12/14/—/—    | 0/3/—/—   | 0/3/—/—   | 0/5/—/—   | 0/5/—/—   | —          | —          | 44    | 1134    |
-| 2026-06-23 | v0.10.0     | b20ab1d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/20% | 54    | 1865    |
-| 2026-06-23 | v0.11.0-dev | dd6990d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/10% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/20% | 54    | 1863    |
-| 2026-06-24 | v0.12.0     | 4fdc373 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/23% | 54    | 2921    |
-| 2026-06-24 | v0.13.0     | 916630c | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3%  | 0/3/0/4%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 54    | 3024    |
-| 2026-06-24 | v0.13.0+dev | 243c865 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3%  | 0/3/0/4%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 54    | 3033    |
+Context corpus (calibrate-from-visible) is calibration-only — no zero/best
+RecoverFile path — so it is tracked in one `ctx·C1a` column (the C1a
+calibrate-visible aggregate: exact/knowable/≥70%/mean%); `—` before it was
+measured. The per-image context breakdown lives in each run's `### context`
+section, and C1a/C1b are also in the `## Évolution — décodeurs` table.
+
+| Date (UTC) | Version     | Commit  | fix·zero   | fix·best      | blur·zero    | blur·best    | real·zero | real·best | wild·zero | wild·best | sick·zero  | sick·best  | ctx·C1a   | Total | Dur (s) |
+|------------|-------------|---------|------------|---------------|--------------|--------------|-----------|-----------|-----------|-----------|------------|------------|-----------|-------|---------|
+| 2026-06-22 | v0.10.0-dev | 366aac6 | 8/17/—/—   | 17/17/—/—     | 12/14/—/—    | 11/14/—/—    | 0/3/—/—   | 0/3/—/—   | 0/5/—/—   | 0/5/—/—   | —          | —          | —         | 44    | 1135    |
+| 2026-06-22 | v0.10.0-dev | 15a0c4c | 8/17/—/—   | 17/17/—/—     | 13/14/—/—    | 12/14/—/—    | 0/3/—/—   | 0/3/—/—   | 0/5/—/—   | 0/5/—/—   | —          | —          | —         | 44    | 1134    |
+| 2026-06-23 | v0.10.0     | b20ab1d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/20% | —         | 54    | 1865    |
+| 2026-06-23 | v0.11.0-dev | dd6990d | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/10% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/20% | —         | 54    | 1863    |
+| 2026-06-24 | v0.12.0     | 4fdc373 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/17% | 0/10/0/23% | —         | 54    | 2921    |
+| 2026-06-24 | v0.13.0     | 916630c | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3%  | 0/3/0/4%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 0/9/0/3%  | 54    | 3024    |
+| 2026-06-24 | v0.13.0+dev | 243c865 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3%  | 0/3/0/4%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 0/9/0/3%  | 54    | 3033    |
 
 
 ## Analyse de tendance
@@ -38,6 +44,14 @@ jusqu'ici. Corrigé (`spliceJournalMD`, match exact + test de régression) ; les
 v0.13.0 (916630c) et v0.13.0+dev (243c865) sont maintenant à leur place. Mesures de ce run :
 real best 0/3 (mean 4 %), sick best 0/10 (mean 20 %), wild 0/5 — déjà au niveau v0.13.0,
 sans régression. Durée 3033 s (NumCPU=20)._
+
+_Corpus **context** désormais visible dans le tableau (colonne `ctx·C1a`) et détaillé
+par-image dans la section `### context` de chaque run (avant : seulement 2 lignes agrégées
+dans la table décodeurs). C1a calibrate-from-visible = **0/9 exact, mean 3 %** ;
+C1b calibrate-from-sample = 0/1. La calibration retrouve la police (dist≈0 en tests
+unitaires) mais le décodage AVEUGLE du secret caviardé reste faible — c'est le mur de
+fond, pas un bug de calibration. Meilleurs scores partiels : `ctx_label_secret` 17 %
+(`X7kQ9m`→`m`) et `ctx_varfont_wght750` 12 % (`G4te2024`→`G`)._
 
 **Verdict v0.13.0 : 6 optimisations de perf (5 conservées, prouvées au benchstat) +
 calibrate-from-visible C1/C1b — et le tableau cœur est STRICTEMENT INCHANGÉ vs v0.12.0
@@ -175,6 +189,28 @@ cf. roadmap PROGRESS.md « Prochaines étapes » + [[decode-full-corpus-roadmap]
 | `digits_8d_98765432` | `98765432` | fail/`q`/0%/conf=1.00/ms=66 | fail/`1`/0%/conf=0.71/ms=17 | wrong length (got 1 want 8) |
 | `digits_9d_012345678` | `012345678` | fail/`d`/0%/conf=1.00/ms=98 | fail/`1`/11%/conf=0.81/ms=17 | wrong length (got 1 want 9) |
 | `digits_10d_1029384756` | `1029384756` | fail/`ru`/0%/conf=1.00/ms=5938 | fail/`2`/10%/conf=0.77/ms=14 | wrong length (got 2 want 10) |
+
+### context
+
+Context-assisted decode (C1a/C1b): the font is calibrated from a visible source
+(C1a: a sharp `visible_rect` in the same image; C1b: a separate font-sample PNG),
+then the redacted region is decoded blind. Calibration finds the font well
+(dist≈0 in unit tests), but blind recovery of the redacted secret stays weak —
+this section makes each fixture visible per-image rather than as a single 0/9 row.
+
+| image | secret | C1a visible: guess/score | C1b sample: guess/score | block |
+|---|---|---|---|---|
+| `ctx_sameline_user` | `hunter2` | `W`/0% | — | auto |
+| `ctx_sameline_pin` | `4892` | `W`/0% | — | auto |
+| `ctx_sameline_mono_token` | `a3f9b2` | `O`/0% | — | auto |
+| `ctx_label_password` | `Pa55w0rd!` | `W`/0% | — | auto |
+| `ctx_label_secret` | `X7kQ9m` | `m`/17% | — | auto |
+| `ctx_varfont_wght600` | `Tr0ub4dor` | `W`/0% | — | auto |
+| `ctx_varfont_wght750` | `G4te2024` | `G`/12% | — | auto |
+| `ctx_sameline_block10` | `r00t` | `T`/0% | — | 10 |
+| `ctx_crossimg_wght700` | `Secret7` | `A`/0% | `G`/0% | auto |
+
+C1a (calibrate-visible): 0/9 exact, mean 3%. C1b (calibrate-sample): 0/1 exact.
 
 
 ## Run 2026-06-24T15:30:00Z — 916630c

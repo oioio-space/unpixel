@@ -40,11 +40,26 @@ const contextCorpusDir = "testdata/context"
 // special characters that appear in the fixture secrets.
 var contextCharset = unpixel.CharsetAlnum + "!@#$%&*_-."
 
+// contextDetail holds the per-image decode results for both the C1a
+// (calibrate-visible) and C1b (calibrate-sample) passes over a single context
+// fixture. The C1b fields are populated only for fixtures that carry a
+// FontSample; HasSample indicates whether that is the case.
+type contextDetail struct {
+	Name         string
+	Secret       string
+	VisibleGuess string
+	VisibleScore float64
+	HasSample    bool
+	SampleGuess  string
+	SampleScore  float64
+	Block        int
+}
+
 // runCalibrateVisibleOnContext runs C1a over the full context corpus.
 // For each fixture it crops the sharp visible_rect from the same PNG, uses it
 // as the calibration source via WithVarFontVisible, then blindly decodes the
-// redacted_rect. Returns one aggregate decoderRow.
-func runCalibrateVisibleOnContext(t *testing.T, specs []fixture.ContextSpec) decoderRow {
+// redacted_rect. Returns one aggregate decoderRow and a per-image detail slice.
+func runCalibrateVisibleOnContext(t *testing.T, specs []fixture.ContextSpec) (decoderRow, []contextDetail) {
 	t.Helper()
 
 	start := time.Now()
@@ -56,6 +71,7 @@ func runCalibrateVisibleOnContext(t *testing.T, specs []fixture.ContextSpec) dec
 
 	var scoreSum float64
 	var scoreN int
+	details := make([]contextDetail, 0, len(specs))
 
 	for _, s := range specs {
 		img, err := loadContextImage(filepath.Join(contextCorpusDir, s.File()))
@@ -99,21 +115,37 @@ func runCalibrateVisibleOnContext(t *testing.T, specs []fixture.ContextSpec) dec
 		}
 		t.Logf("calibrate-visible/%-28s gt=%q guess=%q score=%.0f%%",
 			s.Name, truncate(s.Secret, 30), truncate(guess, 30), score)
+
+		details = append(details, contextDetail{
+			Name:         s.Name,
+			Secret:       s.Secret,
+			VisibleGuess: guess,
+			VisibleScore: score,
+			HasSample:    s.FontSample != nil,
+			Block:        s.BlockSize,
+		})
 	}
 
 	if scoreN > 0 {
 		row.MeanScore = scoreSum / float64(scoreN)
 	}
 	row.DurSec = time.Since(start).Seconds()
-	return row
+	return row, details
 }
 
 // runCalibrateSampleOnContext runs C1b over the font_sample subset.
 // Only fixtures with a non-nil FontSample are included; others are skipped.
 // The calibration source is the separate companion PNG (FontSample.File()).
-// Returns one aggregate decoderRow.
-func runCalibrateSampleOnContext(t *testing.T, specs []fixture.ContextSpec) decoderRow {
+// Returns one aggregate decoderRow and fills in the SampleGuess/SampleScore
+// fields of any matching entry in details (keyed by Name).
+func runCalibrateSampleOnContext(t *testing.T, specs []fixture.ContextSpec, details []contextDetail) decoderRow {
 	t.Helper()
+
+	// Build a name→index map for O(1) detail lookup.
+	detailIdx := make(map[string]int, len(details))
+	for i, d := range details {
+		detailIdx[d.Name] = i
+	}
 
 	start := time.Now()
 	row := decoderRow{
@@ -189,6 +221,11 @@ func runCalibrateSampleOnContext(t *testing.T, specs []fixture.ContextSpec) deco
 		}
 		t.Logf("calibrate-sample/%-28s gt=%q guess=%q score=%.0f%%",
 			s.Name, truncate(s.Secret, 30), truncate(guess, 30), score)
+
+		if idx, ok := detailIdx[s.Name]; ok {
+			details[idx].SampleGuess = guess
+			details[idx].SampleScore = score
+		}
 	}
 
 	if scoreN > 0 {

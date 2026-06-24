@@ -39,13 +39,20 @@ const decoderPerTimeout = 45 * time.Second
 // ─── main entry point ─────────────────────────────────────────────────────────
 
 // runDecoderMatrix runs every (decoder, corpus) pair in the tracking matrix and
-// returns the aggregate rows. It is called from TestJournal after the corpus runs.
-func runDecoderMatrix(t *testing.T) []decoderRow {
+// returns the aggregate rows alongside per-image context details. It is called
+// from TestJournal after the corpus runs.
+func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 	t.Helper()
 
 	sickEntries := loadDecoderSickManifest(t)
 	realEntries := loadDecoderRealManifest(t)
 	contextSpecs := loadContextManifest(t)
+
+	// C1a first: builds the per-image detail slice.
+	c1aRow, ctxDetails := runCalibrateVisibleOnContext(t, contextSpecs)
+
+	// C1b second: fills SampleGuess/SampleScore into the detail slice in-place.
+	c1bRow := runCalibrateSampleOnContext(t, contextSpecs, ctxDetails)
 
 	// Matrix: decoder → corpus. Order matches the table columns.
 	rows := []decoderRow{
@@ -112,14 +119,14 @@ func runDecoderMatrix(t *testing.T) []decoderRow {
 
 		// calibrate-visible → context (C1a): visible_rect crop from the same
 		// PNG warm-starts axis fitting; redacted_rect is decoded blind.
-		runCalibrateVisibleOnContext(t, contextSpecs),
+		c1aRow,
 
 		// calibrate-sample → context (C1b): a separate companion PNG provides
 		// the calibration source; only fixtures with font_sample are included.
-		runCalibrateSampleOnContext(t, contextSpecs),
+		c1bRow,
 	}
 
-	return rows
+	return rows, ctxDetails
 }
 
 // ─── per-decoder corpus runners ───────────────────────────────────────────────

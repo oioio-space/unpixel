@@ -116,16 +116,17 @@ func (e journalSickEntry) file() string { return e.Name + ".png" }
 
 // journalRun is the full machine-readable run record written to benchmarks/journal/.
 type journalRun struct {
-	Timestamp   string                 `json:"timestamp"`
-	Commit      string                 `json:"commit"`
-	Version     string                 `json:"version"`
-	GoVersion   string                 `json:"go_version"`
-	GOOS        string                 `json:"goos"`
-	GOARCH      string                 `json:"goarch"`
-	DurationMS  float64                `json:"duration_ms"`
-	Rows        []journalRow           `json:"rows"`
-	Corpora     []journalCorpusSummary `json:"corpora"`
-	DecoderRows []decoderRow           `json:"decoder_rows,omitempty"`
+	Timestamp      string                 `json:"timestamp"`
+	Commit         string                 `json:"commit"`
+	Version        string                 `json:"version"`
+	GoVersion      string                 `json:"go_version"`
+	GOOS           string                 `json:"goos"`
+	GOARCH         string                 `json:"goarch"`
+	DurationMS     float64                `json:"duration_ms"`
+	Rows           []journalRow           `json:"rows"`
+	Corpora        []journalCorpusSummary `json:"corpora"`
+	DecoderRows    []decoderRow           `json:"decoder_rows,omitempty"`
+	ContextDetails []contextDetail        `json:"context_details,omitempty"`
 }
 
 // ─── timeout / charset constants ─────────────────────────────────────────────
@@ -159,22 +160,23 @@ func TestJournal(t *testing.T) {
 	rows = append(rows, runWildCorpus(t)...)
 	rows = append(rows, runSickCorpus(t)...)
 
-	decoderRows := runDecoderMatrix(t)
+	decoderRows, ctxDetails := runDecoderMatrix(t)
 
 	totalDuration := time.Since(start)
 	corpora := summariseCorpora(rows)
 
 	run := journalRun{
-		Timestamp:   timestamp,
-		Commit:      commit,
-		Version:     version,
-		GoVersion:   runtime.Version(),
-		GOOS:        runtime.GOOS,
-		GOARCH:      runtime.GOARCH,
-		DurationMS:  float64(totalDuration.Milliseconds()),
-		Rows:        rows,
-		Corpora:     corpora,
-		DecoderRows: decoderRows,
+		Timestamp:      timestamp,
+		Commit:         commit,
+		Version:        version,
+		GoVersion:      runtime.Version(),
+		GOOS:           runtime.GOOS,
+		GOARCH:         runtime.GOARCH,
+		DurationMS:     float64(totalDuration.Milliseconds()),
+		Rows:           rows,
+		Corpora:        corpora,
+		DecoderRows:    decoderRows,
+		ContextDetails: ctxDetails,
 	}
 
 	writeJournalJSON(t, run, timestamp, commit)
@@ -787,8 +789,8 @@ Score columns: each corpus pair shows "exact/≥70%/mean%" for zero-config then 
 
 ## Évolution
 
-| Date (UTC) | Version | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | Total | Dur (s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Date (UTC) | Version | Commit | fix·zero | fix·best | blur·zero | blur·best | real·zero | real·best | wild·zero | wild·best | sick·zero | sick·best | ctx·C1a | Total | Dur (s) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 `
 }
 
@@ -829,6 +831,21 @@ func buildEvolutionRow(run journalRun) string {
 		return fmt.Sprintf("%d/%d/%d/%s", exact, knowable, sensical, meanStr)
 	}
 
+	// ctxCell summarises the context corpus, which is calibration-only (no
+	// zero/best RecoverFile path): the C1a calibrate-visible aggregate, in the
+	// same "exact/knowable/≥70%/mean%" format. "—" when no context run happened.
+	ctxCell := "—"
+	for _, dr := range run.DecoderRows {
+		if dr.Decoder == "calibrate-visible" && dr.Corpus == "context" {
+			meanStr := "NA"
+			if dr.MeanScore >= 0 {
+				meanStr = fmt.Sprintf("%.0f%%", dr.MeanScore)
+			}
+			ctxCell = fmt.Sprintf("%d/%d/%d/%s", dr.ExactOK, dr.Knowable, dr.Sensical, meanStr)
+			break
+		}
+	}
+
 	total := 0
 	for _, cs := range run.Corpora {
 		total += cs.Total
@@ -836,7 +853,7 @@ func buildEvolutionRow(run journalRun) string {
 	durSec := run.DurationMS / 1000
 
 	return fmt.Sprintf(
-		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
+		"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %.0f |\n",
 		run.Timestamp[:10],
 		run.Version,
 		run.Commit,
@@ -845,8 +862,72 @@ func buildEvolutionRow(run journalRun) string {
 		cell("real", "zero"), cell("real", "best"),
 		cell("wild", "zero"), cell("wild", "best"),
 		cell("sick", "zero"), cell("sick", "best"),
+		ctxCell,
 		total, durSec,
 	)
+}
+
+// buildContextSection renders the per-image C1a/C1b detail table for a run.
+// It returns an empty string when run.ContextDetails is empty.
+func buildContextSection(run journalRun) string {
+	if len(run.ContextDetails) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "### context\n\n")
+	fmt.Fprintf(&sb, "Context-assisted decode (C1a/C1b): the font is calibrated from a visible source\n")
+	fmt.Fprintf(&sb, "(C1a: a sharp `visible_rect` in the same image; C1b: a separate font-sample PNG),\n")
+	fmt.Fprintf(&sb, "then the redacted region is decoded blind. Calibration finds the font well\n")
+	fmt.Fprintf(&sb, "(dist≈0 in unit tests), but blind recovery of the redacted secret stays weak —\n")
+	fmt.Fprintf(&sb, "this section makes each fixture visible per-image rather than as a single 0/9 row.\n\n")
+	fmt.Fprintf(&sb, "| image | secret | C1a visible: guess/score | C1b sample: guess/score | block |\n")
+	fmt.Fprintf(&sb, "|---|---|---|---|---|\n")
+
+	var c1aExact, c1aTotal int
+	var c1aMeanSum float64
+	var c1bExact, c1bTotal int
+
+	for _, d := range run.ContextDetails {
+		blockStr := "auto"
+		if d.Block > 0 {
+			blockStr = fmt.Sprintf("%d", d.Block)
+		}
+
+		c1aCell := fmt.Sprintf("`%s`/%.0f%%", d.VisibleGuess, d.VisibleScore)
+		c1aTotal++
+		c1aMeanSum += d.VisibleScore
+		if d.VisibleGuess == d.Secret {
+			c1aExact++
+		}
+
+		c1bCell := "—"
+		if d.HasSample {
+			c1bCell = fmt.Sprintf("`%s`/%.0f%%", d.SampleGuess, d.SampleScore)
+			c1bTotal++
+			if d.SampleGuess == d.Secret {
+				c1bExact++
+			}
+		}
+
+		fmt.Fprintf(&sb, "| `%s` | `%s` | %s | %s | %s |\n",
+			d.Name, d.Secret, c1aCell, c1bCell, blockStr)
+	}
+
+	fmt.Fprintf(&sb, "\n")
+
+	c1aMean := 0.0
+	if c1aTotal > 0 {
+		c1aMean = c1aMeanSum / float64(c1aTotal)
+	}
+	c1bStr := ""
+	if c1bTotal > 0 {
+		c1bStr = fmt.Sprintf(" C1b (calibrate-sample): %d/%d exact.", c1bExact, c1bTotal)
+	}
+	fmt.Fprintf(&sb, "C1a (calibrate-visible): %d/%d exact, mean %.0f%%.%s\n",
+		c1aExact, c1aTotal, c1aMean, c1bStr)
+
+	return sb.String()
 }
 
 // buildRunSection builds the detailed per-run markdown section.
@@ -933,6 +1014,7 @@ func buildRunSection(run journalRun) string {
 		}
 		fmt.Fprintf(&sb, "\n")
 	}
+	sb.WriteString(buildContextSection(run))
 	return sb.String()
 }
 
