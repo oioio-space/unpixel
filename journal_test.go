@@ -186,15 +186,16 @@ type journalCorpusSummary struct {
 
 // journalRun is the full machine-readable run record written to benchmarks/journal/.
 type journalRun struct {
-	Timestamp  string                 `json:"timestamp"`
-	Commit     string                 `json:"commit"`
-	Version    string                 `json:"version"`
-	GoVersion  string                 `json:"go_version"`
-	GOOS       string                 `json:"goos"`
-	GOARCH     string                 `json:"goarch"`
-	DurationMS float64                `json:"duration_ms"`
-	Rows       []journalRow           `json:"rows"`
-	Corpora    []journalCorpusSummary `json:"corpora"`
+	Timestamp   string                 `json:"timestamp"`
+	Commit      string                 `json:"commit"`
+	Version     string                 `json:"version"`
+	GoVersion   string                 `json:"go_version"`
+	GOOS        string                 `json:"goos"`
+	GOARCH      string                 `json:"goarch"`
+	DurationMS  float64                `json:"duration_ms"`
+	Rows        []journalRow           `json:"rows"`
+	Corpora     []journalCorpusSummary `json:"corpora"`
+	DecoderRows []decoderRow           `json:"decoder_rows,omitempty"`
 }
 
 // ─── timeout / charset constants ─────────────────────────────────────────────
@@ -228,19 +229,22 @@ func TestJournal(t *testing.T) {
 	rows = append(rows, runWildCorpus(t)...)
 	rows = append(rows, runSickCorpus(t)...)
 
+	decoderRows := runDecoderMatrix(t)
+
 	totalDuration := time.Since(start)
 	corpora := summariseCorpora(rows)
 
 	run := journalRun{
-		Timestamp:  timestamp,
-		Commit:     commit,
-		Version:    version,
-		GoVersion:  runtime.Version(),
-		GOOS:       runtime.GOOS,
-		GOARCH:     runtime.GOARCH,
-		DurationMS: float64(totalDuration.Milliseconds()),
-		Rows:       rows,
-		Corpora:    corpora,
+		Timestamp:   timestamp,
+		Commit:      commit,
+		Version:     version,
+		GoVersion:   runtime.Version(),
+		GOOS:        runtime.GOOS,
+		GOARCH:      runtime.GOARCH,
+		DurationMS:  float64(totalDuration.Milliseconds()),
+		Rows:        rows,
+		Corpora:     corpora,
+		DecoderRows: decoderRows,
 	}
 
 	writeJournalJSON(t, run, timestamp, commit)
@@ -890,10 +894,12 @@ func appendJournalMD(t *testing.T, run journalRun) {
 
 	newRow := buildEvolutionRow(run)
 	newSection := buildRunSection(run)
+	newDecoderRows := buildDecoderEvolutionRows(run, run.DecoderRows)
 
 	// No existing file: create from scratch.
 	if existing == "" {
-		content := buildJournalHeader() + newRow + "\n\n" + newSection + "\n"
+		content := buildJournalHeader() + newRow + "\n\n" + newSection + "\n\n" +
+			buildDecoderTableHeader() + newDecoderRows + "\n"
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Logf("warning: write %s: %v", path, err)
 		}
@@ -901,7 +907,10 @@ func appendJournalMD(t *testing.T, run journalRun) {
 		return
 	}
 
+	// Splice corpus row + run section into the corpus evolution table.
 	updated := spliceJournalMD(existing, newRow, newSection)
+	// Splice decoder rows into (or append) the decoder evolution table.
+	updated = spliceDecoderTableMD(updated, newDecoderRows)
 	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 		t.Logf("warning: write %s: %v", path, err)
 		return
