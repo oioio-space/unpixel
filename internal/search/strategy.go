@@ -19,6 +19,11 @@ func NewGuidedStrategy() GuidedStrategy { return GuidedStrategy{} }
 // Search runs offset discovery then GuidedDFS per surviving offset, fanned out
 // across cfg.Workers goroutines with a deterministic merge. It always emits a
 // final EventDone event before returning.
+//
+// The pipeline scorer is wrapped in a CachingScorer (controlled by
+// cfg.CacheSize; zero disables the cache) so the shared render→pixelate→crop
+// prefix work is memoised across offset goroutines, matching BeamStrategy's
+// construction.
 func (GuidedStrategy) Search(
 	ctx context.Context,
 	redacted *image.RGBA,
@@ -26,5 +31,6 @@ func (GuidedStrategy) Search(
 	out chan<- unpixel.Progress,
 	results chan<- unpixel.Result,
 ) {
-	searchOffsets(ctx, NewPipelineScorer(redacted, cfg), cfg, out, results, GuidedDFS)
+	scorer := NewCachingScorer(NewPipelineScorer(redacted, cfg), cfg.CacheSize)
+	searchOffsets(ctx, scorer, cfg, out, results, GuidedDFS)
 }

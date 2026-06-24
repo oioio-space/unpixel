@@ -50,6 +50,48 @@ func BenchmarkGuidedSearch(b *testing.B) {
 	}
 }
 
+// BenchmarkGuidedSearch_cached exercises GuidedDFS with a CachingScorer shared
+// across iterations, matching the production wiring in GuidedStrategy.Search.
+// Unlike BenchmarkGuidedSearch (which builds a fresh PipelineScorer each
+// iteration to measure cold-path cost), this benchmark measures the warm-cache
+// steady-state: stageImage hits are served from the LRU and only the metric
+// step runs. benchstat against the uncached variant proves the cache win.
+func BenchmarkGuidedSearch_cached(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	spec := fixture.Spec{Text: "ab", Charset: "ab ", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8}
+	redacted, err := fixture.Redact(spec)
+	if err != nil {
+		b.Fatalf("redact: %v", err)
+	}
+	cfg := unpixel.Config{
+		Charset:        spec.Charset,
+		MaxLength:      3,
+		BlockSize:      spec.BlockSize,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          spec.Style(),
+		Renderer:       r,
+		Pixelator:      pixelate.NewBlockAverage(spec.BlockSize),
+		Metric:         metric.NewPixelmatch(0.02),
+		CacheSize:      unpixel.DefaultCacheSize,
+	}
+	offset := unpixel.Offset{X: 0, Y: 0}
+	// Shared scorer across iterations — this is what GuidedStrategy.Search does.
+	scorer := search.NewCachingScorer(search.NewPipelineScorer(redacted, cfg), cfg.CacheSize)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		var evals []unpixel.Eval
+		search.GuidedDFS(context.Background(), scorer, cfg, offset, func(e unpixel.Eval) {
+			evals = append(evals, e)
+		})
+		sinkEvals = evals
+	}
+}
+
 // sinkEvals defeats dead-code elimination for GuidedDFS benchmark results.
 var sinkEvals []unpixel.Eval
 
