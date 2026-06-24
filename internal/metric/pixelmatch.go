@@ -375,3 +375,64 @@ func CountPixels(a, b *image.RGBA, threshold float64) int {
 func CountPixelsNoAA(a, b *image.RGBA, threshold float64) int {
 	return countPixels(a, b, threshold, true)
 }
+
+// CountPixelsNoAABounded is the early-exit variant of CountPixelsNoAA. It
+// aborts the scan as soon as the running diff count reaches maxDiff, returning
+// maxDiff immediately. The result equals CountPixelsNoAA(a, b, threshold) when
+// the true count is < maxDiff (accepted-candidate invariant); when the count
+// reaches maxDiff the returned value is maxDiff, which may be less than the
+// true total.
+//
+// maxDiff <= 0 disables the ceiling and behaves identically to CountPixelsNoAA.
+// The early-exit is sound because the no-AA count is monotone: each pixel can
+// only increase diff, so reaching the ceiling guarantees the full scan would
+// also reach or exceed it.
+func CountPixelsNoAABounded(a, b *image.RGBA, threshold float64, maxDiff int) int {
+	if maxDiff <= 0 {
+		return countPixels(a, b, threshold, true)
+	}
+	if !a.Bounds().Eq(b.Bounds()) {
+		return 0
+	}
+	if rgbaIdentical(a, b) {
+		return 0
+	}
+
+	maxDelta := 35215 * threshold * threshold
+	rect := a.Bounds()
+	w := rect.Dx()
+
+	need := 10 * w
+	pslab := slabPool.Get().(*[]rgba16)
+	if cap(*pslab) < need {
+		*pslab = make([]rgba16, need)
+	}
+	*pslab = (*pslab)[:need]
+	slab := *pslab
+
+	var ac, bc rowCache
+	initRowCache(&ac, a, rect.Min.Y, slab[:5*w])
+	initRowCache(&bc, b, rect.Min.Y, slab[5*w:])
+
+	diff := 0
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		if y > rect.Min.Y {
+			ac.advance()
+			bc.advance()
+		}
+		rowA := ac.row(y)
+		rowB := bc.row(y)
+		for xi := range w {
+			if math.Abs(colorDelta(rowA[xi], rowB[xi], false)) > maxDelta {
+				diff++
+				if diff >= maxDiff {
+					slabPool.Put(pslab)
+					return diff
+				}
+			}
+		}
+	}
+
+	slabPool.Put(pslab)
+	return diff
+}

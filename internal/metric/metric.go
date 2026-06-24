@@ -7,6 +7,24 @@ import (
 	"sync"
 )
 
+// BoundedComparer is an optional extension of unpixel.Metric for metrics whose
+// per-pixel count is monotonically non-decreasing during the scan. Implementing
+// it allows the search to abort early once it is certain a candidate will be
+// rejected, without changing the score for candidates that pass.
+//
+// CompareBounded returns the exact same value as Compare when the true diff
+// ratio stays below maxDiffRatio (accepted-candidate invariant). When the
+// running diff reaches or exceeds maxDiffRatio during the scan, it may return
+// early with any value >= maxDiffRatio; the exact value is unspecified for
+// rejected candidates (callers must not rank on it).
+//
+// maxDiffRatio is in [0, 1] and corresponds to the caller's threshold: a
+// candidate is rejected when score >= threshold, so passing threshold as
+// maxDiffRatio lets the metric exit as soon as rejection is certain.
+type BoundedComparer interface {
+	CompareBounded(a, b *image.RGBA, maxDiffRatio float64) float64
+}
+
 // grayscalePool pools []float64 scratch buffers used by grayscale.
 // Each buffer is sized to hold at least w*h float64 luminance values for one
 // image. grayscale() allocates from this pool and Compare() returns it
@@ -101,6 +119,34 @@ func (m PixelmatchFast) Compare(a, b *image.RGBA) float64 {
 		return 0
 	}
 	return float64(CountPixelsNoAA(a, b, m.threshold)) / float64(total)
+}
+
+// CompareBounded implements [BoundedComparer]. It aborts the pixel scan as soon
+// as the running diff count reaches ceil(maxDiffRatio * total), returning a
+// value >= maxDiffRatio immediately. When the diff stays below the ceiling the
+// returned value is identical to Compare (accepted-candidate invariant).
+//
+// maxDiffRatio <= 0 returns Compare(a, b) with no early exit.
+func (m PixelmatchFast) CompareBounded(a, b *image.RGBA, maxDiffRatio float64) float64 {
+	bounds := a.Bounds()
+	total := bounds.Dx() * bounds.Dy()
+	if total == 0 {
+		return 0
+	}
+	// Convert ratio ceiling to an integer pixel ceiling.
+	// ceil ensures that a ratio of exactly maxDiffRatio is treated as a rejection
+	// (score >= threshold means rejected), matching the evalChildren gate.
+	maxDiff := 0
+	if maxDiffRatio > 0 {
+		// Use integer arithmetic: maxDiff = floor(maxDiffRatio * total) + 1
+		// so that diff >= maxDiff ↔ ratio >= maxDiffRatio (for non-integer products).
+		// When maxDiffRatio * total is an integer, diff must strictly exceed to
+		// reject — but the gate is score < threshold, so score == threshold rejects.
+		// Adding 1 is therefore correct: diff >= maxDiff means ratio >= threshold.
+		maxDiff = int(maxDiffRatio*float64(total)) + 1
+	}
+	diff := CountPixelsNoAABounded(a, b, m.threshold, maxDiff)
+	return float64(diff) / float64(total)
 }
 
 // DefaultSSIMWindow is the side length, in pixels, of each SSIM comparison

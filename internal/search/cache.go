@@ -93,12 +93,26 @@ func (c *CachingScorer) Eval(ctx context.Context, guess, prevGuess string, offse
 	if ctx.Err() != nil {
 		return EvalResult{Score: 1}
 	}
-
 	sr, err := c.cachedStage(ctx, guess, offset)
 	if err != nil {
 		return EvalResult{Score: 1}
 	}
-	return c.inner.evalFromStage(ctx, sr, prevGuess, offset)
+	return c.inner.evalFromStage(ctx, sr, prevGuess, offset, 0)
+}
+
+// EvalBounded implements boundedScorer. It uses the LRU cache for stageImage
+// and passes maxDiffRatio to the inner evalFromStage so the metric can abort
+// early for rejected candidates. Accepted candidates receive the exact same
+// score as Eval.
+func (c *CachingScorer) EvalBounded(ctx context.Context, guess, prevGuess string, offset unpixel.Offset, maxDiffRatio float64) EvalResult {
+	if ctx.Err() != nil {
+		return EvalResult{Score: 1}
+	}
+	sr, err := c.cachedStage(ctx, guess, offset)
+	if err != nil {
+		return EvalResult{Score: 1}
+	}
+	return c.inner.evalFromStage(ctx, sr, prevGuess, offset, maxDiffRatio)
 }
 
 // cachedStage returns the stageResult for guess, fetching from the cache or

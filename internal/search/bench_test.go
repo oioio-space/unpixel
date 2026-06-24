@@ -50,6 +50,44 @@ func BenchmarkGuidedSearch(b *testing.B) {
 	}
 }
 
+// BenchmarkGuidedSearch_bounded exercises GuidedDFS with PixelmatchFast (which
+// implements BoundedComparer) so the early-exit ceiling path fires on rejected
+// candidates. Compare against BenchmarkGuidedSearch (which uses Pixelmatch, no
+// BoundedComparer) to isolate the ceiling benefit.
+func BenchmarkGuidedSearch_bounded(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	spec := fixture.Spec{Text: "ab", Charset: "ab ", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8}
+	redacted, err := fixture.Redact(spec)
+	if err != nil {
+		b.Fatalf("redact: %v", err)
+	}
+	cfg := unpixel.Config{
+		Charset:        spec.Charset,
+		MaxLength:      3,
+		BlockSize:      spec.BlockSize,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          spec.Style(),
+		Renderer:       r,
+		Pixelator:      pixelate.NewBlockAverage(spec.BlockSize),
+		Metric:         metric.NewPixelmatchFast(0.02), // implements BoundedComparer
+	}
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		scorer := search.NewPipelineScorer(redacted, cfg)
+		var evals []unpixel.Eval
+		search.GuidedDFS(context.Background(), scorer, cfg, offset, func(e unpixel.Eval) {
+			evals = append(evals, e)
+		})
+		sinkEvals = evals
+	}
+}
+
 // BenchmarkGuidedSearch_cached exercises GuidedDFS with a CachingScorer shared
 // across iterations, matching the production wiring in GuidedStrategy.Search.
 // Unlike BenchmarkGuidedSearch (which builds a fresh PipelineScorer each

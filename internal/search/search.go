@@ -109,6 +109,15 @@ type Scorer interface {
 	Eval(ctx context.Context, guess, prevGuess string, offset unpixel.Offset) EvalResult
 }
 
+// boundedScorer is an optional extension of Scorer. When a Scorer implements
+// it, evalChildren passes the per-character threshold as the ceiling so the
+// metric can abort the pixel scan early for candidates that will be rejected.
+// The score contract is identical to Scorer.Eval for accepted candidates
+// (score < maxDiffRatio); for rejected ones the value is >= maxDiffRatio.
+type boundedScorer interface {
+	EvalBounded(ctx context.Context, guess, prevGuess string, offset unpixel.Offset, maxDiffRatio float64) EvalResult
+}
+
 // TotalScorer is an optional Scorer capability: it scores the WHOLE rendered
 // candidate against the WHOLE redacted image (no marginal cropping). The search
 // uses it only to rank the final answer — a correct prefix or a coincidental
@@ -255,6 +264,11 @@ func chooseEvalChildren(
 // evalChildrenFromChars is the sequential evalChildren inner loop operating on
 // a pre-computed chars slice. It avoids a redundant topKChars call when the
 // caller (chooseEvalChildren) has already resolved the character set.
+//
+// When scorer implements boundedScorer, each child is evaluated via
+// EvalBounded(threshold) so the metric can abort the pixel scan early for
+// candidates that will be rejected. Accepted candidates always receive the
+// exact same score as Eval.
 func evalChildrenFromChars(
 	ctx context.Context,
 	scorer Scorer,
@@ -263,14 +277,21 @@ func evalChildrenFromChars(
 	parentGuess string,
 	chars []rune,
 ) []node {
+	bs, isBounded := scorer.(boundedScorer)
 	var children []node
 	for _, ch := range chars {
 		if ctx.Err() != nil {
 			return children
 		}
 		next := parentGuess + string(ch)
-		res := scorer.Eval(ctx, next, parentGuess, offset)
-		if res.Score < cfg.ThresholdFor(ch) {
+		thr := cfg.ThresholdFor(ch)
+		var res EvalResult
+		if isBounded {
+			res = bs.EvalBounded(ctx, next, parentGuess, offset, thr)
+		} else {
+			res = scorer.Eval(ctx, next, parentGuess, offset)
+		}
+		if res.Score < thr {
 			children = append(children, node{guess: next, result: res})
 		}
 	}
@@ -283,6 +304,9 @@ func evalChildrenFromChars(
 // evalChildrenParCappedFromChars is the parallel evalChildrenParCapped inner
 // loop operating on a pre-computed chars slice. It avoids a redundant topKChars
 // call when the caller has already resolved the character set.
+//
+// When scorer implements boundedScorer, each child is evaluated via
+// EvalBounded(threshold) so the metric can abort early for rejected candidates.
 func evalChildrenParCappedFromChars(
 	ctx context.Context,
 	scorer Scorer,
@@ -292,6 +316,7 @@ func evalChildrenParCappedFromChars(
 	chars []rune,
 	workers int,
 ) []node {
+	bs, isBounded := scorer.(boundedScorer)
 	results := make([]*node, len(chars))
 	forEachIndex(ctx, len(chars), workers, func(i int) {
 		if ctx.Err() != nil {
@@ -299,8 +324,14 @@ func evalChildrenParCappedFromChars(
 		}
 		ch := chars[i]
 		next := parentGuess + string(ch)
-		res := scorer.Eval(ctx, next, parentGuess, offset)
-		if res.Score < cfg.ThresholdFor(ch) {
+		thr := cfg.ThresholdFor(ch)
+		var res EvalResult
+		if isBounded {
+			res = bs.EvalBounded(ctx, next, parentGuess, offset, thr)
+		} else {
+			res = scorer.Eval(ctx, next, parentGuess, offset)
+		}
+		if res.Score < thr {
 			results[i] = &node{guess: next, result: res}
 		}
 	})

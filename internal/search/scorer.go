@@ -12,6 +12,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/metric"
 )
 
 // renderCacheCap bounds the per-scorer render cache. Discovery renders the whole
@@ -436,7 +437,23 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 	if err != nil {
 		return EvalResult{Score: 1}
 	}
-	return s.evalFromStage(ctx, sr, prevGuess, offset)
+	return s.evalFromStage(ctx, sr, prevGuess, offset, 0)
+}
+
+// EvalBounded is like Eval but passes maxDiffRatio to the metric's
+// [metric.BoundedComparer] when available, allowing the pixel scan to abort
+// once rejection is certain. For accepted candidates (score < maxDiffRatio)
+// the returned score is identical to Eval; for rejected candidates the score
+// is >= maxDiffRatio (exact value unspecified). Pass 0 to disable the ceiling.
+func (s *PipelineScorer) EvalBounded(ctx context.Context, guess, prevGuess string, offset unpixel.Offset, maxDiffRatio float64) EvalResult {
+	if ctx.Err() != nil {
+		return EvalResult{Score: 1}
+	}
+	sr, err := s.stageImage(ctx, guess, offset)
+	if err != nil {
+		return EvalResult{Score: 1}
+	}
+	return s.evalFromStage(ctx, sr, prevGuess, offset, maxDiffRatio)
 }
 
 // evalFromStage completes steps 8–10 given the already-staged image for guess.
@@ -444,6 +461,12 @@ func (s *PipelineScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 // stageResult). sr.cropY is reused for the prevGuess re-render so that both
 // images are vertically aligned to the same row band — faithful to the original
 // which derived cropY once from the current guess.
+//
+// maxDiffRatio > 0 activates the early-exit ceiling: when cfg.Metric implements
+// [metric.BoundedComparer], the pixel scan aborts once the running diff reaches
+// maxDiffRatio, returning a score >= maxDiffRatio for rejected candidates while
+// returning the exact same score as Compare for accepted ones. Pass 0 to use
+// the full scan unconditionally.
 //
 // H1: the expensive prevGuess pipeline (render→BlueMargin→Crop→PadWhite→
 // Pixelate→LeftEdge) is computed once per (prevGuess, offset) and cached in
@@ -454,6 +477,7 @@ func (s *PipelineScorer) evalFromStage(
 	sr stageResult,
 	prevGuess string,
 	offset unpixel.Offset,
+	maxDiffRatio float64,
 ) EvalResult {
 	// Steps 8–10 do real work (a prevGuess re-render), so bail early on cancel.
 	if ctx.Err() != nil {
@@ -513,7 +537,19 @@ func (s *PipelineScorer) evalFromStage(
 
 	// Step 10: Score.
 	// faithful: main.ts Jimp.diff threshold 0.02
-	score := s.cfg.Metric.Compare(imgCropped, redactedCropped)
+	// When the metric supports BoundedComparer and a ceiling is set, use it so
+	// the pixel scan aborts early for rejected candidates. Accepted candidates
+	// (score < maxDiffRatio) always get the exact same score as Compare.
+	var score float64
+	if maxDiffRatio > 0 {
+		if bc, ok := s.cfg.Metric.(metric.BoundedComparer); ok {
+			score = bc.CompareBounded(imgCropped, redactedCropped, maxDiffRatio)
+		} else {
+			score = s.cfg.Metric.Compare(imgCropped, redactedCropped)
+		}
+	} else {
+		score = s.cfg.Metric.Compare(imgCropped, redactedCropped)
+	}
 
 	// TooBig: redacted width < scaled guess width.
 	tooBig := s.redacted.Bounds().Dx() < guessImg.Bounds().Dx()

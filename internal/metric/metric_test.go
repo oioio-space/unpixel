@@ -172,6 +172,69 @@ func TestPixelmatchFast_blockConstantMatchesFaithful(t *testing.T) {
 	}
 }
 
+// --- BoundedComparer ---
+
+// TestPixelmatchFast_CompareBounded_acceptedExact verifies the critical invariant:
+// when the diff stays below the ceiling (accepted candidate), CompareBounded
+// returns the EXACT same value as Compare.
+func TestPixelmatchFast_CompareBounded_acceptedExact(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b *image.RGBA
+	}{
+		{
+			name: "identical solid — diff=0 well below any ceiling",
+			a:    solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+			b:    solid(16, 16, color.RGBA{R: 200, G: 200, B: 200, A: 255}),
+		},
+		{
+			name: "one pixel diff — well below 50% ceiling",
+			a: func() *image.RGBA {
+				img := solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+				img.SetRGBA(3, 3, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+				return img
+			}(),
+			b: solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		},
+	}
+	const threshold = 0.02
+	m := metric.NewPixelmatchFast(threshold)
+	bc, ok := any(m).(metric.BoundedComparer)
+	if !ok {
+		t.Fatal("PixelmatchFast does not implement BoundedComparer")
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exact := m.Compare(tc.a, tc.b)
+			// ceiling = 0.5 → accepted candidate (diff < 50% of pixels)
+			bounded := bc.CompareBounded(tc.a, tc.b, 0.5)
+			if bounded != exact {
+				t.Errorf("CompareBounded=%v, Compare=%v; want identical for accepted candidate", bounded, exact)
+			}
+		})
+	}
+}
+
+// TestPixelmatchFast_CompareBounded_rejectedFloor verifies that when the diff
+// exceeds the ceiling, CompareBounded returns a value >= the ceiling ratio.
+func TestPixelmatchFast_CompareBounded_rejectedFloor(t *testing.T) {
+	// Black vs white: all pixels differ. Use a very low ceiling so it is exceeded.
+	a := solid(8, 8, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	b := solid(8, 8, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	const threshold = 0.02
+	m := metric.NewPixelmatchFast(threshold)
+	bc, ok := any(m).(metric.BoundedComparer)
+	if !ok {
+		t.Fatal("PixelmatchFast does not implement BoundedComparer")
+	}
+	// ceiling = 0.01 → diff will exceed it immediately
+	const ceiling = 0.01
+	got := bc.CompareBounded(a, b, ceiling)
+	if got < ceiling {
+		t.Errorf("CompareBounded=%v for rejected candidate, want >= ceiling %v", got, ceiling)
+	}
+}
+
 // --- RGB metric ---
 
 func TestRGB_identical(t *testing.T) {
