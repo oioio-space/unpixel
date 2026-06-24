@@ -142,6 +142,83 @@ func TestWarp_outOfBoundsIsWhite(t *testing.T) {
 	}
 }
 
+func TestProjector_trueScoresLowWrongHigh(t *testing.T) {
+	const rectW, rectH = 64, 48
+	const photoW, photoH = 200, 170
+
+	// The redaction content in rect space: a few large constant-colour blocks so
+	// bilinear resampling barely perturbs it (the true candidate should match).
+	trueRect := blockPattern(rectW, rectH, false)
+
+	// Photograph it under perspective: warp the rect content into a tilted quad of
+	// an otherwise-white photo. photoToRect maps photo→rect for inverse warping.
+	quad := [4]Point{{20, 15}, {180, 30}, {170, 150}, {10, 140}}
+	rectToPhoto, err := RectToQuad(rectW, rectH, quad)
+	if err != nil {
+		t.Fatalf("RectToQuad: %v", err)
+	}
+	photoToRect, err := rectToPhoto.Inverse()
+	if err != nil {
+		t.Fatalf("Inverse: %v", err)
+	}
+	photo := Warp(trueRect, photoToRect, photoW, photoH)
+
+	p, err := NewProjector(photo, quad, rectW, rectH)
+	if err != nil {
+		t.Fatalf("NewProjector: %v", err)
+	}
+
+	dTrue := p.Distance(trueRect)
+	dWrong := p.Distance(blockPattern(rectW, rectH, true)) // inverted colours
+
+	if dTrue > 0.05 {
+		t.Errorf("true candidate distance = %.4f, want ≤ 0.05 (forward model should match)", dTrue)
+	}
+	if dWrong <= dTrue+0.10 {
+		t.Errorf("wrong candidate distance = %.4f must clearly exceed true %.4f", dWrong, dTrue)
+	}
+}
+
+func TestNewProjector_errors(t *testing.T) {
+	photo := patternImage(32, 32)
+	quad := [4]Point{{0, 0}, {16, 0}, {16, 16}, {0, 16}}
+	if _, err := NewProjector(photo, quad, 0, 16); err == nil {
+		t.Error("NewProjector rectW=0: got nil error, want error")
+	}
+	// Degenerate quad (all corners identical) → singular homography.
+	deg := [4]Point{{5, 5}, {5, 5}, {5, 5}, {5, 5}}
+	if _, err := NewProjector(photo, deg, 16, 16); err == nil {
+		t.Error("NewProjector degenerate quad: got nil error, want ErrSingular")
+	}
+}
+
+// blockPattern builds a w×h RGBA of large constant-colour quadrants (low spatial
+// frequency, so warp interpolation is near-lossless). When invert is true the
+// colours are complemented, giving a clearly-different "wrong candidate".
+func blockPattern(w, h int, invert bool) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			r, g, b := uint8(40), uint8(40), uint8(40)
+			if x >= w/2 {
+				r = 200
+			}
+			if y >= h/2 {
+				g = 200
+			}
+			if x >= w/2 && y >= h/2 {
+				b = 200
+			}
+			if invert {
+				r, g, b = 255-r, 255-g, 255-b
+			}
+			o := img.PixOffset(x, y)
+			img.Pix[o], img.Pix[o+1], img.Pix[o+2], img.Pix[o+3] = r, g, b, 255
+		}
+	}
+	return img
+}
+
 // patternImage builds a w×h RGBA with a smooth deterministic gradient so warp
 // interpolation has structure to preserve.
 func patternImage(w, h int) *image.RGBA {
@@ -185,5 +262,30 @@ func BenchmarkWarp(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		sinkImage = Warp(src, m, 128, 64)
+	}
+}
+
+var sinkFloat float64
+
+func BenchmarkProjectorDistance(b *testing.B) {
+	const rectW, rectH = 64, 48
+	cand := blockPattern(rectW, rectH, false)
+	quad := [4]Point{{20, 15}, {180, 30}, {170, 150}, {10, 140}}
+	r2p, err := RectToQuad(rectW, rectH, quad)
+	if err != nil {
+		b.Fatal(err)
+	}
+	p2r, err := r2p.Inverse()
+	if err != nil {
+		b.Fatal(err)
+	}
+	photo := Warp(cand, p2r, 200, 170)
+	proj, err := NewProjector(photo, quad, rectW, rectH)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		sinkFloat = proj.Distance(cand)
 	}
 }

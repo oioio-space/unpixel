@@ -240,6 +240,101 @@ func solve8(a [8][8]float64, b [8]float64) ([8]float64, error) {
 	return x, nil
 }
 
+// Projector scores a candidate against a perspective photo in the photo's own
+// pixel space — the forward-model decode. Rather than warping (and resampling)
+// the photo to rectify it, it keeps the photo's native pixels and projects each
+// axis-aligned candidate through the homography to compare against them. This
+// avoids the interpolation loss of rectify-then-decode: the homography becomes
+// part of the forward model (render → pixelate → project → compare).
+//
+// A Projector is built once per (photo, quad) and reused across every candidate
+// in the search, so its per-candidate cost is one [Projector.Distance] call.
+type Projector struct {
+	photo        *image.RGBA
+	photoToRect  Matrix3
+	rectW, rectH int
+	// Bounding box of the quad in photo pixels, clipped to the photo, over which
+	// Distance iterates; pixels whose preimage falls outside [0,rectW)×[0,rectH)
+	// are skipped (they are outside the redaction quad).
+	minX, minY, maxX, maxY int
+}
+
+// NewProjector builds a forward-model scorer for the redaction quad (top-left,
+// top-right, bottom-right, bottom-left, in photo pixel coordinates). rectW×rectH
+// is the axis-aligned candidate size — typically the quad's average edge lengths
+// rounded to whole blocks. It returns [ErrSingular] if the quad is degenerate.
+func NewProjector(photo *image.RGBA, quad [4]Point, rectW, rectH int) (*Projector, error) {
+	if rectW <= 0 || rectH <= 0 {
+		return nil, errors.New("rectify: NewProjector needs positive rect dimensions")
+	}
+	rectToPhoto, err := RectToQuad(float64(rectW), float64(rectH), quad)
+	if err != nil {
+		return nil, err
+	}
+	photoToRect, err := rectToPhoto.Inverse()
+	if err != nil {
+		return nil, err
+	}
+	b := photo.Bounds()
+	minX, minY := b.Max.X, b.Max.Y
+	maxX, maxY := b.Min.X, b.Min.Y
+	for _, c := range quad {
+		minX = min(minX, int(floor(c.X)))
+		minY = min(minY, int(floor(c.Y)))
+		maxX = max(maxX, int(floor(c.X))+1)
+		maxY = max(maxY, int(floor(c.Y))+1)
+	}
+	return &Projector{
+		photo:       photo,
+		photoToRect: photoToRect,
+		rectW:       rectW,
+		rectH:       rectH,
+		minX:        max(minX, b.Min.X),
+		minY:        max(minY, b.Min.Y),
+		maxX:        min(maxX, b.Max.X),
+		maxY:        min(maxY, b.Max.Y),
+	}, nil
+}
+
+// Distance returns the mean per-channel RGB difference, normalised to [0,1],
+// between the photo and the candidate projected into the photo frame, averaged
+// over the photo pixels that fall inside the redaction quad. candRect is the
+// candidate already rendered and re-pixelated at rectW×rectH (axis-aligned).
+// Only the true text reproduces the photo's projected blocks, so the true
+// candidate scores near zero and wrong candidates score higher — the same
+// generate-and-test signal as the flat pipeline, but perspective-correct.
+//
+// It returns 1 (maximally different) when no photo pixel falls inside the quad.
+func (p *Projector) Distance(candRect *image.RGBA) float64 {
+	cb := candRect.Bounds()
+	cmaxX, cmaxY := cb.Dx()-1, cb.Dy()-1
+	var sum float64
+	var n int
+	for y := p.minY; y < p.maxY; y++ {
+		for x := p.minX; x < p.maxX; x++ {
+			r := p.photoToRect.Apply(Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+			if r.X < 0 || r.Y < 0 || r.X >= float64(p.rectW) || r.Y >= float64(p.rectH) {
+				continue // outside the redaction quad
+			}
+			cr, cg, cbl, _ := sampleBilinear(candRect, r.X-0.5, r.Y-0.5, cmaxX, cmaxY)
+			o := p.photo.PixOffset(x, y)
+			sum += absDiff(p.photo.Pix[o], cr) + absDiff(p.photo.Pix[o+1], cg) + absDiff(p.photo.Pix[o+2], cbl)
+			n++
+		}
+	}
+	if n == 0 {
+		return 1
+	}
+	return sum / (float64(n) * 3 * 255)
+}
+
+func absDiff(a, b uint8) float64 {
+	if a > b {
+		return float64(a - b)
+	}
+	return float64(b - a)
+}
+
 func abs(v float64) float64 {
 	if v < 0 {
 		return -v

@@ -1,0 +1,92 @@
+[
+  {
+    "name": "persp_go",
+    "file": "persp_go.png",
+    "text": "go",
+    "charset": "go abcd",
+    "font_size": 32,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "photo_w": 140,
+    "photo_h": 156,
+    "quad": [
+      [
+        40,
+        30
+      ],
+      [
+        80,
+        48
+      ],
+      [
+        68,
+        108
+      ],
+      [
+        46,
+        100
+      ]
+    ]
+  },
+  {
+    "name": "persp_cat",
+    "file": "persp_cat.png",
+    "text": "cat",
+    "charset": "cat eoabd",
+    "font_size": 32,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "photo_w": 148,
+    "photo_h": 156,
+    "quad": [
+      [
+        40,
+        30
+      ],
+      [
+        88,
+        48
+      ],
+      [
+        76,
+        108
+      ],
+      [
+        46,
+        100
+      ]
+    ]
+  },
+  {
+    "name": "persp_hello",
+    "file": "persp_hello.png",
+    "text": "hello",
+    "charset": "helo abcd",
+    "font_size": 32,
+    "block_size": 8,
+    "padding_top": 8,
+    "padding_left": 8,
+    "photo_w": 172,
+    "photo_h": 156,
+    "quad": [
+      [
+        40,
+        30
+      ],
+      [
+        112,
+        48
+      ],
+      [
+        100,
+        108
+      ],
+      [
+        46,
+        100
+      ]
+    ]
+  }
+]

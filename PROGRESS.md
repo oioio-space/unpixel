@@ -939,3 +939,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `243c865` 2026-06-24 — test(leak): add goroutine-leak gate via uber-go/goleak + a skill _(13 fichiers)_
 - `77c2670` 2026-06-24 — fix(journal): main evolution row landed in the decoder table; record v0.13.0(+dev) _(5 fichiers)_
 - `e6dcf1e` 2026-06-25 — feat(journal): surface the context corpus per-image + ctx·C1a column _(5 fichiers)_
+- `55a13bf` 2026-06-25 — feat(rectify): planar-homography core for perspective-distorted decode (approach B) _(3 fichiers)_
