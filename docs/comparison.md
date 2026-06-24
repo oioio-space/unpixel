@@ -48,7 +48,7 @@ with Chromium is pixel-exact browser fidelity; UnPixel trades that for speed +
 portability and recovers fidelity via the font bundle and self-consistent matching (see
 [limits](concepts/limits.md)).
 
-## In one sentence
+## Summary
 
 **Same core idea** (pixelation/blur is a deterministic function → render a candidate,
 re-apply the same operator, compare, search). **What UnPixel adds:** pure-Go

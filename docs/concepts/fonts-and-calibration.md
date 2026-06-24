@@ -1,78 +1,78 @@
 # Fonts & calibration
 
-**The font is the most important input.** [Generate-and-test](how-it-works.md) only
-works if UnPixel's rendered candidates are drawn the same way the original text was. If
-the typeface, size, or spacing is off, every candidate's blocks are slightly wrong and
-nothing matches cleanly. On real-world images, **getting the font right is the single
-biggest lever on success.**
+**The font is the most important input.** [Generate-and-test](how-it-works.md) succeeds
+only when UnPixel's rendered candidates are drawn as the original text was drawn. If the
+typeface, size, or spacing is incorrect, every candidate's blocks are slightly displaced
+and none matches cleanly. On real-world images, **obtaining the correct font is the single
+most significant determinant of success.**
 
-## How UnPixel gets the font
+## How UnPixel obtains the font
 
-### 1. Zero-config font sweep (no `--font`)
+### 1. Automatic font sweep (no `--font`)
 
-With no font specified, UnPixel renders candidates in a bundled set of redistributable
-fonts **in parallel** and keeps the best fit by whole-image score:
+When no font is specified, UnPixel renders candidates in a bundled set of redistributable
+fonts **in parallel** and retains the best fit by whole-image score:
 
 - Liberation Sans / Serif / Mono (≈ Arial / Times / Courier)
 - Carlito (≈ Calibri), Caladea (≈ Cambria)
 - Source Code Pro, JetBrains Mono, Adwaita Mono, Noto Sans Mono (for code)
 
-This is convenient but **exploratory** — if the real font isn't close to a bundled
-one, the sweep won't match well.
+This is convenient but **exploratory**: if the true font is not close to a bundled one,
+the sweep will not match well.
 
-### 2. Supply the exact font (recommended for real images)
+### 2. Supplying the exact font (recommended for real images)
 
 ```bash
 unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 redacted.png
 ```
 
-Or sweep your own candidates / a directory and keep the best:
+Custom candidates or an entire directory may be swept, retaining the best fit:
 
 ```bash
 unpixel --font Arial.ttf --font Consolas.ttf redacted.png
 unpixel --font-dir /usr/share/fonts/truetype redacted.png
 ```
 
-In Go, build one renderer per font and rank them with `RecoverMultiFont` — results
-come back best-fit first.
+In Go, one renderer is constructed per font and the candidates are ranked with
+`RecoverMultiFont`, which returns results best-fit first.
 
 ## Calibrating size and spacing
 
-Even with the right typeface, the **size** and **letter-spacing** must match:
+Even with the correct typeface, the **size** and **letter-spacing** must match:
 
-- **Font size** is calibrated from the content height when unset (`InferFontSize`), or
-  pin it with `--font-size`.
-- **Letter-spacing** (extra pixels after each glyph, like CSS) can be swept with
-  `--letter-spacing-search` (the Bishop-Fox method); the winner is recorded in
+- The **font size** is calibrated from the content height when unset (`InferFontSize`), or
+  fixed with `--font-size`.
+- **Letter-spacing** (additional pixels following each glyph, as in CSS) may be swept with
+  `--letter-spacing-search` (the Bishop-Fox method); the selected value is recorded in
   `Result.LetterSpacing`.
-- **Gamma / color space** matters for block averaging: `--gamma auto` tries both
-  sRGB and linear-light (GIMP/GEGL render in linear light) and keeps the lower
-  distance.
+- **Gamma / colour space** affects block averaging: `--gamma auto` evaluates both sRGB and
+  linear light (GIMP and GEGL render in linear light) and retains the lower distance.
 
 ## Reconstructing the font from context
 
-Sometimes you don't have the font file, but the image gives you clues. UnPixel has two
-context-assisted approaches:
+When the font file is unavailable, the image may nonetheless provide cues. UnPixel offers
+two context-assisted approaches:
 
-- **Variable-font fitting** (`--decoder varfont`): if the redaction was made with a
-  variable font, UnPixel fits the font's axes (e.g. weight) to match the redacted
-  pixels, rather than guessing among fixed faces.
-- **Calibrate from visible text:** when there is *un-redacted* text next to the
-  redaction (same font), UnPixel can calibrate the rendering parameters against that
-  visible sample, then apply them to the hidden region. A font sample supplied as a
+- **Variable-font fitting** (`--decoder varfont`): when the redaction was produced with a
+  variable font, UnPixel fits the font's axes (for example, weight) to match the redacted
+  pixels, rather than selecting among fixed faces.
+- **Calibration from visible text:** when un-redacted text in the same font appears
+  adjacent to the redaction, UnPixel can calibrate the rendering parameters against that
+  visible sample and then apply them to the concealed region. A font sample supplied as a
   separate image is also supported (`--font-sample`).
 
-These are promising on synthetic fixtures (calibration nails the font, distance ≈ 0)
-but blind recovery of the redacted text itself remains hard — see [limits](limits.md).
+These approaches are promising on synthetic fixtures — calibration recovers the font
+parameters precisely, with distance approaching zero — but blind recovery of the redacted
+text itself remains difficult; see [limits](limits.md).
 
-## Rule of thumb
+## Recommended practice
 
-1. If you know the font, **always pass `--font`**.
-2. Calibrate size/spacing/gamma if the first pass looks close but not exact.
-3. Only rely on the zero-config sweep for quick triage or bundled-font synthetics.
+1. When the font is known, **always supply `--font`.**
+2. Calibrate size, spacing, and gamma when the first pass is close but not exact.
+3. Rely on the automatic sweep only for rapid triage or for bundled-font synthetics.
 
 ## See also
 
 - [Decoders](decoders.md) — `varfont` and the calibration modes.
-- [Limits](limits.md) — why font fidelity caps real-world recovery.
-- [CLI reference](../reference/cli.md) — all `--font*`, `--gamma`, spacing flags.
+- [Limits](limits.md) — why font fidelity bounds real-world recovery.
+- [CLI reference](../reference/cli.md) — all `--font*`, `--gamma`, and spacing flags.

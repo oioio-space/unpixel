@@ -1,75 +1,75 @@
-# Limits — what UnPixel can and can't do
+# Limits — the operating envelope
 
-UnPixel is deliberately honest about its operating envelope. This page is the single
-home for "what actually works."
+UnPixel is deliberately candid about its operating envelope. This page is the single
+authoritative account of what is achievable.
 
-## The short version
+## Summary
 
-- **Synthetic redactions** (text redacted with a known font, then recovered): UnPixel
-  recovers these **reliably and exactly**. The release panel is 17/17 exact.
-- **Real-world internet images** (screenshots, GIMP exports, JPEG captures): **much
-  harder.** Success depends mostly on whether you can match the exact font. Out of the
-  box, real/wild redactions usually do **not** fully recover.
+- **Synthetic redactions** (text redacted with a known font and subsequently recovered)
+  are recovered **reliably and exactly.** The release panel stands at 17/17 exact.
+- **Real-world images** (screenshots, GIMP exports, JPEG captures) are **considerably more
+  difficult.** Success depends chiefly on whether the exact font can be matched. Out of the
+  box, real and "wild" redactions generally do **not** recover in full.
 
-This isn't a temporary bug — it reflects genuine information-theoretic and rendering
-limits. Treat UnPixel as a powerful tool for *demonstrating that pixelation/blur is
-unsafe* and for recovering redactions when you control or know the rendering, not as a
-guaranteed de-anonymizer for arbitrary internet images.
+This is not a transient defect; it reflects genuine information-theoretic and rendering
+limits. UnPixel should be regarded as a powerful instrument for *demonstrating that
+pixelation and blur are unsafe*, and for recovering redactions where the rendering is known
+or controlled — not as a guaranteed de-anonymizer for arbitrary internet images.
 
-## What makes real images hard
+## Why real images are difficult
 
 ### 1. Font fidelity (the dominant factor)
-Generate-and-test needs candidates rendered the way the original was. UnPixel uses a
-pure-Go rasterizer (`golang.org/x/image`), which is not byte-identical to Chromium,
-GIMP, or whatever produced the redaction (different hinting/anti-aliasing). If the font
-is out of the bundled set, the sweep won't match well.
-**Mitigation:** supply the exact font via `--font` / `--font-dir`. See
-[fonts & calibration](fonts-and-calibration.md).
+Generate-and-test requires candidates rendered as the original was rendered. UnPixel uses a
+pure-Go rasterizer (`golang.org/x/image`), which is not byte-identical to Chromium, GIMP, or
+whatever produced the redaction (owing to differing hinting and anti-aliasing). If the font
+lies outside the bundled set, the sweep will not match well. **Mitigation:** supply the exact
+font with `--font` or `--font-dir`. See [fonts & calibration](fonts-and-calibration.md).
 
 ### 2. Coarse blocks carry little information
-Large block sizes over small fonts average away almost all per-character signal, so
-many strings produce nearly identical blocks. Beyond a point this is information-
-theoretically unrecoverable — there simply isn't enough left to distinguish candidates.
+Large block sizes applied to small fonts average away nearly all per-character signal, so
+many strings produce nearly identical blocks. Beyond a certain point this is
+information-theoretically unrecoverable: insufficient information remains to distinguish
+candidates.
 
 ### 3. Boundary coupling
-After pixelation, pixels straddling two glyphs average together. Decoders that score
-glyphs in isolation (`did`, `ref-match`) mismatch the true full-line pixelation at
-those boundaries — the main reason real "sick sentence" recovery stays incomplete even
-when the DP/matching itself is correct.
+After pixelation, pixels straddling two glyphs average together. Decoders that score glyphs
+in isolation (`did`, `ref-match`) therefore diverge from the true full-line pixelation at
+those boundaries — the principal reason that recovery of the "sick sentence" corpus remains
+incomplete even when the DP or matching is itself correct.
 
-### 4. Real blur isn't clean Gaussian
-Internet blur is often motion or defocus, plus JPEG noise, on a textured or dark
-background — not a clean Gaussian on flat white. The σ-search assumes the clean model.
-**Mitigation:** `--normalize` restores the background assumption and `--remosaic`
-collapses σ-mismatch/JPEG — but neither recovers the text by itself; font fidelity
-still gates the result.
+### 4. Real blur is not a clean Gaussian
+Internet blur is frequently motion or defocus blur, accompanied by JPEG noise, on a textured
+or dark background — not a clean Gaussian on flat white. The σ-search assumes the clean
+model. **Mitigation:** `--normalize` restores the background assumption and `--remosaic`
+reduces σ-mismatch and JPEG artefacts; neither recovers the text on its own, as font fidelity
+still governs the result.
 
 ### 5. Geometry drift (learned models)
-`trained-hmm` is trained on a specific (block size, font size, face, block phase)
-tuple. On independent images with different geometry, accuracy drops sharply (the
-paper's offset-sensitivity result). For out-of-sample geometry, the `window-hmm` beam
-is more robust.
+`trained-hmm` is trained on a specific tuple of (block size, font size, face, block phase). On
+independent images with differing geometry, accuracy declines sharply (the paper's
+offset-sensitivity result). For out-of-sample geometry, the `window-hmm` beam is more robust.
 
-## The decoder reality, measured
+## The measured decoder picture
 
-The recovery [journal](../JOURNAL.md) tracks every decoder over real / wild / sick
-corpora release-over-release. The honest current picture:
+The recovery [journal](../JOURNAL.md) tracks every decoder across the real, wild, and sick
+corpora, release by release. The candid current position is as follows:
 
 - Synthetic fixtures: 17/17 exact, fidelity 1.000.
-- `ref-match` is the strongest on the SICK corpus (best exact count) but still partial.
-- Calibration *nails the font* on context fixtures (distance ≈ 0), yet blind recovery
-  of the redacted text from that calibration stays weak.
-- Real / wild corpora remain flat — the walls above, not a tuning gap.
+- `ref-match` is the strongest on the SICK corpus (highest exact count) but remains partial.
+- Calibration recovers the font precisely on context fixtures (distance ≈ 0), yet blind
+  recovery of the redacted text from that calibration remains weak.
+- The real and wild corpora remain flat — a consequence of the limits above, not of a tuning
+  deficiency.
 
-## When UnPixel works well
+## When UnPixel performs well
 
-- You redacted the text yourself (or know the exact font, size, and block/σ).
-- The content is short, or structured (digits/PINs with `trained-hmm`), or you can
-  supply a language prior.
-- You're proving a point: "this redaction is reversible."
+- The text was redacted by the user, or the exact font, size, and block/σ are known.
+- The content is short, or structured (digits and PINs with `trained-hmm`), or a language
+  prior can be supplied.
+- The objective is demonstrative: establishing that a given redaction is reversible.
 
-## Going further
+## Further reading
 
-The roadmap for pushing the envelope (context-assisted decoding, learned emissions,
-font reconstruction) lives in [`PROGRESS.md`](../../PROGRESS.md). The research foundations
-are in [references](../reference/references.md).
+The roadmap for extending the envelope (context-assisted decoding, learned emissions, font
+reconstruction) is maintained in [`PROGRESS.md`](../../PROGRESS.md). The research foundations
+are listed in [references](../reference/references.md).

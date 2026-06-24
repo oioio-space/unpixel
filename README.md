@@ -1,27 +1,28 @@
 # UnPixel
 
-**Recover text hidden behind pixelation (mosaic) or blur.**
+**Recovery of text concealed by pixelation (mosaic) or blur.**
 
-Redacting text by pixelating or blurring it does **not** make it secret. Both are
-reversible. UnPixel reconstructs the hidden text — it's a pure-Go port of
-[Bishop Fox's **unredacter**](https://github.com/bishopfox/unredacter)
-([why pixelation fails](https://bishopfox.com/blog/unredacter-tool-never-pixelation)).
+Redacting text by pixelating or blurring it does not render it confidential; both
+transformations are reversible. UnPixel reconstructs the concealed text. It is a pure-Go
+port of [Bishop Fox's **unredacter**](https://github.com/bishopfox/unredacter)
+(see [why pixelation is inadequate](https://bishopfox.com/blog/unredacter-tool-never-pixelation)).
 
 [![CI](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml/badge.svg)](https://github.com/oioio-space/unpixel/actions/workflows/ci.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/oioio-space/unpixel.svg)](https://pkg.go.dev/github.com/oioio-space/unpixel) [![Go Report Card](https://goreportcard.com/badge/github.com/oioio-space/unpixel)](https://goreportcard.com/report/github.com/oioio-space/unpixel) [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat)](https://go.dev/dl/) [![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
 ---
 
-## What it does
+## Overview
 
-Give UnPixel an image with a pixelated or blurred line of text. It figures out the
-redaction settings on its own (block size, blur amount, font, language) and prints
-its best guess at the original text.
+Given an image containing a pixelated or blurred line of text, UnPixel determines the
+redaction parameters automatically — block size, blur magnitude, font, and language —
+and reports its best estimate of the original text.
 
-It works by **re-creating** the redaction, not by sharpening the image: it renders
-candidate text, blurs/pixelates it the same way, and keeps whatever reproduces the
-redacted pixels exactly. [How it works →](docs/concepts/how-it-works.md)
+It operates by **reconstructing** the redaction rather than by sharpening the image: it
+renders candidate text, applies the same blur or pixelation, and retains whichever
+candidate reproduces the redacted pixels exactly. See
+[How it works](docs/concepts/how-it-works.md) for the method in detail.
 
-## Install
+## Installation
 
 Command-line tool:
 
@@ -35,32 +36,35 @@ Go library:
 go get github.com/oioio-space/unpixel
 ```
 
-Requires Go 1.26+. (Building from source? See [getting started](docs/getting-started.md).)
+Go 1.26 or later is required. For building from source, see the
+[getting-started guide](docs/getting-started.md).
 
-## Try it
+## Usage
 
-**1. Just point it at an image** — UnPixel auto-detects everything:
+**1. Automatic recovery** — UnPixel detects all parameters from the image:
 
 ```bash
 unpixel redacted.png
 ```
 
-**2. Know the font?** Supplying the exact font dramatically improves real-world results:
+**2. With a known font.** Supplying the exact font substantially improves results on
+real-world images:
 
 ```bash
 unpixel --font Consolas.ttf --font-size 24 redacted.png
 ```
 
-**3. Blurred instead of pixelated?**
+**3. Blur instead of pixelation:**
 
 ```bash
 unpixel --redaction blur redacted.png
 ```
 
-The best guess prints to stdout (so it pipes cleanly); ranked alternatives and live
-progress go to stderr. Add `--format json` for machine-readable output.
+The best estimate is written to standard output (so that it pipes cleanly); ranked
+alternatives and progress information are written to standard error. Add `--format json`
+for machine-readable output.
 
-In Go, it's one call:
+In Go, recovery is a single call:
 
 ```go
 import (
@@ -75,39 +79,43 @@ res, _ := unpixel.RecoverFile(context.Background(), "redacted.png")
 fmt.Println(res.BestGuess)
 ```
 
-## How well does it work?
+## Effectiveness
 
-UnPixel reliably recovers **synthetic** redactions (text redacted with a known font,
-then recovered). On **real-world internet images** it is much harder — success
-depends mostly on matching the exact font. Supplying `--font` is the single biggest
-lever. UnPixel is honest about this: read the [limits](docs/concepts/limits.md)
-before relying on it.
+UnPixel recovers **synthetic** redactions reliably (text redacted with a known font and
+subsequently recovered). On **real-world images**, recovery is considerably more
+difficult; success depends primarily on matching the exact font, and supplying `--font`
+is the single most significant factor. The [limitations](docs/concepts/limits.md) page
+documents the operating envelope candidly and should be consulted before relying on the
+tool.
 
-## Learn more
+## Documentation
 
-| I want to… | Go here |
-|------------|---------|
-| Install and run common cases | [Getting started](docs/getting-started.md) |
-| Understand how it works | [How it works](docs/concepts/how-it-works.md) |
-| Know mosaic vs. blur recovery | [Mosaic vs. blur](docs/concepts/mosaic-vs-blur.md) |
-| Get the font right | [Fonts & calibration](docs/concepts/fonts-and-calibration.md) |
-| Pick the right decoder | [Decoders](docs/concepts/decoders.md) |
-| Understand what it can't do | [Limits](docs/concepts/limits.md) |
+| Objective | Reference |
+|-----------|-----------|
+| Install and run the common cases | [Getting started](docs/getting-started.md) |
+| Understand the method | [How it works](docs/concepts/how-it-works.md) |
+| Recover mosaic versus blur | [Mosaic vs. blur](docs/concepts/mosaic-vs-blur.md) |
+| Configure the font | [Fonts & calibration](docs/concepts/fonts-and-calibration.md) |
+| Select a decoder | [Decoders](docs/concepts/decoders.md) |
+| Review the limitations | [Limits](docs/concepts/limits.md) |
 | Look up a CLI flag | [CLI reference](docs/reference/cli.md) |
 | Use the Go API | [API reference](docs/reference/api.md) |
-| See the full doc map | [docs/](docs/README.md) |
+| Browse the full documentation | [docs/](docs/README.md) |
 
-For the project's roadmap and decision log, see [`PROGRESS.md`](PROGRESS.md). For how
-UnPixel compares to the original Bishop Fox tool, see [comparison](docs/comparison.md).
+The project roadmap and decision log are maintained in [`PROGRESS.md`](PROGRESS.md). A
+comparison with the original Bishop Fox tool is provided in
+[comparison](docs/comparison.md).
 
 ## Credits
 
 - **Original work:** [Bishop Fox's unredacter](https://github.com/bishopfox/unredacter)
-  and the write-up [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
-- **Fonts & libraries:** bundled Liberation/Carlito/Caladea/Source Code Pro/JetBrains
-  Mono (SIL OFL / Apache 2.0), [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image),
-  and [`orisano/pixelmatch`](https://github.com/orisano/pixelmatch). Full list and
-  research references: [docs/reference/references.md](docs/reference/references.md).
+  and the article [*Never use pixelation to redact text*](https://bishopfox.com/blog/unredacter-tool-never-pixelation).
+- **Fonts and libraries:** the bundled Liberation, Carlito, Caladea, Source Code Pro,
+  and JetBrains Mono families (SIL OFL / Apache 2.0),
+  [`golang.org/x/image`](https://pkg.go.dev/golang.org/x/image), and
+  [`orisano/pixelmatch`](https://github.com/orisano/pixelmatch). The complete list and
+  research references appear in
+  [docs/reference/references.md](docs/reference/references.md).
 
 ## License
 

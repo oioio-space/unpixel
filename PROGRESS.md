@@ -933,3 +933,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `3009962` 2026-06-24 — docs(journal): v0.13.0 run — perf wins, no quality regression; C1/C1b tracked _(2 fichiers)_
 - `d8972af` 2026-06-24 — docs(release): v0.13.0 — performance wave + context calibration (C1b) + journal tracking _(3 fichiers)_
 - `1cb2b59` 2026-06-24 — test(cover): restore coverage gate margin to 85.4% for the v0.13.0 release _(16 fichiers)_
+- `153368e` 2026-06-24 — docs: rationalize documentation — neophyte README + linked concept tree _(18 fichiers)_

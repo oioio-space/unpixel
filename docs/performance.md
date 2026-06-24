@@ -102,10 +102,10 @@ fast-path — to be pursued only on benchstat evidence.
 3. **Full on-GPU pipeline:** documented research direction only; conflicts most with the
    pure-Go/zero-config ethos.
 
-**The honest headline:** a no-CGO GPU path exists in 2026, but for UnPixel's
-many-tiny-compares, sequential, branch-heavy workload it is not a free win — it needs an
-algorithmic rearchitecture and a runtime native dependency, whereas the CPU path stays
-fastest today with neither cost.
+**Conclusion:** a no-CGO GPU path exists in 2026, but for UnPixel's
+many-small-comparisons, sequential, branch-heavy workload it is not a straightforward
+gain — it requires an algorithmic rearchitecture and a runtime native dependency, whereas
+the CPU path remains fastest today with neither cost.
 
 ## Where the wins actually came from
 
