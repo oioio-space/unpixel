@@ -639,7 +639,71 @@ Propositions, par levier :
       même-ligne (« User: ▓▓▓▓ »), libellé au-dessus, polices embarquées ET une variable
       (Nunito) pour C2.
 - [ ] **Ajouter ce corpus au journal** (table décodeurs : `calibrate→context`) pour tracer C1/C2
-      dans le temps comme les autres.
+      dans le temps comme les autres. *(fait : `8e7192a`)*
+
+### ⚡ Optimisations de performance (candidates — audit 3 agents, RÈGLE : prouver au benchstat)
+
+Audit lecture-seule (cœur · concurrence/pool/mémoire · internes décodeurs). **Aucune n'est
+appliquée** : chacune doit passer `mise run bench:baseline` → change → `bench:compare`
+(`-count≥12 -benchmem`, `-cpu` pour le parallélisme), gain significatif sans régression
+alloc/débit, **panel 17/17 + matrix 310/310 inchangés**, `-race` propre. Les déjà-essayées-et-
+rejetées (SIMD colorDelta, compare par-bloc, PGO) **ne sont pas** à refaire.
+
+**Prérequis — combler les trous de benchmark (RÈGLE hot-path violée) :** `internal/windowhmm`
+(zéro `Benchmark` : Viterbi + KMeans), `internal/did` (pas de `BenchmarkTrellisDP` isolé),
+`internal/varfont` (le fitter est un hot loop sans bench). À ajouter AVANT d'optimiser ces zones.
+
+**Tier 1 — fort impact ÷ effort :**
+- [ ] **DID = vrai ICP** (`internal/did/did.go`, `mosaictext/did.go`) : aujourd'hui DP brute-force
+      (émission complète render+pixelate+MSE pour chaque (glyphe,colonne) ≈ W·|charset| par phase),
+      l'ICP annoncé n'est PAS implémenté. Ajouter un coût approché par **moyennes-de-blocs** (borne
+      exacte car l'image pixelisée est constante par bloc) en pré-passe, puis rescore exact **le long
+      du meilleur chemin seulement** (itération ICP) + élagage de colonnes (beam). Kopec : 3–25×,
+      évite jusqu'à 99,9 % des comparaisons. *(F1, ~5–20×, le plus gros levier du code récent.)*
+- [ ] **glyphMu → face par-P (sync.Pool)** (`internal/render/render.go`) : un mutex global sérialise
+      tout le travail glyphe entre goroutines → goulot Amdahl du fan-out d'offsets. Face empruntée
+      par goroutine (pool clé (bold,taille)). Preuve : `BenchmarkXImage_Render_Parallel` (`b.RunParallel`,
+      `-cpu=1,4,8,20`). *(plus haute confiance ; le bench prouve la contention directement.)*
+- [ ] **CachingScorer câblé dans GuidedStrategy** (`internal/search/strategy.go` vs `beam.go:196`) :
+      le chemin PAR DÉFAUT n'a pas le cache stageImage (seul Beam l'a). *(H1 cœur.)*
+- [ ] **blinddecode : cache de tuiles par-mot + composition** (`internal/blinddecode/wholeline.go`) :
+      `scoreWholeLine` re-rend la phrase jointe entière + 2 scans `isInk` O(sx·imgH) par combinaison
+      (≤500k). Rendre chaque mot du pool UNE fois (~470 vs 55k), composer les tuiles côte-à-côte.
+      *(F3, ~50–100× de renders sur lignes 2 mots ; valider sur panel — ça gate la sortie.)*
+- [ ] **varfont : Face réutilisée** (`internal/varfont/renderer.go`) : `NewFace` à chaque `Render`
+      (le fitter fait ~3·axes·iters évals) → réutiliser/poolifier. *(H1 conc.)*
+- [ ] **Métrique early-exit** (`internal/metric/pixelmatch.go`, chemin no-AA = défaut mosaïque) :
+      plafond `maxDiff` → sortir dès `diff ≥ seuil·total` (la plupart des candidats sont rejetés).
+      *(H4 cœur ; uniquement no-AA où le compte est monotone.)*
+- [ ] **Câbler `fontrank`** (B3, `internal/fontrank` — code mort, zéro appelant) en pré-élagage
+      avant le décodage coûteux (mosaictext/blinddecode), top-k généreux validé au panel. *(C1 conc.)*
+
+**Tier 2 — moyen :**
+- [ ] **DID : pixeliser seulement la bande de la chasse** (pas tout le canevas W) *(F2, 5–15×/émission).*
+- [ ] **Paralléliser blinddecode** (produit cartésien + balayage de polices) façon `DiscoverOffsets`
+      (slots disjoints) — **prérequis** : synchroniser `widthCache` (`blinddecode.go`, sinon data race). *(H3 conc.)*
+- [ ] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — prérequis : `renderCache`
+      concurrent (shardé). Fusionner les 2 niveaux de fan-out (counts×cells) en un seul budget. *(H2 conc.)*
+- [ ] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) : O(T·S²)→O(T·E),
+      table de tuples parsée une fois O(S²)→O(S). *(F4.)*
+- [ ] **trainedhmm : supprimer la 2ᵉ passe de rendu du corpus** (enregistrer les spans en passe 1). *(F5, 2×.)*
+- [ ] **Dé-verrouiller `bestSeenTracker` global** (atomic pointer) + compteur `evaluated` atomique
+      (`internal/search/search.go`, `beam.go`) — la fusion déterministe ne dépend pas du tracker. *(H5.)*
+- [ ] **Budget intra-node = min(Workers, offsets survivants)** (`search.go`) : nourrir le parallélisme
+      intra-DFS quand peu d'offsets survivent (cœurs sinon oisifs). *(C3.)*
+- [ ] **Pixelate : ne blanchir que la bande de padding** + `sync.Pool` du buffer dst (`pixelate.go`). *(H3 cœur.)*
+
+**Tier 3 — micro / froid (barre plus basse) :**
+- [ ] Scans directs `Pix[]` + break par-ligne dans `LeftEdge`/`Margins`/`marginColumn`/SSIM (`imutil`,
+      `metric`, `scorer.go`) au lieu de `RGBAAt`. *(H2 cœur.)* · `unpixel.toRGBA` → `imutil.ToRGBA` *(C1).*
+- [ ] deblur : tables de twiddles précalculées + scratch FFT réutilisé *(F7)* ; puis rfft 2× *(F8, effort élevé, froid).*
+- [ ] mini-batch k-means *(F6, 10–100× lit., froid)* ; multiframe écritures `Pix[]` directes *(F10)* ;
+      `GOMEMLIMIT≈1.5GiB` dans `scripts/gotest-caged.sh` (suivre le mur cgroup 2 G).
+- [ ] préallocation `evalChildren` / nœuds non-boxés *(H5 cœur)* ; re-mesurer PGO (cœur métrique internalisé depuis).
+
+**Déjà correct (ne pas « corriger ») :** deblur précalcule déjà la FFT du noyau (pas par-iter) et est
+luma-only ; `capacity` est froid et honnêtement O(n²) borné ; glyphes DID pré-rendus une fois.
+Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 
 ## 🧭 Décisions clés
 
@@ -857,3 +921,4 @@ Propositions, par levier :
 - `8f09a3a` 2026-06-24 — test(context): add testdata/context corpus for context-assisted decoding (C1/C2) _(16 fichiers)_
 - `e29a0f7` 2026-06-24 — docs(progress): split C1 into C1a (adjacent cleartext) + C1b (separate font sample) _(1 fichiers)_
 - `3237fec` 2026-06-24 — feat(cli,context): C1b — determine the font from a separate sample image _(8 fichiers)_
+- `8e7192a` 2026-06-24 — feat(journal): track context calibrate-from-visible (C1a/C1b) in the decoder matrix _(3 fichiers)_
