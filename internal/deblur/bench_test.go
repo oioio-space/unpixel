@@ -134,3 +134,35 @@ func BenchmarkNormalize_bgNone(b *testing.B) {
 	}
 	sink = img
 }
+
+// BenchmarkTextL0_64x64 measures TextL0 on a 64×64 representative crop
+// (a typical blurred text region size). TextL0 is a one-shot preprocessing
+// front-end (not in the per-candidate hot loop), so cost is acceptable but
+// must be quantified to detect regressions.
+func BenchmarkTextL0_64x64(b *testing.B) {
+	sharp := makeSharpText(64, 64)
+	src := applyGaussianBlur(sharp, 3)
+	b.ReportAllocs()
+	b.SetBytes(int64(64 * 64 * 4))
+	b.ResetTimer()
+	var img *image.RGBA
+	for b.Loop() {
+		img = TextL0(src, 3)
+	}
+	sink = img
+}
+
+// BenchmarkTextL0_128x64 measures TextL0 on a 128×64 crop — typical for
+// longer words (e.g. "connect") at 32 pt with 8 px padding.
+func BenchmarkTextL0_128x64(b *testing.B) {
+	sharp := makeSharpText(128, 64)
+	src := applyGaussianBlur(sharp, 3)
+	b.ReportAllocs()
+	b.SetBytes(int64(128 * 64 * 4))
+	b.ResetTimer()
+	var img *image.RGBA
+	for b.Loop() {
+		img = TextL0(src, 3)
+	}
+	sink = img
+}

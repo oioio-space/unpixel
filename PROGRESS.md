@@ -735,3 +735,4 @@ Analyse approfondie de Hill, Zhou, Saul & Shacham, « On the (In)effectiveness o
 - `985ba3c` 2026-06-24 — fix(hooks): add commit-simplify-review so /simplify fires on every commit _(3 fichiers)_
 - `60639d7` 2026-06-24 — feat(windowhmm): #3 language-model-fused Viterbi decode (opt-in) _(6 fichiers)_
 - `5836600` 2026-06-24 — feat(did): #4 Document-Image-Decoding trellis decoder (--decoder did) _(7 fichiers)_
+- `eaf2c7c` 2026-06-24 — feat(varfont): #5 calibrate-from-visible + Nelder-Mead optimizer (opt-in) _(8 fichiers)_

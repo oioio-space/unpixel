@@ -319,7 +319,11 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	// Also probe for WithRemosaic / WithRemosaicGrid here: when the remosaic flag
 	// is set we delegate entirely to recoverWithRemosaic (the Hill et al. §4 path)
 	// which manages its own σ-search against a pre-mosaiced target.
-	var normalized bool
+	//
+	// L0 deblurring (opt-in via WithL0Deblur) is applied after normalisation and
+	// before σ estimation. The PSF σ is set to InferBlurSigma after normalisation
+	// so the L0 step uses the best available estimate of the blur kernel.
+	var normalized, l0deblurred bool
 	{
 		var probe Config
 		for _, o := range opts {
@@ -329,12 +333,25 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 			img = deblur.Normalize(toRGBA(img), *probe.normalize)
 			normalized = true
 		}
+		if probe.l0deblur != nil {
+			// Set σ from inference before calling TextL0, then run.
+			l0opts := *probe.l0deblur
+			if l0opts.Sigma <= 0 {
+				l0opts.Sigma = InferBlurSigma(img)
+				if l0opts.Sigma <= 0 {
+					l0opts.Sigma = 3 // safe fallback when image is near-flat
+				}
+			}
+			img = deblur.RecoverBlurredPreprocess(toRGBA(img), &l0opts)
+			l0deblurred = true
+		}
 		if probe.remosaic {
 			res, err := recoverWithRemosaic(ctx, toRGBA(img), opts)
 			if err != nil {
 				return Result{}, err
 			}
 			res.Normalized = normalized
+			res.L0Deblurred = l0deblurred
 			return res, nil
 		}
 	}
@@ -351,6 +368,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 			// Early-accept: σ₀ is good — no sweep needed.
 			res.BlurSigma = σ0
 			res.Normalized = normalized
+			res.L0Deblurred = l0deblurred
 			return res, nil
 		}
 	}
@@ -365,6 +383,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 	if ctx.Err() != nil {
 		bestResult.BlurSigma = bestSigma
 		bestResult.Normalized = normalized
+		bestResult.L0Deblurred = l0deblurred
 		return bestResult, nil
 	}
 
@@ -384,6 +403,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 
 	bestResult.BlurSigma = bestSigma
 	bestResult.Normalized = normalized
+	bestResult.L0Deblurred = l0deblurred
 	return bestResult, nil
 }
 

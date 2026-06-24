@@ -111,6 +111,7 @@ type flagParams struct {
 	remosaic            bool   // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
 	remosaicGrid        int    // --remosaic-grid N: pin block grid (0 = auto)
 	remosaicLinear      bool   // --remosaic-linear: linear-light block average (GEGL/GIMP)
+	l0deblur            bool   // --l0-deblur: Pan et al. CVPR 2014 L0 text deblur preprocessing
 	letterSpacingSearch bool   // --letter-spacing-search: sweep DefaultLetterSpacings
 	thmmLang            string // --thmm-lang: language-structured corpus for trained-hmm (B4.1)
 	thmmJPEG            int    // --thmm-jpeg: JPEG quality for emission augmentation (B4.2); 0 = off
@@ -741,6 +742,12 @@ func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpi
 			fmt.Fprintf(os.Stderr, "Remosaic: enabled (grid=%s, %s)\n", grid, light)
 		}
 	}
+	if p.l0deblur {
+		blurOpts = append(blurOpts, unpixel.WithL0Deblur())
+		if !p.quiet {
+			fmt.Fprintln(os.Stderr, "L0 deblur: enabled (Pan et al. CVPR 2014, λ=2e-3, μ=5e-4, 20 iters)")
+		}
+	}
 
 	res, err := unpixel.RecoverBlurred(ctx, img, blurOpts...)
 	if err != nil {
@@ -748,8 +755,8 @@ func runBlurRecover(ctx context.Context, img image.Image, p flagParams, cfg unpi
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "Blur σ chosen: %.2f  best: %q  total: %.4f  normalized: %v\n",
-			res.BlurSigma, res.BestGuess, res.BestTotal, res.Normalized)
+		fmt.Fprintf(os.Stderr, "Blur σ chosen: %.2f  best: %q  total: %.4f  normalized: %v  l0deblurred: %v\n",
+			res.BlurSigma, res.BestGuess, res.BestTotal, res.Normalized, res.L0Deblurred)
 	}
 
 	best := resultToRecovery(res, "")
@@ -1779,6 +1786,12 @@ Examples:
 				Name:  "remosaic-linear",
 				Usage: "use linear-light block averaging for --remosaic (GEGL/GIMP-redacted targets). Implies --remosaic.",
 			},
+			&cli.BoolFlag{
+				Name: "l0-deblur",
+				Usage: "apply L0-regularised text deblurring (Pan et al., CVPR 2014) to the input before blur recovery. " +
+					"Uses the Gaussian PSF estimated by InferBlurSigma. " +
+					"Only affects --redaction blur / RecoverBlurred. Default off (existing path is byte-identical).",
+			},
 			&cli.StringFlag{
 				Name:  "thmm-lang",
 				Usage: `trained-hmm (B4.1): draw training strings from the word list for "en" or "fr" instead of uniform-random chars, baking real letter n-grams into the HMM transition matrix. Falls back to --lang when unset. Default off (uniform-random, output identical to previous versions).`,
@@ -1910,6 +1923,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		remosaic:            cmd.Bool("remosaic") || cmd.IsSet("remosaic-grid") || cmd.Bool("remosaic-linear"),
 		remosaicGrid:        cmd.Int("remosaic-grid"),
 		remosaicLinear:      cmd.Bool("remosaic-linear"),
+		l0deblur:            cmd.Bool("l0-deblur"),
 		letterSpacingSearch: cmd.Bool("letter-spacing-search"),
 		thmmLang:            cmd.String("thmm-lang"),
 		thmmJPEG:            cmd.Int("thmm-jpeg"),

@@ -194,6 +194,11 @@ type Config struct {
 	// remosaicLinear selects linear-light block averaging in the remosaic operator.
 	// Mirrors the gamma/linear flag used by the plain mosaic path.
 	remosaicLinear bool
+
+	// l0deblur, when non-nil, enables L0-regularised text deblurring as a
+	// preprocessing step before the σ-search. Set via WithL0Deblur; never set
+	// directly (unexported to keep the zero Config clean).
+	l0deblur *deblur.L0Options
 }
 
 // Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
@@ -319,6 +324,10 @@ type Result struct {
 	// recovery paths (Recover, mosaic, etc.) and when WithNormalize was not
 	// passed. Use it to confirm the normalisation step was active.
 	Normalized bool
+	// L0Deblurred is true when RecoverBlurred applied L0-regularised text
+	// deblurring (via WithL0Deblur) as a preprocessing step before the σ-search.
+	// Always false for the mosaic path and when WithL0Deblur was not passed.
+	L0Deblurred bool
 }
 
 // String returns a one-line human-readable summary of the result: the best
@@ -1476,6 +1485,38 @@ func WithRemosaicLinear() Option {
 	return func(c *Config) {
 		c.remosaic = true
 		c.remosaicLinear = true
+	}
+}
+
+// WithL0Deblur enables L0-regularised text deblurring (Pan et al., CVPR 2014)
+// as an opt-in preprocessing step before blur recovery. It is only effective
+// in [RecoverBlurred]; Recover and the mosaic path are unchanged.
+//
+// When called with no arguments the defaults from the paper are used:
+//   - Lambda: 2×10⁻³ (gradient L0 sparsity weight)
+//   - Mu: 5×10⁻⁴    (two-tone intensity prior weight)
+//   - Iterations: 20  (outer HQS alternating-minimisation steps)
+//
+// Pass functional options to override individual parameters, e.g.:
+//
+//	unpixel.WithL0Deblur(
+//	    func(o *deblur.L0Options) { o.Iterations = 30 },
+//	)
+//
+// The sigma used for the PSF is the σ estimated by [InferBlurSigma] at the
+// time RecoverBlurred is called (before the σ-search), so it does not need to
+// be set by the caller. Result.L0Deblurred is set to true when active.
+func WithL0Deblur(fns ...func(*deblur.L0Options)) Option {
+	return func(c *Config) {
+		opts := deblur.L0Options{
+			Lambda:     2e-3,
+			Mu:         5e-4,
+			Iterations: 20,
+		}
+		for _, fn := range fns {
+			fn(&opts)
+		}
+		c.l0deblur = &opts
 	}
 }
 
