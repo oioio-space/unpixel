@@ -97,3 +97,80 @@ func spliceDecoderTableMD(existing, newDecoderRows string) string {
 	}
 	return sb.String()
 }
+
+// spliceJournalMD inserts a new evolution row at the end of the main Évolution
+// table and a new run section just before the first existing run section.
+//
+// Lives here (no build tag) alongside spliceDecoderTableMD so both markdown
+// splicers are unit-tested in the default suite without a 30-minute journal run.
+func spliceJournalMD(existing, newRow, newSection string) string {
+	lines := strings.Split(existing, "\n")
+
+	tableEnd := -1
+	firstRunLine := -1
+	inEvolution := false
+
+	for i, line := range lines {
+		// Match ONLY the main evolution heading, exactly. The file also contains
+		// "## Évolution — décodeurs" (the decoder table); a HasPrefix match there
+		// would re-enter evolution mode and splice the corpus row into the decoder
+		// table instead of the main one.
+		if t := strings.TrimSpace(line); t == "## Évolution" || t == "## Evolution" {
+			inEvolution = true
+			continue
+		}
+		if inEvolution {
+			if strings.HasPrefix(line, "|") {
+				tableEnd = i
+			} else if strings.HasPrefix(line, "## ") {
+				inEvolution = false
+				if firstRunLine < 0 {
+					firstRunLine = i
+				}
+			}
+		} else if strings.HasPrefix(line, "## Run ") && firstRunLine < 0 {
+			firstRunLine = i
+		}
+	}
+
+	if tableEnd < 0 {
+		// No table found — just append.
+		return existing + "\n" + newRow + "\n" + newSection + "\n"
+	}
+
+	// Step 1: insert the new row after tableEnd.
+	var sb strings.Builder
+	for i, line := range lines {
+		sb.WriteString(line)
+		if i < len(lines)-1 {
+			sb.WriteByte('\n')
+		}
+		if i == tableEnd {
+			sb.WriteString(newRow)
+		}
+	}
+	content := sb.String()
+
+	// Step 2: insert the new run section before the first "## Run " line.
+	if firstRunLine >= 0 {
+		lines2 := strings.Split(content, "\n")
+		for i, line := range lines2 {
+			if strings.HasPrefix(line, "## Run ") {
+				var sb2 strings.Builder
+				for j, l := range lines2 {
+					if j == i {
+						sb2.WriteString(newSection)
+						sb2.WriteByte('\n')
+					}
+					sb2.WriteString(l)
+					if j < len(lines2)-1 {
+						sb2.WriteByte('\n')
+					}
+				}
+				return sb2.String()
+			}
+		}
+	}
+
+	return content + "\n" + newSection + "\n"
+}

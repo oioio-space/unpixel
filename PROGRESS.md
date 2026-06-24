@@ -936,3 +936,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `153368e` 2026-06-24 — docs: rationalize documentation — neophyte README + linked concept tree _(18 fichiers)_
 - `23f9fe7` 2026-06-24 — docs: adopt a more formal register across the reader-facing documentation _(11 fichiers)_
 - `4806c4b` 2026-06-24 — build(hooks): make /simplify a mandatory gate on every commit path _(3 fichiers)_
+- `243c865` 2026-06-24 — test(leak): add goroutine-leak gate via uber-go/goleak + a skill _(13 fichiers)_

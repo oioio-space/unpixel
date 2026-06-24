@@ -122,3 +122,62 @@ func TestSpliceDecoderTableMD_multipleRunsAccumulate(t *testing.T) {
 		t.Errorf("spliceDecoderTableMD: row2 (idx=%d) must follow row1 (idx=%d)", idx2, idx1)
 	}
 }
+
+// TestSpliceJournalMD_rowGoesToMainTableNotDecoder is a regression test for the
+// bug where the main corpus row was spliced into the "## Évolution — décodeurs"
+// table instead of the main "## Évolution" table, because the heading match used
+// HasPrefix("## Évolution") and so also matched the decoder heading. The corpus
+// row must land under the MAIN table (before the decoder section).
+func TestSpliceJournalMD_rowGoesToMainTableNotDecoder(t *testing.T) {
+	existing := `# UnPixel — Test Journal
+
+## Évolution
+
+| Date (UTC) | Version | Commit | fix·zero | Total | Dur (s) |
+|---|---|---|---|---|---|
+| 2026-01-01 | v1 | aaa1234 | 8/17/9/54% | 54 | 100 |
+
+## Analyse de tendance
+
+prose here.
+
+## Évolution — décodeurs
+
+| Date (UTC) | Version | Commit | Decoder | Corpus | exact/knowable/≥70%/mean% | Dur (s) | Subset |
+|---|---|---|---|---|---|---|---|
+| 2026-01-01 | v1 | aaa1234 | default | sick | 0/10/0/10% | 30 |  |
+
+## Run 2026-01-01T00:00:00Z — aaa1234
+
+detail
+`
+
+	newRow := "| 2026-06-24 | v2 | bbb5678 | 9/17/10/60% | 55 | 120 |\n"
+	newSection := "## Run 2026-06-24T00:00:00Z — bbb5678\n\nnew detail\n"
+
+	got := spliceJournalMD(existing, newRow, newSection)
+
+	// The new corpus row must appear BEFORE the decoder section, i.e. in the main
+	// table — never after the decoder heading.
+	mainRowIdx := strings.Index(got, "bbb5678 | 9/17/10/60%")
+	decoderHeadIdx := strings.Index(got, "## Évolution — décodeurs")
+	if mainRowIdx < 0 {
+		t.Fatalf("spliceJournalMD: new corpus row missing from output\n%s", got)
+	}
+	if decoderHeadIdx < 0 {
+		t.Fatal("spliceJournalMD: decoder heading missing from output")
+	}
+	if mainRowIdx > decoderHeadIdx {
+		t.Errorf("spliceJournalMD: corpus row (idx=%d) landed AFTER the decoder heading (idx=%d) — it must be in the main table", mainRowIdx, decoderHeadIdx)
+	}
+
+	// The decoder table must be left intact (its single data row still present).
+	if got := strings.Count(got, "| default | sick |"); got != 1 {
+		t.Errorf("spliceJournalMD: decoder table altered: got %d decoder rows, want 1", got)
+	}
+
+	// The new run section must be prepended before the older one.
+	if newIdx, oldIdx := strings.Index(got, "bbb5678\n\nnew detail"), strings.Index(got, "## Run 2026-01-01"); newIdx < 0 || oldIdx < 0 || newIdx > oldIdx {
+		t.Errorf("spliceJournalMD: new run section (idx=%d) must precede the older run section (idx=%d)", newIdx, oldIdx)
+	}
+}
