@@ -114,76 +114,6 @@ type journalSickEntry struct {
 
 func (e journalSickEntry) file() string { return e.Name + ".png" }
 
-// ─── result types ─────────────────────────────────────────────────────────────
-
-// journalStatus represents the outcome of a recovery attempt.
-type journalStatus string
-
-const (
-	statusOK      journalStatus = "ok"
-	statusFail    journalStatus = "fail"
-	statusUnknown journalStatus = "unknown"
-	statusSkipped journalStatus = "skipped"
-	statusTimeout journalStatus = "timeout"
-	statusError   journalStatus = "error"
-)
-
-// journalAttempt holds the outcome of one recovery attempt (zero-config or best-config).
-type journalAttempt struct {
-	// Params describes the configuration used for this attempt.
-	Params string `json:"params"`
-	// Guess is the recovered text.
-	Guess string `json:"guess"`
-	// Status is ok/fail/unknown/skipped/timeout/error.
-	Status journalStatus `json:"status"`
-	// ExactCI is true when the guess matches ground truth case-insensitively.
-	ExactCI bool `json:"exact_ci,omitzero"`
-	// Score is the partial-credit Levenshtein score in [0,100], or -1 when
-	// ground truth is unknown. See recoveryScore in journal_classify_test.go.
-	Score float64 `json:"score"`
-	// Confidence is Result.Confidence.
-	Confidence float64 `json:"confidence"`
-	// BestTotal is Result.BestTotal.
-	BestTotal float64 `json:"best_total"`
-	// DurationMS is the wall-clock time in milliseconds.
-	DurationMS float64 `json:"duration_ms"`
-	// Why is a concise human-readable failure reason (non-empty on fail).
-	Why string `json:"why,omitempty"`
-	// BelowThreshold mirrors Result.BelowThreshold.
-	BelowThreshold bool `json:"below_threshold,omitzero"`
-	// BlurSigma mirrors Result.BlurSigma (non-zero for blur recovery).
-	BlurSigma float64 `json:"blur_sigma,omitzero"`
-}
-
-// journalRow is the record for one image across both modes.
-type journalRow struct {
-	Corpus      string         `json:"corpus"`
-	Name        string         `json:"name"`
-	Kind        string         `json:"kind"`         // "mosaic" or "blur"
-	GroundTruth string         `json:"ground_truth"` // "—" when unknown
-	ZeroConfig  journalAttempt `json:"zero_config"`
-	BestConfig  journalAttempt `json:"best_config"`
-}
-
-// journalCorpusSummary holds per-corpus aggregate counts and partial-credit metrics.
-type journalCorpusSummary struct {
-	Name        string `json:"name"`
-	Total       int    `json:"total"`
-	ZeroOK      int    `json:"zero_ok"`
-	BestOK      int    `json:"best_ok"`
-	ZeroUnknown int    `json:"zero_unknown"`
-	BestUnknown int    `json:"best_unknown"`
-	// ZeroMeanScore is the mean recoveryScore across all images with known ground
-	// truth, zero-config mode. -1 when no scored images exist.
-	ZeroMeanScore float64 `json:"zero_mean_score"`
-	// BestMeanScore is the same for best-config mode.
-	BestMeanScore float64 `json:"best_mean_score"`
-	// ZeroSensical is the count of images scoring ≥70% in zero-config mode.
-	ZeroSensical int `json:"zero_sensical"`
-	// BestSensical is the count of images scoring ≥70% in best-config mode.
-	BestSensical int `json:"best_sensical"`
-}
-
 // journalRun is the full machine-readable run record written to benchmarks/journal/.
 type journalRun struct {
 	Timestamp   string                 `json:"timestamp"`
@@ -764,84 +694,6 @@ func classifyAttempt(
 	return a
 }
 
-// ─── aggregation ─────────────────────────────────────────────────────────────
-
-func summariseCorpora(rows []journalRow) []journalCorpusSummary {
-	byCorpus := make(map[string]*journalCorpusSummary)
-	// Preserve a stable corpus order.
-	order := []string{"fixtures", "blur", "real", "wild", "sick"}
-	for _, name := range order {
-		byCorpus[name] = &journalCorpusSummary{Name: name, ZeroMeanScore: -1, BestMeanScore: -1}
-	}
-
-	// Accumulate score sums separately so we can compute means at the end.
-	type scoreSums struct {
-		zeroSum, bestSum float64
-		zeroN, bestN     int
-	}
-	sums := make(map[string]*scoreSums)
-	for _, name := range order {
-		sums[name] = &scoreSums{}
-	}
-
-	for _, row := range rows {
-		cs, ok := byCorpus[row.Corpus]
-		if !ok {
-			cs = &journalCorpusSummary{Name: row.Corpus, ZeroMeanScore: -1, BestMeanScore: -1}
-			byCorpus[row.Corpus] = cs
-			sums[row.Corpus] = &scoreSums{}
-			order = append(order, row.Corpus)
-		}
-		cs.Total++
-		if row.ZeroConfig.Status == statusOK {
-			cs.ZeroOK++
-		}
-		if row.BestConfig.Status == statusOK {
-			cs.BestOK++
-		}
-		if row.ZeroConfig.Status == statusUnknown || row.GroundTruth == "—" {
-			cs.ZeroUnknown++
-		}
-		if row.BestConfig.Status == statusUnknown || row.GroundTruth == "—" {
-			cs.BestUnknown++
-		}
-
-		sm := sums[row.Corpus]
-		if row.ZeroConfig.Score >= 0 {
-			sm.zeroSum += row.ZeroConfig.Score
-			sm.zeroN++
-			if row.ZeroConfig.Score >= 70 {
-				cs.ZeroSensical++
-			}
-		}
-		if row.BestConfig.Score >= 0 {
-			sm.bestSum += row.BestConfig.Score
-			sm.bestN++
-			if row.BestConfig.Score >= 70 {
-				cs.BestSensical++
-			}
-		}
-	}
-
-	// Finalise mean scores.
-	result := make([]journalCorpusSummary, 0, len(order))
-	for _, name := range order {
-		cs, ok := byCorpus[name]
-		if !ok || cs.Total == 0 {
-			continue
-		}
-		sm := sums[name]
-		if sm.zeroN > 0 {
-			cs.ZeroMeanScore = sm.zeroSum / float64(sm.zeroN)
-		}
-		if sm.bestN > 0 {
-			cs.BestMeanScore = sm.bestSum / float64(sm.bestN)
-		}
-		result = append(result, *cs)
-	}
-	return result
-}
-
 // ─── I/O ─────────────────────────────────────────────────────────────────────
 
 // writeJournalJSON writes the machine-readable run to benchmarks/journal/.
@@ -1002,8 +854,50 @@ func buildRunSection(run journalRun) string {
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, "## Run %s — %s\n\n", run.Timestamp, run.Commit)
-	fmt.Fprintf(&sb, "**Environment:** Go %s · %s/%s · total %.1f s\n\n",
-		run.GoVersion, run.GOOS, run.GOARCH, run.DurationMS/1000)
+	fmt.Fprintf(&sb, "**Environment:** Go %s · %s/%s · NumCPU=%d GOMAXPROCS=%d · total %.1f s\n\n",
+		run.GoVersion, run.GOOS, run.GOARCH,
+		runtime.NumCPU(), runtime.GOMAXPROCS(0),
+		run.DurationMS/1000)
+
+	// Résumé par corpus — compact summary table before per-image detail.
+	byName := make(map[string]journalCorpusSummary, len(run.Corpora))
+	for _, cs := range run.Corpora {
+		byName[cs.Name] = cs
+	}
+	fmt.Fprintf(&sb, "### Résumé par corpus\n\n")
+	fmt.Fprintf(&sb, "| Corpus | exact | ≥70%% | mean%% | mean-conf | mean-fidelity | dur(s) | échecs (top buckets) |\n")
+	fmt.Fprintf(&sb, "|---|---|---|---|---|---|---|---|\n")
+	for _, corpus := range []string{"fixtures", "blur", "real", "wild", "sick"} {
+		cs, ok := byName[corpus]
+		if !ok || cs.Total == 0 {
+			continue
+		}
+		knowable := cs.Total - cs.BestUnknown
+		meanStr := "NA"
+		if cs.BestMeanScore >= 0 {
+			meanStr = fmt.Sprintf("%.0f%%", cs.BestMeanScore)
+		}
+		confStr := "NA"
+		if cs.BestMeanConf >= 0 {
+			confStr = fmt.Sprintf("%.3f", cs.BestMeanConf)
+		}
+		fidStr := "NA"
+		if cs.BestMeanFidelity >= 0 {
+			fidStr = fmt.Sprintf("%.3f", cs.BestMeanFidelity)
+		}
+		durSec := cs.BestDurationMS / 1000
+		fmt.Fprintf(&sb, "| %s | %d/%d | %d | %s | %s | %s | %.1f | %s |\n",
+			corpus,
+			cs.BestOK, knowable,
+			cs.BestSensical,
+			meanStr,
+			confStr,
+			fidStr,
+			durSec,
+			formatFailBuckets(cs.BestFailModes),
+		)
+	}
+	fmt.Fprintf(&sb, "\n")
 
 	// Group rows by corpus, preserving stable order.
 	byCorpus := make(map[string][]journalRow)
@@ -1040,6 +934,34 @@ func buildRunSection(run journalRun) string {
 		fmt.Fprintf(&sb, "\n")
 	}
 	return sb.String()
+}
+
+// formatFailBuckets renders the non-zero entries of a BestFailModes histogram
+// as a compact string, e.g. "below-thr ×6, wrong-len ×2". Returns "—" when
+// the map is empty or all counts are zero.
+func formatFailBuckets(m map[string]int) string {
+	// Canonical display order — most actionable buckets first.
+	order := []string{"below-threshold", "wrong-length", "wrong-glyphs", "timeout", "error", "unknown", "ok"}
+	// Short labels for the table column.
+	short := map[string]string{
+		"below-threshold": "below-thr",
+		"wrong-length":    "wrong-len",
+		"wrong-glyphs":    "wrong-gly",
+		"timeout":         "timeout",
+		"error":           "error",
+		"unknown":         "unknown",
+		"ok":              "ok",
+	}
+	var parts []string
+	for _, k := range order {
+		if n := m[k]; n > 0 && k != "ok" {
+			parts = append(parts, fmt.Sprintf("%s ×%d", short[k], n))
+		}
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // formatAttemptCell returns a compact markdown cell string for one attempt.

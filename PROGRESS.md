@@ -786,3 +786,4 @@ corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (
 - `9262991` 2026-06-24 — docs: document the decode-all-testdata wave (#1–#6) in README + PROGRESS _(2 fichiers)_
 - `3f1be74` 2026-06-24 — docs(release): v0.12.0 — decode-all-testdata wave (#1–#6) + perf _(3 fichiers)_
 - `2273387` 2026-06-24 — docs(progress): add forward-looking roadmap — v0.12.0 wave done + remaining blockers _(1 fichiers)_
+- `3ddf48a` 2026-06-24 — feat(journal): track opt-in decoders over time (second evolution table) _(5 fichiers)_
