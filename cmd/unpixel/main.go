@@ -47,6 +47,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"         // named: strategy/metric constructors; init() still wires defaults
 	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
 	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
+	"github.com/oioio-space/unpixel/internal/imutil"  // image helpers (ToRGBA etc.)
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
 	"github.com/oioio-space/unpixel/internal/varfont" // variable-font renderer + axis fitter (B1)
@@ -1495,7 +1496,7 @@ func loadVisibleCrop(imgPath, regionStr string) (*image.RGBA, error) {
 	if err != nil {
 		return nil, err
 	}
-	rgba := toRGBAImage(img)
+	rgba := imutil.ToRGBA(img)
 	if regionStr == "" {
 		return rgba, nil
 	}
@@ -1509,18 +1510,6 @@ func loadVisibleCrop(imgPath, regionStr string) (*image.RGBA, error) {
 		return nil, fmt.Errorf("region %q is empty after clipping to image bounds %v", regionStr, b)
 	}
 	return cropToRegion(rgba, r), nil
-}
-
-// toRGBAImage converts any image.Image to *image.RGBA without the draw import.
-// When the source is already *image.RGBA it is returned as-is (no copy).
-func toRGBAImage(img image.Image) *image.RGBA {
-	if r, ok := img.(*image.RGBA); ok {
-		return r
-	}
-	b := img.Bounds()
-	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
-	return dst
 }
 
 // runVarFont runs the variable-font decoder (mosaictext.DecodeVarFont) when

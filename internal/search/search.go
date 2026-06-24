@@ -261,6 +261,17 @@ func chooseEvalChildren(
 	return evalChildrenParCappedFromChars(ctx, scorer, cfg, offset, parentGuess, chars, iw)
 }
 
+// evalChild dispatches a single candidate evaluation to EvalBounded when the
+// scorer supports it, falling back to Eval otherwise. It is the shared
+// per-child dispatch used by both the sequential and parallel eval loops;
+// the compiler inlines it so there is no per-call overhead.
+func evalChild(ctx context.Context, scorer Scorer, bs boundedScorer, bounded bool, next, parent string, offset unpixel.Offset, thr float64) EvalResult {
+	if bounded {
+		return bs.EvalBounded(ctx, next, parent, offset, thr)
+	}
+	return scorer.Eval(ctx, next, parent, offset)
+}
+
 // evalChildrenFromChars is the sequential evalChildren inner loop operating on
 // a pre-computed chars slice. It avoids a redundant topKChars call when the
 // caller (chooseEvalChildren) has already resolved the character set.
@@ -285,12 +296,7 @@ func evalChildrenFromChars(
 		}
 		next := parentGuess + string(ch)
 		thr := cfg.ThresholdFor(ch)
-		var res EvalResult
-		if isBounded {
-			res = bs.EvalBounded(ctx, next, parentGuess, offset, thr)
-		} else {
-			res = scorer.Eval(ctx, next, parentGuess, offset)
-		}
+		res := evalChild(ctx, scorer, bs, isBounded, next, parentGuess, offset, thr)
 		if res.Score < thr {
 			children = append(children, node{guess: next, result: res})
 		}
@@ -325,12 +331,7 @@ func evalChildrenParCappedFromChars(
 		ch := chars[i]
 		next := parentGuess + string(ch)
 		thr := cfg.ThresholdFor(ch)
-		var res EvalResult
-		if isBounded {
-			res = bs.EvalBounded(ctx, next, parentGuess, offset, thr)
-		} else {
-			res = scorer.Eval(ctx, next, parentGuess, offset)
-		}
+		res := evalChild(ctx, scorer, bs, isBounded, next, parentGuess, offset, thr)
 		if res.Score < thr {
 			results[i] = &node{guess: next, result: res}
 		}
