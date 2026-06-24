@@ -147,6 +147,45 @@ func TestAllWhite(t *testing.T) {
 	}
 }
 
+// TestLines_zeroSizeImage verifies that Lines on a 0×0 image returns a
+// non-nil empty slice without panicking (the Dx==0||Dy==0 early-return path).
+func TestLines_zeroSizeImage(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	got := segment.Lines(img)
+	if got == nil {
+		t.Error("Lines(0×0) returned nil, want non-nil empty slice")
+	}
+	if len(got) != 0 {
+		t.Errorf("Lines(0×0) = %v, want []", got)
+	}
+}
+
+// TestWords_lineOutsideImage verifies that Words returns an empty slice when
+// the supplied line rectangle does not overlap the image bounds.
+func TestWords_lineOutsideImage(t *testing.T) {
+	t.Parallel()
+	img := whiteImage(50, 50)
+	// A line rect entirely below the image.
+	outsideLine := image.Rect(0, 100, 50, 150)
+	got := segment.Words(img, outsideLine)
+	if len(got) != 0 {
+		t.Errorf("Words(outsideLine): got %v, want []", got)
+	}
+}
+
+// TestWords_allWhiteBand verifies that Words on a non-empty all-white band
+// returns an empty (non-nil) slice — the result==nil guard path.
+func TestWords_allWhiteBand(t *testing.T) {
+	t.Parallel()
+	img := whiteImage(80, 20)
+	line := image.Rect(0, 0, 80, 20)
+	got := segment.Words(img, line)
+	if len(got) != 0 {
+		t.Errorf("Words(allWhiteBand): got %v, want []", got)
+	}
+}
+
 // TestSegment_RenderedText is the integration test: it renders "le chat dort"
 // with the real font renderer, pixelates with block size 8, then segments.
 // Expected: 1 line, 3 words.

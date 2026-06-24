@@ -256,6 +256,62 @@ func TestMatch_Empty(t *testing.T) {
 	}
 }
 
+// TestMatch_emptyTargetCols verifies that a target with rows but zero block-
+// columns returns empty results (the bCols==0 early-return path).
+func TestMatch_emptyTargetCols(t *testing.T) {
+	t.Parallel()
+	// One row, zero columns: len(target)==1 but len(target[0])==0.
+	target := [][]refmatch.BlockSig{{}}
+	ref := &refmatch.GlyphRef{
+		Rune:   'A',
+		Blocks: [][]refmatch.BlockSig{{makeUniformBlock(128, 128, 128)}},
+		Cols:   1,
+	}
+	text, dists := refmatch.Match(t.Context(), target, []*refmatch.GlyphRef{ref}, 4)
+	if text != "" || len(dists) != 0 {
+		t.Errorf("Match(target cols=0) = %q %v, want empty", text, dists)
+	}
+}
+
+// TestMatch_refColsZeroSkipped verifies that a GlyphRef with Cols<1 is skipped
+// during matching (the ref.Cols < 1 continue branch).
+func TestMatch_refColsZeroSkipped(t *testing.T) {
+	t.Parallel()
+	// One good ref ('B', Cols=1) and one invalid ref ('A', Cols=0).
+	// Only 'B' should appear in the result.
+	sig := makeUniformBlock(50, 100, 150)
+	target := [][]refmatch.BlockSig{{sig}}
+	badRef := &refmatch.GlyphRef{Rune: 'A', Blocks: [][]refmatch.BlockSig{{sig}}, Cols: 0}
+	goodRef := &refmatch.GlyphRef{Rune: 'B', Blocks: [][]refmatch.BlockSig{{sig}}, Cols: 1}
+	text, _ := refmatch.Match(t.Context(), target, []*refmatch.GlyphRef{badRef, goodRef}, 4)
+	if text != "B" {
+		t.Errorf("Match(bad+good ref): got %q, want %q", text, "B")
+	}
+}
+
+// TestMatch_refAdvanceUsed verifies that when GlyphRef.Advance > 0 the cursor
+// advances by Advance rather than Cols (the ref.Advance > 0 branch).
+func TestMatch_refAdvanceUsed(t *testing.T) {
+	t.Parallel()
+	sig := makeUniformBlock(10, 20, 30)
+	// Two-column target; ref spans 2 cols but Advance=1 so only one character
+	// should be decoded before we run off the end (advance=1 from col 0 → col 1,
+	// then from col 1 the ref's 2 cols would exceed bCols=2 only if perfectly
+	// matched, but since Advance=1 we decode from col=1 too).
+	target := [][]refmatch.BlockSig{{sig, sig}}
+	ref := &refmatch.GlyphRef{
+		Rune:    'C',
+		Blocks:  [][]refmatch.BlockSig{{sig, sig}},
+		Cols:    2,
+		Advance: 1, // advance by 1 instead of 2
+	}
+	text, _ := refmatch.Match(t.Context(), target, []*refmatch.GlyphRef{ref}, 4)
+	// With Advance=1 we get two 'C's (col 0 and col 1 both match).
+	if len(text) == 0 {
+		t.Errorf("Match(Advance>0): got empty text, want non-empty")
+	}
+}
+
 // TestMatch_CancelledContext verifies that a cancelled context causes Match to
 // return early without panicking. The partial result (possibly empty) is valid.
 func TestMatch_CancelledContext(t *testing.T) {

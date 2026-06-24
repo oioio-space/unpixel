@@ -281,6 +281,43 @@ func TestBuildModel_emptyTransRow(t *testing.T) {
 	}
 }
 
+// TestParseTuple_empty verifies that parseTuple("") returns nil (the
+// empty-string early-return path).
+func TestParseTuple_empty(t *testing.T) {
+	t.Parallel()
+	got := parseTuple("")
+	if got != nil {
+		t.Errorf("parseTuple(%q) = %v, want nil", "", got)
+	}
+}
+
+// TestLogEmit_outOfRange verifies that logEmit returns -∞ for every
+// out-of-range combination of state index s and observation index o.
+func TestLogEmit_outOfRange(t *testing.T) {
+	t.Parallel()
+	states := []string{"a", "b"}
+	stateID := map[string]int{"a": 0, "b": 1}
+	startCounts := []float64{1, 0}
+	transCounts := []map[int]float64{{0: 1, 1: 0}, {0: 0, 1: 1}}
+	emitCounts := [][]float64{{1, 0}, {0, 1}}
+	m := BuildModel(states, stateID, 2, startCounts, transCounts, emitCounts, nil, 1)
+
+	cases := []struct {
+		s, o int
+		name string
+	}{
+		{s: -1, o: 0, name: "s<0"},
+		{s: 99, o: 0, name: "s>=len(LogB)"},
+		{s: 0, o: -1, name: "o<0"},
+		{s: 0, o: 99, name: "o>=len(row)"},
+	}
+	for _, tc := range cases {
+		if got := m.logEmit(tc.s, tc.o); !math.IsInf(got, -1) {
+			t.Errorf("logEmit(%d,%d) [%s] = %v, want -Inf", tc.s, tc.o, tc.name, got)
+		}
+	}
+}
+
 // TestModel_Describe verifies that Describe returns a non-empty string
 // containing the state count and K/W parameters.
 func TestModel_Describe(t *testing.T) {

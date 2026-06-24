@@ -1,6 +1,9 @@
 package fixture
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -55,5 +58,48 @@ func TestSickRedact_allSpecsProduceImages(t *testing.T) {
 		if img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
 			t.Errorf("%s: empty image %v", s.Name, img.Bounds())
 		}
+	}
+}
+
+// TestSickFile_returnsPNGName verifies that SickFile() appends ".png" to
+// the spec Name, matching the manifest filename convention.
+func TestSickFile_returnsPNGName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"sick01_hello", "sick01_hello.png"},
+		{"digits_42", "digits_42.png"},
+	}
+	for _, tc := range cases {
+		s := SickSpec{Spec: Spec{Name: tc.name}}
+		if got := s.SickFile(); got != tc.want {
+			t.Errorf("SickSpec{Name:%q}.SickFile() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestRedactFont_withEmbeddedFont verifies that RedactFont produces a non-empty
+// image when given real font bytes. The Liberation Sans TTF embedded in the
+// render package is located via runtime.Caller so the test is cwd-independent.
+func TestRedactFont_withEmbeddedFont(t *testing.T) {
+	t.Parallel()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed")
+	}
+	fontPath := filepath.Join(filepath.Dir(thisFile), "..", "render", "fonts", "LiberationSans-Regular.ttf")
+	regularTTF, err := os.ReadFile(fontPath)
+	if err != nil {
+		t.Fatalf("read font: %v", err)
+	}
+	s := SickMatrix()[0].Spec
+	img, err := RedactFont(s, regularTTF, nil)
+	if err != nil {
+		t.Fatalf("RedactFont: %v", err)
+	}
+	if img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		t.Errorf("RedactFont returned empty image %v", img.Bounds())
 	}
 }

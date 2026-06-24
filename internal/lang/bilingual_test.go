@@ -423,5 +423,70 @@ func BenchmarkPriorFor_English(b *testing.B) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// ModelFor / CorpusFor
+// ---------------------------------------------------------------------------
+
+// TestModelFor_English verifies that ModelFor(English) returns a non-nil model
+// that can score a known word pair without panicking.
+func TestModelFor_English(t *testing.T) {
+	t.Parallel()
+	m := lang.ModelFor(lang.English)
+	if m == nil {
+		t.Fatal("ModelFor(English) returned nil")
+	}
+	// Score must be a finite negative log-probability.
+	got := m.Score("the")
+	if got >= 0 {
+		t.Errorf("ModelFor(English).Score(%q) = %v, want < 0", "the", got)
+	}
+}
+
+// TestModelFor_French verifies that ModelFor(French) returns a non-nil model
+// distinct from the English one and capable of scoring French words. This also
+// exercises the frenchBigramModel lazy-init path.
+func TestModelFor_French(t *testing.T) {
+	t.Parallel()
+	m := lang.ModelFor(lang.French)
+	if m == nil {
+		t.Fatal("ModelFor(French) returned nil")
+	}
+	got := m.Score("le")
+	if got >= 0 {
+		t.Errorf("ModelFor(French).Score(%q) = %v, want < 0", "le", got)
+	}
+	// A second call must return the same (shared) instance.
+	m2 := lang.ModelFor(lang.French)
+	if m != m2 {
+		t.Error("ModelFor(French) returned a different pointer on second call (not shared)")
+	}
+}
+
+// TestCorpusFor_English verifies that CorpusFor(English) returns a non-empty
+// corpus string containing common English words.
+func TestCorpusFor_English(t *testing.T) {
+	t.Parallel()
+	corpus := lang.CorpusFor(lang.English)
+	if len(corpus) == 0 {
+		t.Fatal("CorpusFor(English) returned empty string")
+	}
+	if !strings.Contains(corpus, "the") {
+		t.Error("CorpusFor(English) does not contain 'the'")
+	}
+}
+
+// TestCorpusFor_French verifies that CorpusFor(French) returns a non-empty
+// corpus string containing common French words.
+func TestCorpusFor_French(t *testing.T) {
+	t.Parallel()
+	corpus := lang.CorpusFor(lang.French)
+	if len(corpus) == 0 {
+		t.Fatal("CorpusFor(French) returned empty string")
+	}
+	if !strings.Contains(corpus, "le") {
+		t.Error("CorpusFor(French) does not contain 'le'")
+	}
+}
+
 // smallWordCheck is used by the ByRuneLen benchmark to avoid import cycle.
 var _ = strings.ToLower // ensure strings import is used

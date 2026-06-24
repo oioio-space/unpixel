@@ -397,3 +397,32 @@ func TestNormalize_openRadiusExplicit(t *testing.T) {
 		t.Errorf("explicit OpenRadius: wrong output size %v", got.Bounds())
 	}
 }
+
+// TestMean_empty verifies the len(s)==0 early-return path of mean returns 0.
+func TestMean_empty(t *testing.T) {
+	t.Parallel()
+	if got := mean(nil); got != 0 {
+		t.Errorf("mean(nil) = %v, want 0", got)
+	}
+	if got := mean([]float64{}); got != 0 {
+		t.Errorf("mean([]) = %v, want 0", got)
+	}
+}
+
+// TestMean_values verifies mean returns the arithmetic mean for non-empty slices.
+func TestMean_values(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   []float64
+		want float64
+	}{
+		{in: []float64{4}, want: 4},
+		{in: []float64{1, 3}, want: 2},
+		{in: []float64{0, 6, 3}, want: 3},
+	}
+	for _, tc := range cases {
+		if got := mean(tc.in); got != tc.want {
+			t.Errorf("mean(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}

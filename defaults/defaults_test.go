@@ -104,6 +104,20 @@ func TestInit_setsDefaultComponents(t *testing.T) {
 	}
 }
 
+// TestInit_setsDefaultBlurStrategy verifies that importing defaults also wires
+// unpixel.DefaultBlurStrategy and that calling it returns a non-nil Strategy.
+// This exercises the closure body assigned in init().
+func TestInit_setsDefaultBlurStrategy(t *testing.T) {
+	t.Parallel()
+	if unpixel.DefaultBlurStrategy == nil {
+		t.Fatal("importing defaults should set unpixel.DefaultBlurStrategy; got nil")
+	}
+	got := unpixel.DefaultBlurStrategy()
+	if got == nil {
+		t.Error("DefaultBlurStrategy() returned nil, want non-nil Strategy")
+	}
+}
+
 // TestStrategyConstructors verifies the exported strategy constructors return
 // non-nil unpixel.Strategy values that can be assigned to Config.Strategy.
 func TestStrategyConstructors(t *testing.T) {

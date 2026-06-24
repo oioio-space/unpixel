@@ -192,3 +192,33 @@ func TestCachingScorer_EvalBounded_cancelledContext(t *testing.T) {
 		t.Errorf("CachingScorer.EvalBounded cancelled ctx: Score = %v, want 1", got.Score)
 	}
 }
+
+// TestCachingScorer_Eval_cancelledContext verifies that a pre-cancelled context
+// causes Eval to return score=1 immediately (the ctx.Err check path).
+func TestCachingScorer_Eval_cancelledContext(t *testing.T) {
+	cs, _ := buildCachingFixture(t, 64)
+	offset := unpixel.Offset{X: 0, Y: 0}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	got := cs.Eval(ctx, "ab", "a", offset)
+	if got.Score != 1 {
+		t.Errorf("CachingScorer.Eval cancelled ctx: Score = %v, want 1", got.Score)
+	}
+}
+
+// TestCachingScorer_RedactedImage verifies that RedactedImage delegates to the
+// inner PipelineScorer and returns a non-nil image with the expected dimensions.
+func TestCachingScorer_RedactedImage(t *testing.T) {
+	t.Parallel()
+	cs, _ := buildCachingFixture(t, 64)
+
+	img := cs.RedactedImage()
+	if img == nil {
+		t.Fatal("CachingScorer.RedactedImage() returned nil")
+	}
+	if img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		t.Errorf("CachingScorer.RedactedImage() returned empty image %v", img.Bounds())
+	}
+}

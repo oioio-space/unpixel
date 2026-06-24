@@ -334,3 +334,29 @@ func TestWithNormalize_customFnApplied(t *testing.T) {
 		t.Error("WithNormalize: mutator function was not called")
 	}
 }
+
+// TestWithL0Deblur_noArgs verifies that WithL0Deblur with no arguments applies
+// the default L0Options without panicking.
+func TestWithL0Deblur_noArgs(t *testing.T) {
+	var cfg unpixel.Config
+	// Must not panic; the option closure should set cfg.l0deblur to non-nil
+	// defaults (Lambda=2e-3, Mu=5e-4, Iterations=20).
+	unpixel.WithL0Deblur()(&cfg)
+}
+
+// TestWithL0Deblur_mutatorApplied verifies that mutator functions passed to
+// WithL0Deblur are called, allowing callers to customise the L0 parameters.
+func TestWithL0Deblur_mutatorApplied(t *testing.T) {
+	t.Parallel()
+	mutatorCalled := false
+	var cfg unpixel.Config
+	unpixel.WithL0Deblur(
+		func(o *deblur.L0Options) {
+			o.Iterations = 30
+			mutatorCalled = true
+		},
+	)(&cfg)
+	if !mutatorCalled {
+		t.Error("WithL0Deblur: mutator function was not called")
+	}
+}

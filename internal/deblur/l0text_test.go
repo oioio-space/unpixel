@@ -305,3 +305,50 @@ func TestWithL0Deblur_appliesWhenEnabled(t *testing.T) {
 		t.Error("RecoverBlurredPreprocess with L0Options did not modify the image")
 	}
 }
+
+// TestRound8clamp_boundaries verifies the clamping and rounding branches of
+// round8clamp: negative inputs clamp to 0, inputs ≥ 255 clamp to 255, and
+// interior values round correctly.
+func TestRound8clamp_boundaries(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   float64
+		want uint8
+	}{
+		{in: -1.0, want: 0},    // v+0.5 = -0.5 ≤ 0 → clamp low
+		{in: -0.6, want: 0},    // v+0.5 = -0.1 ≤ 0 → clamp low
+		{in: 0.0, want: 0},     // v+0.5 = 0.5 → uint8(0)
+		{in: 1.3, want: 1},     // v+0.5 = 1.8 → 1
+		{in: 254.6, want: 255}, // v+0.5 = 255.1 ≥ 255 → clamp high
+		{in: 300.0, want: 255}, // clearly above 255 → clamp high
+	}
+	for _, tc := range cases {
+		if got := round8clamp(tc.in); got != tc.want {
+			t.Errorf("round8clamp(%v) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestNextPow2_values verifies nextPow2 for boundary and interior inputs,
+// including the n≤1 early-return path.
+func TestNextPow2_values(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: 1}, // n ≤ 1 → 1
+		{in: 1, want: 1}, // n ≤ 1 → 1
+		{in: 2, want: 2},
+		{in: 3, want: 4},
+		{in: 4, want: 4},
+		{in: 5, want: 8},
+		{in: 16, want: 16},
+		{in: 17, want: 32},
+	}
+	for _, tc := range cases {
+		if got := nextPow2(tc.in); got != tc.want {
+			t.Errorf("nextPow2(%d) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}

@@ -931,3 +931,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `8ed0504` 2026-06-24 — test: restore coverage ≥85% for the perf + C1b wave _(7 fichiers)_
 - `916630c` 2026-06-24 — perf(blinddecode): parallelize whole-line Cartesian scoring (-24 to -29% at cpu≥8) _(4 fichiers)_
 - `3009962` 2026-06-24 — docs(journal): v0.13.0 run — perf wins, no quality regression; C1/C1b tracked _(2 fichiers)_
+- `d8972af` 2026-06-24 — docs(release): v0.13.0 — performance wave + context calibration (C1b) + journal tracking _(3 fichiers)_

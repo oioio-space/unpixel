@@ -154,6 +154,51 @@ func TestOptionSetters_plumbing(t *testing.T) {
 	)
 }
 
+// TestOptionSetters_gammaAndLetterSpacing verifies that WithGamma and
+// WithLetterSpacingSearch closures are actually invoked when Recover applies
+// options. A white 16×16 image is used so Recover returns early without a
+// full decode, making the test fast and -short-safe.
+func TestOptionSetters_gammaAndLetterSpacing(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range img.Pix {
+		img.Pix[i] = 0xFF
+	}
+	ctx := t.Context()
+
+	cases := []struct {
+		name string
+		opts []blind.Option
+	}{
+		{
+			name: "WithGamma_linear",
+			opts: []blind.Option{blind.WithGamma(blind.GammaLinear), blind.WithBlock(8), blind.WithFontSize(32)},
+		},
+		{
+			name: "WithGamma_srgb",
+			opts: []blind.Option{blind.WithGamma(blind.GammaSRGB), blind.WithBlock(8), blind.WithFontSize(32)},
+		},
+		{
+			name: "WithGamma_auto",
+			opts: []blind.Option{blind.WithGamma(blind.GammaAuto), blind.WithBlock(8), blind.WithFontSize(32)},
+		},
+		{
+			name: "WithLetterSpacingSearch_values",
+			opts: []blind.Option{blind.WithLetterSpacingSearch(blind.DefaultLetterSpacings...), blind.WithBlock(8), blind.WithFontSize(32)},
+		},
+		{
+			name: "WithLetterSpacingSearch_noop",
+			opts: []blind.Option{blind.WithLetterSpacingSearch(), blind.WithBlock(8), blind.WithFontSize(32)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Must not panic; result ignored — we only exercise option plumbing.
+			_, _ = blind.Recover(ctx, img, tc.opts...)
+		})
+	}
+}
+
 // TestWithLanguage_Plumbing verifies the Option plumbing and ParseLanguage
 // round-trip without running a full decode.
 func TestWithLanguage_Plumbing(t *testing.T) {

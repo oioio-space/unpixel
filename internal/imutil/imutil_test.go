@@ -276,6 +276,29 @@ func TestToRGBA_nonRGBA(t *testing.T) {
 	}
 }
 
+// --- FillWhite ---
+
+// TestFillWhite_normal verifies that FillWhite sets every pixel to 0xFF.
+func TestFillWhite_normal(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	imutil.FillWhite(img)
+	for i, b := range img.Pix {
+		if b != 0xFF {
+			t.Errorf("Pix[%d] = %#x, want 0xFF", i, b)
+			break
+		}
+	}
+}
+
+// TestFillWhite_empty verifies that FillWhite on a zero-size image does not
+// panic (exercises the len(p)==0 early-return branch).
+func TestFillWhite_empty(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	imutil.FillWhite(img) // must not panic
+}
+
 // --- Lum601 ---
 
 // TestLum601 verifies the BT.601 luminance formula for known reference values.
