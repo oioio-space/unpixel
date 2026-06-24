@@ -935,3 +935,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `1cb2b59` 2026-06-24 — test(cover): restore coverage gate margin to 85.4% for the v0.13.0 release _(16 fichiers)_
 - `153368e` 2026-06-24 — docs: rationalize documentation — neophyte README + linked concept tree _(18 fichiers)_
 - `23f9fe7` 2026-06-24 — docs: adopt a more formal register across the reader-facing documentation _(11 fichiers)_
+- `4806c4b` 2026-06-24 — build(hooks): make /simplify a mandatory gate on every commit path _(3 fichiers)_

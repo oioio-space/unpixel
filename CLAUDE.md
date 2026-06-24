@@ -105,6 +105,7 @@ but PreToolUse hooks DO fire inside subagents.
 | `secret-guard`, `vuln-guard` | `security-auditor` (Opus) | preloaded |
 | `research-grounding` | `algo-architect` (Opus) | preloaded (UserPromptSubmit hook skips subagents) |
 | `helper-ergonomics` | `go-reviewer` (Sonnet) review, `go-dev` (Sonnet) implement | hook-driven (`commit-ergonomics-review`) — not preloaded |
+| `goroutine-leak-check` | `go-dev` (Sonnet) | invoked on demand when concurrent Go changes (`go func`/channels/fan-out) — `mise run leak` is the caged, CGO-free gate; goleak `TestMain`s also run it under `test:ci`/`ci` |
 
 ### Review-hook → agent routing
 

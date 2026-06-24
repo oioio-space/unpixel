@@ -181,6 +181,17 @@ description = "Scan the SBOM for CVEs (grype) — fails on high/critical"
 depends = ["sbom"]
 run = "./scripts/rtkx.sh grype sbom:sbom.cdx.json --fail-on high"
 
+[tasks.leak]
+# Goroutine-leak gate. goleak runs automatically at every package test boundary via
+# the per-package TestMain (go.uber.org/goleak), so leak detection is ALREADY enforced
+# by `test:ci` (hence by `ci`) at no extra cost and with no CGO. This task is the
+# explicit, thorough on-demand run: the FULL suite, caged so the historical heavy
+# mosaictext path can't OOM-freeze the machine. Pure Go — no -race (which would require
+# CGO and is forbidden here); use `CGO_ENABLED=1 go test -race ./...` only as a manual,
+# local-only deep check. See .claude/skills/goroutine-leak-check.
+description = "Goroutine-leak gate: goleak (via TestMain) over the full suite, memory-caged"
+run = "./scripts/gotest-caged.sh go test -timeout=8m ./..."
+
 [tasks.ci]
 description = "Everything CI must pass"
 depends = ["cgo:check", "scan:secrets", "scan:code", "scan:sbom", "lint", "lint:sh", "lint:yaml", "lint:actions", "test:ci", "cover:check"]
