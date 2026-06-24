@@ -923,3 +923,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `3237fec` 2026-06-24 — feat(cli,context): C1b — determine the font from a separate sample image _(8 fichiers)_
 - `8e7192a` 2026-06-24 — feat(journal): track context calibrate-from-visible (C1a/C1b) in the decoder matrix _(3 fichiers)_
 - `4655e51` 2026-06-24 — docs(progress): performance-optimization roadmap (3-agent audit, benchstat-gated) _(1 fichiers)_
+- `8e09cb6` 2026-06-24 — perf(search): wire CachingScorer into GuidedStrategy (default path) — 2.4x warm _(3 fichiers)_
