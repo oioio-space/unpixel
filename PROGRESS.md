@@ -39,7 +39,7 @@ et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (
   `InferFontSize` (taille) ; **prior de langue** char-bigram (`internal/lang`, `--language`) ;
   **fast-path monospace** (`--strategy mono`, ~8–16×) ; matrice de récupération flou. `#4` (compare
   en résolution réduite) **implémenté puis rejeté au benchmark** (perte de temps mesurée). Delta
-  complet vs v0.3.0 et vs Bishop Fox (perf + fonctionnalités) : `docs/DELTA.md`.
+  complet vs v0.3.0 et vs Bishop Fox (perf + fonctionnalités) : `docs/comparison.md`.
   `go get …@v0.4.0` / `go install …/cmd/unpixel@v0.4.0`. API pré-1.0, additive depuis v0.3.x.
 - **Release v0.3.0** : **polices personnalisées + balayage de polices** — récupérer une redaction
   sans connaître sa typographie. `render.NewXImageFromFonts` / `defaults.RendererFromFonts` /
@@ -165,7 +165,7 @@ et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (
       partagent `searchOffsets`. ~4× sur la découverte d'offsets (benchstat), aucune régression
       sur le chemin séquentiel (`Workers=1`), `-race` propre.
 - [ ] **Phase 2 (reporté)** : renderer `chromedp` (fidélité Chromium) — dép. lourde exigeant un
-      binaire Chrome au runtime/CI ; métriques edge-aware. Cf. `docs/DESIGN.md`.
+      binaire Chrome au runtime/CI ; métriques edge-aware. Cf. `docs/architecture.md`.
 
 ### 🔤 v0.3.0 — polices personnalisées & balayage (récupérer sans connaître la typo)
 
@@ -402,7 +402,7 @@ Faites (gains prouvés, sortie de récupération inchangée) :
       un gain mesuré négatif. Le benchmark représentatif `Pixelmatch_Distance/gradient` (chaque pixel
       diffère, régime bande-de-rédaction) est conservé. Reste ouvert (doc, non implémenté) : un noyau
       AVX2 par blocs de 4 pixels qui **saute les blocs identiques** pourrait préserver le fast-path —
-      à n'envisager que sur preuve benchstat (voir `docs/ACCELERATION.md`). Go 1.26 `simd/archsimd`
+      à n'envisager que sur preuve benchstat (voir `docs/performance.md`). Go 1.26 `simd/archsimd`
       reste de toute façon inadapté (⚠️ `GOEXPERIMENT=simd`, AMD64-only, hors promesse de compat).
 - [x] **P4.11 — intra-node parallel evalChildren** (`23dbb7e`). Paralléliser enfants d'un nœud
       DFS, capped par intraNodeWorkers (GOMAXPROCS / offset-level) → pas de sur-souscription.
@@ -932,3 +932,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `916630c` 2026-06-24 — perf(blinddecode): parallelize whole-line Cartesian scoring (-24 to -29% at cpu≥8) _(4 fichiers)_
 - `3009962` 2026-06-24 — docs(journal): v0.13.0 run — perf wins, no quality regression; C1/C1b tracked _(2 fichiers)_
 - `d8972af` 2026-06-24 — docs(release): v0.13.0 — performance wave + context calibration (C1b) + journal tracking _(3 fichiers)_
+- `1cb2b59` 2026-06-24 — test(cover): restore coverage gate margin to 85.4% for the v0.13.0 release _(16 fichiers)_
