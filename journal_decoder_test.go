@@ -45,6 +45,7 @@ func runDecoderMatrix(t *testing.T) []decoderRow {
 
 	sickEntries := loadDecoderSickManifest(t)
 	realEntries := loadDecoderRealManifest(t)
+	contextSpecs := loadContextManifest(t)
 
 	// Matrix: decoder → corpus. Order matches the table columns.
 	rows := []decoderRow{
@@ -108,6 +109,14 @@ func runDecoderMatrix(t *testing.T) []decoderRow {
 
 		// blind → sick: blind.Recover zero-config.
 		runBlindDecoderOnSick(t, sickEntries),
+
+		// calibrate-visible → context (C1a): visible_rect crop from the same
+		// PNG warm-starts axis fitting; redacted_rect is decoded blind.
+		runCalibrateVisibleOnContext(t, contextSpecs),
+
+		// calibrate-sample → context (C1b): a separate companion PNG provides
+		// the calibration source; only fixtures with font_sample are included.
+		runCalibrateSampleOnContext(t, contextSpecs),
 	}
 
 	return rows

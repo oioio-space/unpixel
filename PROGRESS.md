@@ -856,3 +856,4 @@ Propositions, par levier :
 - `c9a914e` 2026-06-24 — docs(progress): propose context-assisted decoding (C1–C4), grounded in the journal _(1 fichiers)_
 - `8f09a3a` 2026-06-24 — test(context): add testdata/context corpus for context-assisted decoding (C1/C2) _(16 fichiers)_
 - `e29a0f7` 2026-06-24 — docs(progress): split C1 into C1a (adjacent cleartext) + C1b (separate font sample) _(1 fichiers)_
+- `3237fec` 2026-06-24 — feat(cli,context): C1b — determine the font from a separate sample image _(8 fichiers)_
