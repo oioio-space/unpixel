@@ -1,0 +1,190 @@
+[
+  {
+    "name": "ctx_sameline_user",
+    "layout": "same-line",
+    "visible_text": "User: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 94,
+      "h": 48
+    },
+    "secret": "hunter2",
+    "redacted_rect": {
+      "x": 94,
+      "y": 0,
+      "w": 120,
+      "h": 48
+    },
+    "font": "Liberation Sans",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "notes": "same-line; Liberation Sans; classic password test vector"
+  },
+  {
+    "name": "ctx_sameline_pin",
+    "layout": "same-line",
+    "visible_text": "PIN: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 79,
+      "h": 48
+    },
+    "secret": "4892",
+    "redacted_rect": {
+      "x": 79,
+      "y": 0,
+      "w": 80,
+      "h": 48
+    },
+    "font": "Liberation Sans",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "notes": "same-line; Liberation Sans; 4-digit PIN"
+  },
+  {
+    "name": "ctx_sameline_mono_token",
+    "layout": "same-line",
+    "visible_text": "Token: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 141,
+      "h": 49
+    },
+    "secret": "a3f9b2",
+    "redacted_rect": {
+      "x": 141,
+      "y": 0,
+      "w": 128,
+      "h": 49
+    },
+    "font": "Liberation Mono",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "notes": "same-line; Liberation Mono; hex token"
+  },
+  {
+    "name": "ctx_label_password",
+    "layout": "label-above",
+    "visible_text": "Password:",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 158,
+      "h": 48
+    },
+    "secret": "Pa55w0rd!",
+    "redacted_rect": {
+      "x": 0,
+      "y": 48,
+      "w": 168,
+      "h": 48
+    },
+    "font": "Liberation Sans",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "notes": "label-above; Liberation Sans; realistic password with symbols"
+  },
+  {
+    "name": "ctx_label_secret",
+    "layout": "label-above",
+    "visible_text": "Secret key:",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 151,
+      "h": 44
+    },
+    "secret": "X7kQ9m",
+    "redacted_rect": {
+      "x": 0,
+      "y": 44,
+      "w": 120,
+      "h": 44
+    },
+    "font": "Carlito",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "notes": "label-above; Carlito; alphanumeric secret key"
+  },
+  {
+    "name": "ctx_varfont_wght600",
+    "layout": "same-line",
+    "visible_text": "Code: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 57
+    },
+    "secret": "Tr0ub4dor",
+    "redacted_rect": {
+      "x": 100,
+      "y": 0,
+      "w": 168,
+      "h": 57
+    },
+    "font": "Nunito",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "var_font": true,
+    "var_wght": 600,
+    "notes": "same-line; Nunito VF wght=600; font must be reconstructed/fitted (C2)"
+  },
+  {
+    "name": "ctx_varfont_wght750",
+    "layout": "label-above",
+    "visible_text": "Access code:",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 199,
+      "h": 57
+    },
+    "secret": "G4te2024",
+    "redacted_rect": {
+      "x": 0,
+      "y": 57,
+      "w": 160,
+      "h": 57
+    },
+    "font": "Nunito",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "var_font": true,
+    "var_wght": 750,
+    "notes": "label-above; Nunito VF wght=750; font must be reconstructed/fitted (C2)"
+  },
+  {
+    "name": "ctx_sameline_block10",
+    "layout": "same-line",
+    "visible_text": "Key: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 81,
+      "h": 48
+    },
+    "secret": "r00t",
+    "redacted_rect": {
+      "x": 81,
+      "y": 0,
+      "w": 70,
+      "h": 48
+    },
+    "font": "Liberation Sans",
+    "font_size": 32,
+    "block_size": 10,
+    "linear": true,
+    "notes": "same-line; Liberation Sans; block_size=10 (non-power-of-2)"
+  }
+]

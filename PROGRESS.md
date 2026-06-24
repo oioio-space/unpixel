@@ -849,3 +849,4 @@ Propositions, par levier :
 - `3ddf48a` 2026-06-24 — feat(journal): track opt-in decoders over time (second evolution table) _(5 fichiers)_
 - `4fdc373` 2026-06-24 — feat(journal): track failure-mode + confidence/fidelity/timing signals for analysis _(4 fichiers)_
 - `d5fc8fa` 2026-06-24 — docs(journal): v0.12.0 run — decoder table + analysis signals populated _(2 fichiers)_
+- `c9a914e` 2026-06-24 — docs(progress): propose context-assisted decoding (C1–C4), grounded in the journal _(1 fichiers)_

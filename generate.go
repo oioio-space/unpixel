@@ -6,3 +6,4 @@ package unpixel
 //
 //go:generate go run ./internal/fixture/gen -out testdata/fixtures
 //go:generate go run ./internal/fixture/gensick -out testdata/sick
+//go:generate go run ./internal/fixture/gencontext -out testdata/context

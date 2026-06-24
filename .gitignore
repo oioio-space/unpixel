@@ -1,5 +1,10 @@
 # Binaries
 /unpixel
+# Stray fixture-generator binaries if ever `go build`-ed at the repo root
+# (generation uses `go run`, which leaves none; these are a safety net).
+/gen
+/gensick
+/gencontext
 *.exe
 *.test
 *.out
