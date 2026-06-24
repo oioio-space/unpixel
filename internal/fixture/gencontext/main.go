@@ -69,6 +69,12 @@ func run(out string) error {
 		if err := writePNG(filepath.Join(out, s.File()), rendered.img); err != nil {
 			return err
 		}
+		// For C1b cross-image specs, also generate the companion sample PNG.
+		if rendered.spec.FontSample != nil {
+			if err := renderFontSample(out, &rendered.spec, byName); err != nil {
+				return fmt.Errorf("font sample for %q: %w", s.Name, err)
+			}
+		}
 		result = append(result, rendered.spec)
 	}
 
@@ -77,6 +83,36 @@ func run(out string) error {
 	}
 	fmt.Printf("gencontext: wrote %d images + manifest.json to %s\n", len(result), out)
 	return nil
+}
+
+// renderFontSample generates the companion font-sample PNG for a C1b cross-image
+// spec. It renders the FontSample.SampleText in the SAME font and weight as the
+// parent spec, as SHARP (un-pixelated) text, and writes the PNG alongside the
+// redaction image. It also populates FontSample.SampleRect with the exact bounds.
+func renderFontSample(out string, spec *fixture.ContextSpec, _ map[string]fonts.Font) error {
+	fs := spec.FontSample
+	if fs == nil {
+		return nil
+	}
+
+	// Build a varfont renderer at the same wght as the parent.
+	axes := []varfont.Axis{{Tag: "wght", Value: spec.VarWght}}
+	r, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), axes)
+	if err != nil {
+		return fmt.Errorf("varfont renderer: %w", err)
+	}
+
+	style := unpixel.Style{FontSize: spec.FontSize, PaddingTop: 8, PaddingLeft: 8}
+	img, sentinelX, err := r.Render(fs.SampleText, style)
+	if err != nil {
+		return fmt.Errorf("render sample text %q: %w", fs.SampleText, err)
+	}
+	// Crop to the text area; drop the blue sentinel column.
+	img = imutil.Crop(img, 0, 0, sentinelX, img.Bounds().Dy())
+
+	fs.SampleRect = fixture.Rect{X: 0, Y: 0, W: img.Bounds().Dx(), H: img.Bounds().Dy()}
+
+	return writePNG(filepath.Join(out, fs.File()), img)
 }
 
 // contextRender holds the rendered image and the spec with exact pixel rects filled in.

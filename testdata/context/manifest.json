@@ -186,5 +186,40 @@
     "block_size": 10,
     "linear": true,
     "notes": "same-line; Liberation Sans; block_size=10 (non-power-of-2)"
+  },
+  {
+    "name": "ctx_crossimg_wght700",
+    "layout": "same-line",
+    "visible_text": "Label: ",
+    "visible_rect": {
+      "x": 0,
+      "y": 0,
+      "w": 107,
+      "h": 57
+    },
+    "secret": "Secret7",
+    "redacted_rect": {
+      "x": 107,
+      "y": 0,
+      "w": 128,
+      "h": 57
+    },
+    "font": "Nunito",
+    "font_size": 32,
+    "block_size": 8,
+    "linear": true,
+    "var_font": true,
+    "var_wght": 700,
+    "font_sample": {
+      "name": "fontsample_wght700",
+      "sample_text": "Sample text",
+      "sample_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 189,
+        "h": 57
+      }
+    },
+    "notes": "C1b cross-image: font calibration from fontsample_wght700.png, redaction in ctx_crossimg_wght700.png"
   }
 ]

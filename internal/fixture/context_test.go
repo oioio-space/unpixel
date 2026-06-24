@@ -169,6 +169,134 @@ func TestContextCorpus_ManifestAndPNGs(t *testing.T) {
 	}
 }
 
+// TestContextCorpus_CrossImageCalibration proves C1b end-to-end:
+//
+//  1. Load the separate font-sample PNG (fontsample_wght700.png).
+//  2. Call varfont.CalibrateFromVisible with the sample text from that image.
+//  3. Use the fitted axes as a warm-start to fit the SEPARATE redaction image
+//     (ctx_crossimg_wght700.png) with the known secret text.
+//  4. Assert the final distance is low (< 0.5), proving that calibrating from
+//     a separate image successfully drives recovery of the redaction.
+//
+// The test is skipped (not failed) when the corpus has not been generated yet.
+func TestContextCorpus_CrossImageCalibration(t *testing.T) {
+	manifestPath := filepath.Join(manifestDir, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Skipf("manifest not found (%v) — run: go run ./internal/fixture/gencontext -out testdata/context", err)
+	}
+
+	var specs []fixture.ContextSpec
+	if err := json.Unmarshal(data, &specs); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+
+	// Find the C1b cross-image fixture.
+	var crossSpec *fixture.ContextSpec
+	for i := range specs {
+		if specs[i].FontSample != nil {
+			crossSpec = &specs[i]
+			break
+		}
+	}
+	if crossSpec == nil {
+		t.Skip("no cross-image (font_sample) fixture in manifest — regenerate corpus")
+	}
+	t.Logf("cross-image fixture %q (wght=%.0f, sample=%q, secret=%q)",
+		crossSpec.Name, crossSpec.VarWght, crossSpec.FontSample.SampleText, crossSpec.Secret)
+
+	// Step 1: load the separate font-sample PNG.
+	samplePath := filepath.Join(manifestDir, crossSpec.FontSample.File())
+	sf, err := os.Open(samplePath) // #nosec G304 — test reads committed testdata
+	if err != nil {
+		t.Fatalf("open font-sample PNG %s: %v — regenerate corpus", samplePath, err)
+	}
+	t.Cleanup(func() { _ = sf.Close() })
+
+	sampleImg, err := png.Decode(sf)
+	if err != nil {
+		t.Fatalf("decode font-sample PNG: %v", err)
+	}
+	sampleRGBA, _ := toRGBA(sampleImg)
+
+	// Step 2: calibrate axes from the SEPARATE sample image.
+	font, err := varfont.ParseFont(bytesReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+
+	m := metric.NewPixelmatchFast(0.1)
+	style := varfont.DefaultStyle()
+	style.FontSize = crossSpec.FontSize
+
+	axisSpecs := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}}
+
+	calResult, err := varfont.CalibrateFromVisible(varfont.CalibrateConfig{
+		Font:      font,
+		Text:      crossSpec.FontSample.SampleText,
+		Style:     style,
+		Target:    sampleRGBA,
+		Pixelator: nil, // sharp sample image — compare directly
+		Metric:    m,
+		Axes:      axisSpecs,
+	})
+	if err != nil {
+		t.Fatalf("CalibrateFromVisible (separate sample): %v", err)
+	}
+	fittedWght := calResult.Axes[0].Value
+	t.Logf("calibrated from separate sample: wght=%.1f (true %.1f) dist=%.4f evals=%d",
+		fittedWght, crossSpec.VarWght, calResult.Distance, calResult.Evals)
+
+	// Step 3: load the SEPARATE redaction image and fit with the calibrated axes.
+	redactPath := filepath.Join(manifestDir, crossSpec.File())
+	rf, err := os.Open(redactPath) // #nosec G304 — test reads committed testdata
+	if err != nil {
+		t.Fatalf("open redaction PNG %s: %v — regenerate corpus", redactPath, err)
+	}
+	t.Cleanup(func() { _ = rf.Close() })
+
+	redactImg, err := png.Decode(rf)
+	if err != nil {
+		t.Fatalf("decode redaction PNG: %v", err)
+	}
+	redactRGBA, _ := toRGBA(redactImg)
+
+	// Crop the mosaic region from the redaction image.
+	redactCrop := cropRGBA(redactRGBA, crossSpec.RedactedRect)
+	if redactCrop.Bounds().Empty() {
+		t.Fatal("redacted_rect produces empty crop — regenerate corpus")
+	}
+
+	pix := pixelate.NewLinearBlockAverage(crossSpec.BlockSize)
+
+	// Warm-start from the calibrated wght value.
+	warmAxes := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: fittedWght}}
+	fitResult, err := varfont.FitAxes(varfont.FitConfig{
+		Font:      font,
+		Text:      crossSpec.Secret,
+		Style:     style,
+		Target:    redactCrop,
+		Pixelator: pix,
+		Metric:    m,
+		BlockSize: crossSpec.BlockSize,
+		Axes:      warmAxes,
+	})
+	if err != nil {
+		t.Fatalf("FitAxes on redaction: %v", err)
+	}
+	t.Logf("fit on redaction: wght=%.1f (true %.1f) dist=%.4f evals=%d",
+		fitResult.Axes[0].Value, crossSpec.VarWght, fitResult.Distance, fitResult.Evals)
+
+	// Step 4: assert the cross-image calibration achieved a meaningful fit.
+	if got := fitResult.Distance; math.IsNaN(got) || math.IsInf(got, 0) {
+		t.Errorf("distance: got %v, want finite value", got)
+	}
+	if got, want := fitResult.Distance, 0.5; got > want {
+		t.Errorf("cross-image fit distance: got %.4f, want <= %.4f — calibration from separate image did not converge",
+			got, want)
+	}
+}
+
 // TestContextCorpus_CalibrateFromVisible exercises C1 end-to-end on the first
 // Nunito variable-font fixture:
 //

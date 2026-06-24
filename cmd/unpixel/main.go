@@ -118,6 +118,11 @@ type flagParams struct {
 	varfontText         string // --varfont-text: known cleartext for varfont calibration mode
 	varfontAxes         string // --varfont-axes: comma-separated axis specs e.g. "wght:200:900:500"
 	varfontLinear       bool   // --varfont-linear: linear-light pixelation for varfont decoder
+	fontSamplePath      string // --font-sample: separate image providing font calibration (C1b)
+	fontSampleText      string // --font-sample-text: cleartext matching --font-sample (required with --font-sample)
+	fontSampleRegion    string // --font-sample-region: optional "x,y,w,h" sub-rect of the sample image
+	visibleText         string // --visible-text: cleartext of the sharp region IN the target image (C1a)
+	visibleRegion       string // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -1459,17 +1464,75 @@ func parseVarFontAxes(s string) ([]varfont.AxisSpec, error) {
 	return specs, nil
 }
 
+// parseRegion parses a "x,y,w,h" region string into an image.Rectangle.
+// Returns an error when the string is malformed or any dimension is negative.
+func parseRegion(s string) (image.Rectangle, error) {
+	parts := strings.SplitN(s, ",", 4)
+	if len(parts) != 4 {
+		return image.Rectangle{}, fmt.Errorf("region %q must be \"x,y,w,h\"", s)
+	}
+	vals := [4]int{}
+	labels := [4]string{"x", "y", "w", "h"}
+	for i, label := range labels {
+		v, err := strconv.Atoi(strings.TrimSpace(parts[i]))
+		if err != nil {
+			return image.Rectangle{}, fmt.Errorf("region %q %s: %w", s, label, err)
+		}
+		if (label == "w" || label == "h") && v < 0 {
+			return image.Rectangle{}, fmt.Errorf("region %q %s must be non-negative", s, label)
+		}
+		vals[i] = v
+	}
+	x, y, w, h := vals[0], vals[1], vals[2], vals[3]
+	return image.Rect(x, y, x+w, y+h), nil
+}
+
+// loadVisibleCrop loads a sharp calibration crop from an image file, optionally
+// restricted to region (when regionStr is non-empty). It returns the crop as
+// *image.RGBA ready for WithVarFontVisible.
+func loadVisibleCrop(imgPath, regionStr string) (*image.RGBA, error) {
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return nil, err
+	}
+	rgba := toRGBAImage(img)
+	if regionStr == "" {
+		return rgba, nil
+	}
+	r, err := parseRegion(regionStr)
+	if err != nil {
+		return nil, err
+	}
+	b := rgba.Bounds()
+	r = r.Intersect(b)
+	if r.Empty() {
+		return nil, fmt.Errorf("region %q is empty after clipping to image bounds %v", regionStr, b)
+	}
+	return cropToRegion(rgba, r), nil
+}
+
+// toRGBAImage converts any image.Image to *image.RGBA without the draw import.
+// When the source is already *image.RGBA it is returned as-is (no copy).
+func toRGBAImage(img image.Image) *image.RGBA {
+	if r, ok := img.(*image.RGBA); ok {
+		return r
+	}
+	b := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
+	return dst
+}
+
 // runVarFont runs the variable-font decoder (mosaictext.DecodeVarFont) when
 // --decoder varfont is set. It fits the font's design axes to the redaction
 // using the render→pixelate→metric pipeline and reports the fitted axes.
 //
-// Two modes:
-//   - Calibration (--varfont-text): fits axes to the known text, returning
-//     the best-fit axis values. Use this when you know a fragment of the
-//     redacted text (Bishop Fox method).
-//   - Blind (no --varfont-text): joint text+axis search over --charset
-//     candidates (up to MaxBlindCandidates single characters). Only tractable
-//     for very short strings; prefer calibration mode for real use.
+// Calibration sources (mutually exclusive):
+//   - --font-sample + --font-sample-text: calibrate from a SEPARATE image (C1b).
+//   - --visible-text (+ optional --visible-region): calibrate from a sharp region
+//     WITHIN the target image (C1a).
+//   - --varfont-text: calibrate by fitting axes to known text in the redaction.
+//   - (none): blind single-character axis search over --charset.
 //
 // Reuses --font/--font-bold (user font → that font only, else bundled Nunito
 // default), --block-size, --charset, --font-size, --gamma (linear), and
@@ -1484,6 +1547,16 @@ func runVarFont(ctx context.Context, imgPath string, p flagParams) error {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, p.timeout)
 		defer cancel()
+	}
+
+	// Validate mutually exclusive calibration sources.
+	hasFontSample := p.fontSamplePath != ""
+	hasVisibleText := p.visibleText != ""
+	if hasFontSample && hasVisibleText {
+		return fmt.Errorf("--font-sample and --visible-text are mutually exclusive: use one calibration source")
+	}
+	if hasFontSample && p.fontSampleText == "" {
+		return fmt.Errorf("--font-sample requires --font-sample-text (the cleartext rendered in the sample image)")
 	}
 
 	// Parse the required axis specs.
@@ -1538,8 +1611,34 @@ func runVarFont(ctx context.Context, imgPath string, p flagParams) error {
 		opts = append(opts, mosaictext.WithVarFontCharset(p.charset))
 	}
 
+	// Calibration source: C1b (separate sample image) takes priority over C1a
+	// (sharp region within the target image).
+	calSource := ""
+	calText := ""
+	switch {
+	case hasFontSample:
+		crop, cropErr := loadVisibleCrop(p.fontSamplePath, p.fontSampleRegion)
+		if cropErr != nil {
+			return fmt.Errorf("--font-sample: %w", cropErr)
+		}
+		opts = append(opts, mosaictext.WithVarFontVisible(crop, p.fontSampleText))
+		calSource = "font-sample:" + filepath.Base(p.fontSamplePath)
+		calText = p.fontSampleText
+	case hasVisibleText:
+		crop, cropErr := loadVisibleCrop(imgPath, p.visibleRegion)
+		if cropErr != nil {
+			return fmt.Errorf("--visible-text: %w", cropErr)
+		}
+		opts = append(opts, mosaictext.WithVarFontVisible(crop, p.visibleText))
+		calSource = "visible-region"
+		calText = p.visibleText
+	}
+
 	mode := "blind"
-	if p.varfontText != "" {
+	switch {
+	case calSource != "":
+		mode = fmt.Sprintf("calibration-from-visible (source=%s text=%q)", calSource, calText)
+	case p.varfontText != "":
 		mode = "calibration (text=" + p.varfontText + ")"
 	}
 	if !p.quiet && p.format != "json" {
@@ -1860,6 +1959,31 @@ Examples:
 				Name:  "varfont-linear",
 				Usage: "varfont decoder: use linear-light block averaging (GEGL/GIMP Pixelize); overridden by --gamma=linear",
 			},
+			&cli.StringFlag{
+				Name:  "font-sample",
+				Usage: "varfont decoder: path to a SEPARATE image whose text is rendered in the target font (C1b cross-image calibration); requires --font-sample-text",
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "font-sample-text",
+				Usage: "varfont decoder: cleartext rendered in the --font-sample image (required when --font-sample is set)",
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "font-sample-region",
+				Usage: `varfont decoder: sub-rect of the font-sample image to use for calibration, "x,y,w,h" (default: whole image)`,
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "visible-text",
+				Usage: "varfont decoder: cleartext of a sharp region WITHIN the target image for same-image calibration (C1a); see also --visible-region",
+				Value: "",
+			},
+			&cli.StringFlag{
+				Name:  "visible-region",
+				Usage: `varfont decoder: sub-rect of the target image containing the sharp visible text, "x,y,w,h" (used with --visible-text)`,
+				Value: "",
+			},
 		},
 		Action: run,
 	}
@@ -1930,6 +2054,11 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		varfontText:         cmd.String("varfont-text"),
 		varfontAxes:         cmd.String("varfont-axes"),
 		varfontLinear:       cmd.Bool("varfont-linear"),
+		fontSamplePath:      cmd.String("font-sample"),
+		fontSampleText:      cmd.String("font-sample-text"),
+		fontSampleRegion:    cmd.String("font-sample-region"),
+		visibleText:         cmd.String("visible-text"),
+		visibleRegion:       cmd.String("visible-region"),
 	}
 
 	if err := validateParams(p); err != nil {

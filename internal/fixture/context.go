@@ -54,9 +54,31 @@ type ContextSpec struct {
 	VarFont bool `json:"var_font,omitempty"`
 	// VarWght is the wght axis value for variable-font fixtures.
 	VarWght float32 `json:"var_wght,omitempty"`
+	// FontSample, when non-nil, describes a SEPARATE companion image (a different
+	// file) that provides the font calibration source. This is the C1b scenario:
+	// the font weight is determined from an image OTHER than the redaction image.
+	FontSample *FontSampleSpec `json:"font_sample,omitempty"`
 	// Notes is a free-text annotation.
 	Notes string `json:"notes,omitempty"`
 }
+
+// FontSampleSpec describes a stand-alone font-sample image used for C1b
+// cross-image calibration. The PNG (Name + ".png") renders SampleText in the
+// same variable font and weight as the parent ContextSpec's redaction, but as
+// SHARP (un-pixelated) text — ideal for axis calibration.
+type FontSampleSpec struct {
+	// Name is the file stem of the sample PNG (e.g. "fontsample_wght700").
+	Name string `json:"name"`
+	// SampleText is the sharp cleartext rendered in the sample image.
+	SampleText string `json:"sample_text"`
+	// SampleRect is the pixel rectangle of the text within the sample PNG.
+	// Populated by the generator; callers that load the whole image may leave
+	// this zero and pass the full image to CalibrateFromVisible.
+	SampleRect Rect `json:"sample_rect"`
+}
+
+// File returns the sample image's PNG filename.
+func (f FontSampleSpec) File() string { return f.Name + ".png" }
 
 // File returns the fixture's PNG filename.
 func (s ContextSpec) File() string { return s.Name + ".png" }
@@ -168,6 +190,24 @@ func ContextMatrix() []ContextSpec {
 			BlockSize:   10,
 			Linear:      true,
 			Notes:       "same-line; Liberation Sans; block_size=10 (non-power-of-2)",
+		},
+		// ── C1b: cross-image font sample (separate file, same font+weight) ────
+		// The font calibration source lives in a DIFFERENT image (fontsample_wght700.png)
+		// than the redaction target (ctx_crossimg_wght700.png). This proves that
+		// WithVarFontVisible accepts a crop from any image, not only the redaction image.
+		{
+			Name:        "ctx_crossimg_wght700",
+			Layout:      LayoutSameLine,
+			VisibleText: "Label: ",
+			Secret:      "Secret7",
+			Font:        "Nunito",
+			FontSize:    32,
+			BlockSize:   8,
+			Linear:      true,
+			VarFont:     true,
+			VarWght:     700,
+			FontSample:  &FontSampleSpec{Name: "fontsample_wght700", SampleText: "Sample text"},
+			Notes:       "C1b cross-image: font calibration from fontsample_wght700.png, redaction in ctx_crossimg_wght700.png",
 		},
 	}
 }
