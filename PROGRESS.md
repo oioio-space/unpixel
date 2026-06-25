@@ -752,8 +752,8 @@ rejetées (SIMD colorDelta, compare par-bloc, PGO) **ne sont pas** à refaire.
 - [ ] **Pixelate : ne blanchir que la bande de padding** + `sync.Pool` du buffer dst (`pixelate.go`). *(H3 cœur.)*
 
 **Tier 3 — micro / froid (barre plus basse) :**
-- [x] Scans directs `Pix[]` + break par-ligne : **`LeftEdge` FAIT** (−42 % sec/op benchstat, 0 alloc,
-      `BenchmarkLeftEdge` ajouté) ; `Margins`/`marginColumn`/SSIM restent. · **`unpixel.toRGBA` →
+- [x] Scans directs `Pix[]` + break par-ligne : **`LeftEdge` FAIT** (−42 % sec/op) et **`marginColumn`
+      FAIT** (−59 % sec/op, `BenchmarkMarginColumn`) ; `Margins`/SSIM restent. · **`unpixel.toRGBA` →
       `imutil.ToRGBA` FAIT** (8 sites, dedup via `draw.Draw`). *(H2/C1.)*
 - [ ] deblur : tables de twiddles précalculées + scratch FFT réutilisé *(F7)* ; puis rfft 2× *(F8, effort élevé, froid).*
 - [ ] mini-batch k-means *(F6, 10–100× lit., froid)* ; multiframe écritures `Pix[]` directes *(F10)* ;
@@ -1016,3 +1016,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `960100c` 2026-06-25 — docs(journal): v0.14.0 run + perspective decoder tracking (re-added) _(4 fichiers)_
 - `90972ec` 2026-06-25 — docs(release): v0.14.0 — perspective decode (homography forward-model) + auto-detect _(3 fichiers)_
 - `dce79ce` 2026-06-25 — docs: bump docs index to v0.14.0 + note perspective decode _(2 fichiers)_
+- `63b074f` 2026-06-25 — perf: 3 benchstat-proven, decode-identical wins (of 5 candidates attempted) _(11 fichiers)_

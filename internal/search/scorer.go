@@ -569,10 +569,14 @@ func marginColumn(a, b *image.RGBA) int {
 	ab, bb := a.Bounds(), b.Bounds()
 	w := min(ab.Dx(), bb.Dx())
 	midY := ab.Dy() / 2
+	// Read the middle row's RGB straight from Pix[] (4-byte stride) instead of
+	// per-pixel RGBAAt; identical comparison, fewer bounds checks per column.
+	ap, bp := a.Pix, b.Pix
+	ao := a.PixOffset(ab.Min.X, ab.Min.Y+midY)
+	bo := b.PixOffset(bb.Min.X, bb.Min.Y+midY)
 	for x := range w {
-		ca := a.RGBAAt(ab.Min.X+x, ab.Min.Y+midY)
-		cb := b.RGBAAt(bb.Min.X+x, bb.Min.Y+midY)
-		if ca.R != cb.R || ca.G != cb.G || ca.B != cb.B {
+		i, j := ao+x*4, bo+x*4
+		if ap[i] != bp[j] || ap[i+1] != bp[j+1] || ap[i+2] != bp[j+2] {
 			return x
 		}
 	}

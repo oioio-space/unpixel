@@ -72,11 +72,13 @@ tighter auto-detect corners (lower forward-model distances; no decode regression
 manual-quad fixtures still 0.0000). Refinement only ever helps: it bails back to
 the rough corners on a degenerate fit or an implausibly large corner move.
 
-Perf batch (post-v0.14.0, PROGRESS.md "Optimisations de performance") — 5 candidates
-attempted, benchstat-gated, decode byte-identical (panel 17/17, matrix 310/310). 3 adopted:
+Perf batch (post-v0.14.0, PROGRESS.md "Optimisations de performance") — candidates
+attempted, benchstat-gated, decode byte-identical (panel 17/17, matrix 310/310). 4 adopted:
 - **`imutil.LeftEdge` direct `Pix[]` + per-row early break** (was full-image RGBAAt, missing
   break): **−42% sec/op** (22.7µs → 13.1µs, p=0.000, n=8), 0 allocs. Per-candidate hot path.
   New `BenchmarkLeftEdge`/`BenchmarkMargins`.
+- **`search.marginColumn` direct `Pix[]` middle-row scan** (was per-pixel RGBAAt): **−59% sec/op**
+  (646n → 265n, p=0.000, n=10), 0 allocs. Per-candidate marginal-region scan. New `BenchmarkMarginColumn`.
 - **`trainHMM` single render pass** (record window spans in pass 1, drop the 2nd corpus
   re-render): **−24% allocs/op** (19.4k → 14.8k, p=0.000); wall-clock noise-dominated at the
   50-string bench, linear win on the 2000-string real corpus. New `BenchmarkTrainHMM`.
