@@ -256,11 +256,13 @@ func (d *Decoder) DecodeLineWhole(line *image.RGBA) []LineCandidate {
 		}
 
 		// Phase 2 (parallel): score each combination with scoreWholeLine.
-		// scoreWholeLine calls Renderer.Render, Pixelator.Pixelate, and
-		// Metric.Compare — all concurrent-safe (face-pooled renderer,
-		// sync.Pool-backed pixelator and metric). Each goroutine writes to
-		// its own disjoint dists[i] slot, so no additional synchronisation
-		// beyond the WaitGroup is needed.
+		// scoreWholeLine reads only immutable Decoder fields (inkY0, inkH,
+		// opts.FontSize, opts.LetterSpacing, opts.OffsetX/Y) and calls
+		// Renderer.Render, Pixelator.Pixelate, and Metric.Compare — all
+		// concurrent-safe (face-pooled renderer, sync.Pool-backed pixelator
+		// and metric). Neither d.cache nor d.widthCache is touched here.
+		// Each goroutine writes to its own disjoint dists[i] slot, so no
+		// additional synchronisation beyond the WaitGroup is needed.
 		dists := make([]float64, total)
 		sem := make(chan struct{}, workers)
 		var wg sync.WaitGroup

@@ -289,7 +289,9 @@ func evalChildrenFromChars(
 	chars []rune,
 ) []node {
 	bs, isBounded := scorer.(boundedScorer)
-	var children []node
+	// Preallocate to the full charset width; slices.Clip trims unused capacity
+	// before returning so callers never hold a permanently oversized backing array.
+	children := make([]node, 0, len(chars))
 	for _, ch := range chars {
 		if ctx.Err() != nil {
 			return children
@@ -304,7 +306,7 @@ func evalChildrenFromChars(
 	slices.SortFunc(children, func(a, b node) int {
 		return cmp.Compare(a.result.Score, b.result.Score)
 	})
-	return children
+	return slices.Clip(children)
 }
 
 // evalChildrenParCappedFromChars is the parallel evalChildrenParCapped inner
@@ -313,6 +315,10 @@ func evalChildrenFromChars(
 //
 // When scorer implements boundedScorer, each child is evaluated via
 // EvalBounded(threshold) so the metric can abort early for rejected candidates.
+//
+// results is a flat []node (not []*node) so no per-child heap allocation is
+// needed. survived[i] marks slots that passed the threshold; the compact scan
+// that follows is then a simple index walk without nil-pointer checks.
 func evalChildrenParCappedFromChars(
 	ctx context.Context,
 	scorer Scorer,
@@ -323,8 +329,10 @@ func evalChildrenParCappedFromChars(
 	workers int,
 ) []node {
 	bs, isBounded := scorer.(boundedScorer)
-	results := make([]*node, len(chars))
-	forEachIndex(ctx, len(chars), workers, func(i int) {
+	n := len(chars)
+	results := make([]node, n)
+	survived := make([]bool, n)
+	forEachIndex(ctx, n, workers, func(i int) {
 		if ctx.Err() != nil {
 			return
 		}
@@ -333,19 +341,21 @@ func evalChildrenParCappedFromChars(
 		thr := cfg.ThresholdFor(ch)
 		res := evalChild(ctx, scorer, bs, isBounded, next, parentGuess, offset, thr)
 		if res.Score < thr {
-			results[i] = &node{guess: next, result: res}
+			results[i] = node{guess: next, result: res}
+			survived[i] = true
 		}
 	})
-	var children []node
-	for _, r := range results {
-		if r != nil {
-			children = append(children, *r)
+	// Compact survivors into a dense slice without a second allocation.
+	children := make([]node, 0, n)
+	for i, ok := range survived {
+		if ok {
+			children = append(children, results[i])
 		}
 	}
 	slices.SortStableFunc(children, func(a, b node) int {
 		return cmp.Compare(a.result.Score, b.result.Score)
 	})
-	return children
+	return slices.Clip(children)
 }
 
 // evalChildren scores each character in cfg.Charset appended to parentGuess,
@@ -358,7 +368,16 @@ func evalChildren(
 	offset unpixel.Offset,
 	parentGuess string,
 ) []node {
-	var children []node
+	pruned := topKChars(cfg, parentGuess)
+
+	// Preallocate to the effective charset width so the hot append loop never
+	// copies. slices.Clip trims unused capacity before returning.
+	capHint := len(pruned)
+	if capHint == 0 {
+		capHint = len(cfg.Charset) // byte len ≥ rune count, safe over-estimate
+	}
+	children := make([]node, 0, capHint)
+
 	eval := func(ch rune) {
 		next := parentGuess + string(ch)
 		res := scorer.Eval(ctx, next, parentGuess, offset)
@@ -366,7 +385,7 @@ func evalChildren(
 			children = append(children, node{guess: next, result: res})
 		}
 	}
-	if pruned := topKChars(cfg, parentGuess); pruned != nil {
+	if pruned != nil {
 		for _, ch := range pruned {
 			if ctx.Err() != nil {
 				return children
@@ -384,7 +403,7 @@ func evalChildren(
 	slices.SortFunc(children, func(a, b node) int {
 		return cmp.Compare(a.result.Score, b.result.Score)
 	})
-	return children
+	return slices.Clip(children)
 }
 
 // autoTopKThreshold is the minimum charset size (in runes) that triggers

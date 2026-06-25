@@ -180,13 +180,25 @@ func l0Deblur(lum []float64, w, h int, sigma, lambda, mu float64, iters int) []f
 	ph := nextPow2(h)
 	n := pw * ph
 
+	// Build the FFT plan (precomputed twiddle tables) once for this (pw,ph) shape.
+	plan := newFFTPlan(pw, ph)
+
+	// Shared scratch buffers for all realFFT2DInto / realIFFT2DInto calls.
+	// scratchC is the complex working buffer reused as the IFFT internal copy.
+	scratchC := make([]complex128, n) // IFFT working copy (fully overwritten each use)
+	rowBuf := make([]complex128, pw)  // row scratch
+	colBuf := make([]complex128, ph)  // column scratch
+	lNewBuf := make([]float64, n)     // IFFT real-part output
+
 	// Build the 2D PSF K in spatial domain (same Gaussian as GaussianBlur).
 	// Place the kernel centered at (0,0) with wrap-around (standard DFT convention).
 	psf := make([]float64, n)
 	buildGaussianPSF(psf, pw, ph, sigma)
 
-	// Precompute K̂ (FFT of PSF) and |K̂|².
-	kHat := realFFT2D(psf, pw, ph)
+	// Precompute K̂ (FFT of PSF) and |K̂|². Reuses the prebuilt plan + scratch
+	// (kHat is read throughout the loop, so it gets its own buffer).
+	kHat := make([]complex128, n)
+	realFFT2DInto(psf, pw, ph, plan, kHat, rowBuf, colBuf)
 	kHatConj := make([]complex128, n)
 	kHatSq := make([]float64, n)
 	for i, v := range kHat {
@@ -210,9 +222,10 @@ func l0Deblur(lum []float64, w, h int, sigma, lambda, mu float64, iters int) []f
 	dxHatSq := absSqSlice(dxHat)
 	dyHatSq := absSqSlice(dyHat)
 
-	// Pad blurred image B and compute B̂.
+	// Pad blurred image B and compute B̂ (reuses the prebuilt plan + scratch).
 	bPad := padImage(lum, w, h, pw, ph)
-	bHat := realFFT2D(bPad, pw, ph)
+	bHat := make([]complex128, n)
+	realFFT2DInto(bPad, pw, ph, plan, bHat, rowBuf, colBuf)
 
 	// Initialise latent image = blurred input (the HQS starting point).
 	latent := make([]float64, n)
@@ -225,6 +238,12 @@ func l0Deblur(lum []float64, w, h int, sigma, lambda, mu float64, iters int) []f
 	gx := make([]float64, n) // gradient auxiliary x
 	gy := make([]float64, n) // gradient auxiliary y
 	s := make([]float64, n)  // intensity auxiliary
+
+	// Per-iteration spectrum accumulators reused across iterations.
+	gxHat := make([]complex128, n)
+	gyHat := make([]complex128, n)
+	sHat := make([]complex128, n)
+	lHat := make([]complex128, n)
 
 	for range iters {
 		// ── Step 1: update g (gradient auxiliary) by L0 hard-thresholding ──
@@ -266,11 +285,12 @@ func l0Deblur(lum []float64, w, h int, sigma, lambda, mu float64, iters int) []f
 		// ── Step 3: update latent image via Wiener deconvolution in FFT ──
 		// latent̂ = (K̄·B̂  +  β₁·(D̄x·ĝx + D̄y·ĝy)  +  β₂·ŝ)
 		//           / (|K̂|²  +  β₁·(|D̂x|² + |D̂y|²)  +  β₂)
-		gxHat := realFFT2D(gx, pw, ph)
-		gyHat := realFFT2D(gy, pw, ph)
-		sHat := realFFT2D(s, pw, ph)
+		//
+		// Each spectrum is written into a pre-allocated buffer (no per-call alloc).
+		realFFT2DInto(gx, pw, ph, plan, gxHat, rowBuf, colBuf)
+		realFFT2DInto(gy, pw, ph, plan, gyHat, rowBuf, colBuf)
+		realFFT2DInto(s, pw, ph, plan, sHat, rowBuf, colBuf)
 
-		lHat := make([]complex128, n)
 		for i := range n {
 			num := kHatConj[i]*bHat[i] +
 				complex(beta1, 0)*(dxHatConj[i]*gxHat[i]+dyHatConj[i]*gyHat[i]) +
@@ -280,8 +300,9 @@ func l0Deblur(lum []float64, w, h int, sigma, lambda, mu float64, iters int) []f
 		}
 
 		// Inverse FFT → new latent estimate, clamped to [0,255].
-		lNew := realIFFT2D(lHat, pw, ph)
-		for i, v := range lNew {
+		// scratchC is the working copy; lNewBuf receives the real-part output.
+		realIFFT2DInto(lHat, pw, ph, plan, scratchC, rowBuf, colBuf, lNewBuf)
+		for i, v := range lNewBuf {
 			latent[i] = max(0, min(255, v))
 		}
 
@@ -432,10 +453,43 @@ func nextPow2(n int) int {
 	return p
 }
 
-// fft1D computes the in-place DFT of x (length must be a power of two).
-// Uses Cooley-Tukey decimation-in-time with bit-reversal permutation.
-func fft1D(x []complex128) {
-	n := len(x)
+// fftTwiddles holds precomputed twiddle factors for a single power-of-two size n.
+// twiddles[k] = e^{-2πik/n} for k in [0, n/2).
+type fftTwiddles struct {
+	n       int
+	factors []complex128 // length n/2; factors[k] = e^{-2πik/n}
+}
+
+// buildTwiddles precomputes the forward-FFT twiddle table for size n (power of two).
+func buildTwiddles(n int) fftTwiddles {
+	half := n / 2
+	factors := make([]complex128, half)
+	for k := range half {
+		factors[k] = cmplx.Exp(complex(0, -2*math.Pi*float64(k)/float64(n)))
+	}
+	return fftTwiddles{n: n, factors: factors}
+}
+
+// fftPlan holds precomputed twiddle tables for the row and column sizes needed
+// by a single pw×ph 2D FFT. Allocate once via newFFTPlan and reuse across all
+// FFT/IFFT calls for the same (pw, ph) shape.
+type fftPlan struct {
+	rowTwiddles fftTwiddles // for pw-point 1D FFTs
+	colTwiddles fftTwiddles // for ph-point 1D FFTs
+}
+
+// newFFTPlan builds a fftPlan for a pw×ph image (both must be powers of two).
+func newFFTPlan(pw, ph int) fftPlan {
+	return fftPlan{
+		rowTwiddles: buildTwiddles(pw),
+		colTwiddles: buildTwiddles(ph),
+	}
+}
+
+// fft1DWithTwiddles computes the in-place forward DFT of x using precomputed
+// twiddle factors. len(x) must equal t.n (a power of two).
+func fft1DWithTwiddles(x []complex128, t fftTwiddles) {
+	n := t.n
 	if n <= 1 {
 		return
 	}
@@ -451,93 +505,94 @@ func fft1D(x []complex128) {
 			x[i], x[j] = x[j], x[i]
 		}
 	}
-	// Cooley-Tukey butterfly stages.
+	// Cooley-Tukey butterfly stages using precomputed twiddles.
+	// At stage for chunk size `length`, the twiddle for position k within a
+	// half-block of size `half` is t.factors[k * (n/length)].
 	for length := 2; length <= n; length <<= 1 {
 		half := length >> 1
-		// Twiddle factor: w = e^{-2πi/length}.
-		wBase := cmplx.Exp(complex(0, -2*math.Pi/float64(length)))
+		stride := n / length // index step into t.factors
 		for i := 0; i < n; i += length {
-			w := complex(1, 0)
 			for k := range half {
 				u := x[i+k]
-				v := w * x[i+k+half]
+				v := t.factors[k*stride] * x[i+k+half]
 				x[i+k] = u + v
 				x[i+k+half] = u - v
-				w *= wBase
 			}
 		}
 	}
 }
 
-// ifft1D computes the in-place inverse DFT of x (length must be a power of two).
-func ifft1D(x []complex128) {
-	// Conjugate → FFT → conjugate → scale.
+// ifft1DWithTwiddles computes the in-place inverse DFT of x using the
+// precomputed forward twiddle table t (conjugated internally).
+// len(x) must equal t.n (a power of two).
+func ifft1DWithTwiddles(x []complex128, t fftTwiddles) {
+	// IFFT via: conjugate → forward FFT → conjugate → scale.
+	n := t.n
 	for i, v := range x {
 		x[i] = cmplx.Conj(v)
 	}
-	fft1D(x)
-	n := complex(float64(len(x)), 0)
+	fft1DWithTwiddles(x, t)
+	scale := complex(1/float64(n), 0)
 	for i, v := range x {
-		x[i] = cmplx.Conj(v) / n
+		x[i] = cmplx.Conj(v) * scale
 	}
 }
 
-// realFFT2D computes the 2D DFT of the real-valued pw×ph image stored row-major
-// in src. Returns the complex spectrum as a []complex128 of length pw*ph.
-func realFFT2D(src []float64, pw, ph int) []complex128 {
-	spec := make([]complex128, pw*ph)
+// realFFT2DInto computes the 2D DFT of the real-valued pw×ph image in src,
+// writing the complex spectrum into spec (must have length ≥ pw*ph).
+// row and col are caller-supplied scratch buffers of length pw and ph
+// respectively; they are fully overwritten on each use.
+// plan holds precomputed twiddle tables for the row (pw) and column (ph) sizes.
+func realFFT2DInto(src []float64, pw, ph int, plan fftPlan, spec, row, col []complex128) {
 	for i, v := range src {
 		spec[i] = complex(v, 0)
 	}
-	row := make([]complex128, pw)
 	// Row-wise FFTs.
 	for y := range ph {
-		copy(row, spec[y*pw:(y+1)*pw])
-		fft1D(row)
-		copy(spec[y*pw:(y+1)*pw], row)
+		base := y * pw
+		copy(row, spec[base:base+pw])
+		fft1DWithTwiddles(row, plan.rowTwiddles)
+		copy(spec[base:base+pw], row)
 	}
 	// Column-wise FFTs.
-	col := make([]complex128, ph)
 	for x := range pw {
 		for y := range ph {
 			col[y] = spec[y*pw+x]
 		}
-		fft1D(col)
+		fft1DWithTwiddles(col, plan.colTwiddles)
 		for y := range ph {
 			spec[y*pw+x] = col[y]
 		}
 	}
-	return spec
 }
 
-// realIFFT2D computes the 2D inverse DFT of spec (pw×ph complex spectrum) and
-// returns the real part as a []float64 of length pw*ph.
-func realIFFT2D(spec []complex128, pw, ph int) []float64 {
-	x := make([]complex128, pw*ph)
-	copy(x, spec)
-	row := make([]complex128, pw)
+// realIFFT2DInto computes the 2D inverse DFT of spec (pw×ph complex spectrum),
+// writing the real-part output into out (must have length ≥ pw*ph).
+// work, row, and col are caller-supplied scratch buffers of length pw*ph, pw,
+// and ph respectively; they are fully overwritten.
+// plan holds precomputed twiddle tables for the row (pw) and column (ph) sizes.
+func realIFFT2DInto(spec []complex128, pw, ph int, plan fftPlan, work, row, col []complex128, out []float64) {
+	copy(work, spec)
 	// Row-wise IFFTs.
 	for y := range ph {
-		copy(row, x[y*pw:(y+1)*pw])
-		ifft1D(row)
-		copy(x[y*pw:(y+1)*pw], row)
+		base := y * pw
+		copy(row, work[base:base+pw])
+		ifft1DWithTwiddles(row, plan.rowTwiddles)
+		copy(work[base:base+pw], row)
 	}
 	// Column-wise IFFTs.
-	col := make([]complex128, ph)
 	for xc := range pw {
 		for y := range ph {
-			col[y] = x[y*pw+xc]
+			col[y] = work[y*pw+xc]
 		}
-		ifft1D(col)
+		ifft1DWithTwiddles(col, plan.colTwiddles)
 		for y := range ph {
-			x[y*pw+xc] = col[y]
+			work[y*pw+xc] = col[y]
 		}
 	}
-	out := make([]float64, pw*ph)
-	for i, v := range x {
+	for i, v := range work {
 		out[i] = real(v)
 	}
-	return out
 }
 
 // conjSlice returns a new slice of complex conjugates.

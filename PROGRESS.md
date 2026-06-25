@@ -748,8 +748,14 @@ benchmarkés — les trois zones étaient à couvrir avant d'optimiser, c'est ch
 **Tier 2 — moyen :**
 - [~] **DID : pixeliser seulement la bande de la chasse** *(F2 — MESURÉ puis REJETÉ : −22 % B/op
       mais **+13 % sec/op** (overhead par-appel du pixeliseur > gain du canevas réduit) ; non adopté.)*
-- [ ] **Paralléliser blinddecode** (produit cartésien + balayage de polices) façon `DiscoverOffsets`
-      (slots disjoints) — **prérequis** : synchroniser `widthCache` (`blinddecode.go`, sinon data race). *(H3 conc.)*
+- [x] **Paralléliser blinddecode** (produit cartésien + balayage de polices) *(H3 conc. — DÉJÀ
+      PARALLÈLE & CORRECT : la phase-2 de `DecodeLineWhole` tourne déjà en fan-out par-slot (résultats
+      par index). Le `widthCache` redouté n'est **pas** une course : il est entièrement peuplé en
+      phase-1 série (`wordPool`) et jamais touché par `scoreWholeLine` en phase-2. Toute autre état
+      partagé (renderer/pixelator/metric) est concurrency-safe (pools). Un rewrite chunk a régressé
+      +54 % → reverté ; seul le commentaire documentant la sûreté a été ajouté. **Prouvé sans course
+      par `go test -race` (CGO autorisé pour le détecteur uniquement) : `internal/blinddecode` ok,
+      560 s caged.** `TestDecodeLineWhole_Determinism` : série == parallèle octet-identique.)*
 - [ ] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — prérequis : `renderCache`
       concurrent (shardé). Fusionner les 2 niveaux de fan-out (counts×cells) en un seul budget. *(H2 conc.)*
 - [x] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) *(F4 — FAIT :
@@ -779,10 +785,23 @@ benchmarkés — les trois zones étaient à couvrir avant d'optimiser, c'est ch
 - [x] Scans directs `Pix[]` + break par-ligne : **`LeftEdge` FAIT** (−42 % sec/op) et **`marginColumn`
       FAIT** (−59 % sec/op, `BenchmarkMarginColumn`) ; `Margins`/SSIM restent. · **`unpixel.toRGBA` →
       `imutil.ToRGBA` FAIT** (8 sites, dedup via `draw.Draw`). *(H2/C1.)*
-- [ ] deblur : tables de twiddles précalculées + scratch FFT réutilisé *(F7)* ; puis rfft 2× *(F8, effort élevé, froid).*
-- [ ] mini-batch k-means *(F6, 10–100× lit., froid)* ; multiframe écritures `Pix[]` directes *(F10)* ;
-      `GOMEMLIMIT≈1.5GiB` dans `scripts/gotest-caged.sh` (suivre le mur cgroup 2 G).
-- [ ] préallocation `evalChildren` / nœuds non-boxés *(H5 cœur)* ; re-mesurer PGO (cœur métrique internalisé depuis).
+- [x] deblur : tables de twiddles précalculées + scratch FFT réutilisé *(F7 — FAIT : `fftTwiddles`/
+      `fftPlan` (twiddles `e^{-2πik/n}` une fois par taille) + variantes `…Into` écrivant dans des
+      buffers pré-alloués réutilisés à travers les 20 itérations HQS. **−41 % sec/op geomean, −85 % B/op,
+      −87 % allocs/op** (306→39 allocs ; p=0.000), décode octet-identique, panel 17/17.)* ; reste : rfft
+      2× *(F8, effort élevé, froid).*
+- [~] **multiframe écritures `Pix[]` directes** *(F10 — MESURÉ puis REJETÉ : mixte (grande image −31 %
+      mais petite image **+58 %**) → **geomean +4,7 % sec/op**, le compilateur inline déjà bien `SetRGBA`
+      sur petites boucles ; reverté.)* ; reste ouvert : mini-batch k-means *(F6, change la sortie —
+      approximation, non byte-identique ; à traiter hors « sans perte »)* ; `GOMEMLIMIT≈1.5GiB` dans
+      `scripts/gotest-caged.sh`.
+- [x] **préallocation `evalChildren` / nœuds non-boxés** *(H5 cœur — FAIT : slices enfants pré-allouées
+      à `cap=len(charset)` + `slices.Clip`, chemin parallèle écrit dans `[]node` par index au lieu de
+      `[]*node` boxé. **−58 % sec/op geomean, −9 % allocs** (p=0.000), décode octet-identique, panel
+      17/17, `internal/search` prouvé sans course `-race`.)* · **PGO re-mesuré → REJETÉ** : gain réel
+      mais modeste (~3,5 % geomean, ~5–7 % sur DiscoverOffsets/metric) ne justifie pas la maintenance
+      d'un `default.pgo` (à régénérer après chaque refonte hot-path) ; à revisiter après la prochaine
+      étape algorithmique majeure.
 
 **Déjà correct (ne pas « corriger ») :** deblur précalcule déjà la FFT du noyau (pas par-iter) et est
 luma-only ; `capacity` est froid et honnêtement O(n²) borné ; glyphes DID pré-rendus une fois.
@@ -1042,3 +1061,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `dce79ce` 2026-06-25 — docs: bump docs index to v0.14.0 + note perspective decode _(2 fichiers)_
 - `63b074f` 2026-06-25 — perf: 3 benchstat-proven, decode-identical wins (of 5 candidates attempted) _(11 fichiers)_
 - `85c682b` 2026-06-25 — perf(search): marginColumn direct Pix[] middle-row scan (−59%) _(4 fichiers)_
+- `f236cd7` 2026-06-25 — perf(windowhmm,search): sparse Viterbi + per-Model memo + intra-node worker budget _(9 fichiers)_
