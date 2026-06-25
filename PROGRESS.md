@@ -950,3 +950,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `56dfcda` 2026-06-25 — test(perspective): gray-bg fixtures so --rectify auto is tested on disk _(7 fichiers)_
 - `e853697` 2026-06-25 — feat(rectify): sub-pixel quad corners via edge-line fitting (no decode loss) _(4 fichiers)_
 - `6fcbf8d` 2026-06-25 — test(journal): track the perspective decoder in the evolution matrix _(1 fichiers)_
+- `256a3e8` 2026-06-25 — docs: surface the perspective decoder across README / decoders / API _(4 fichiers)_
