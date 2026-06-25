@@ -130,6 +130,7 @@ type refConfig struct {
 	linear       int            // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
 	lmLang       *lang.Language // non-nil → use LM beam with this language
 	lmLambda     float64        // emission temperature (0 → use defaultRefLambda)
+	blockSize    int            // 0 → auto-detect via InferBlockGrid; >0 → use this value directly
 }
 
 func defaultRefConfig() refConfig {
@@ -210,6 +211,18 @@ func WithRefLanguage(l lang.Language) RefOption {
 	return func(c *refConfig) { c.lmLang = new(l) }
 }
 
+// WithRefBlockSize pins the mosaic block size rather than auto-detecting it
+// via InferBlockGrid. Use this when the caller already knows the block size
+// (e.g. from image metadata or a perspective pipeline that computes it from
+// the quad geometry). Values ≤ 1 are ignored (auto-detection is used instead).
+func WithRefBlockSize(size int) RefOption {
+	return func(c *refConfig) {
+		if size > 1 {
+			c.blockSize = size
+		}
+	}
+}
+
 // WithRefEmissionTemperature sets λ, the scale applied to per-cell geometric
 // distance before combining with bigram log-prob in the LM beam
 // (score = dist − λ·logP). Larger λ weights the image signal more strongly;
@@ -256,11 +269,16 @@ func DecodeReference(ctx context.Context, img image.Image, opts ...RefOption) (R
 	}
 
 	rgba := toRGBA(img)
-	grid, ok := unpixel.InferBlockGrid(img)
-	if !ok || grid.Size < 2 {
-		return Result{}, ErrNoMosaic
+	var block int
+	if rcfg.blockSize > 1 {
+		block = rcfg.blockSize
+	} else {
+		grid, ok := unpixel.InferBlockGrid(img)
+		if !ok || grid.Size < 2 {
+			return Result{}, ErrNoMosaic
+		}
+		block = grid.Size
 	}
-	block := grid.Size
 
 	rect := contentBounds(rgba)
 	if rect.Empty() {

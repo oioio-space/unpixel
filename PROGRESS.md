@@ -940,3 +940,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `77c2670` 2026-06-24 — fix(journal): main evolution row landed in the decoder table; record v0.13.0(+dev) _(5 fichiers)_
 - `e6dcf1e` 2026-06-25 — feat(journal): surface the context corpus per-image + ctx·C1a column _(5 fichiers)_
 - `55a13bf` 2026-06-25 — feat(rectify): planar-homography core for perspective-distorted decode (approach B) _(3 fichiers)_
+- `1a9f19c` 2026-06-25 — feat(rectify): forward-model perspective decode (approach B) + on-disk fixtures _(9 fichiers)_

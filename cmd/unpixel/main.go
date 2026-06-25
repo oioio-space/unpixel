@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,6 +50,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
 	"github.com/oioio-space/unpixel/internal/imutil"  // image helpers (ToRGBA etc.)
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
+	"github.com/oioio-space/unpixel/internal/rectify" // planar-homography primitives for perspective decode
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
 	"github.com/oioio-space/unpixel/internal/varfont" // variable-font renderer + axis fitter (B1)
 	"github.com/oioio-space/unpixel/mosaictext"       // analytic HMM decoder (mono-hmm)
@@ -124,6 +126,7 @@ type flagParams struct {
 	fontSampleRegion    string // --font-sample-region: optional "x,y,w,h" sub-rect of the sample image
 	visibleText         string // --visible-text: cleartext of the sharp region IN the target image (C1a)
 	visibleRegion       string // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
+	rectify             string // --rectify: "x0,y0 x1,y1 x2,y2 x3,y3" quad for perspective decode
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -1689,6 +1692,106 @@ func runVarFont(ctx context.Context, imgPath string, p flagParams) error {
 	return nil
 }
 
+// parseRectifyQuad parses the --rectify flag value "x0,y0 x1,y1 x2,y2 x3,y3"
+// into the four corners of the redaction quadrilateral (top-left, top-right,
+// bottom-right, bottom-left). Returns an error when the input has wrong corner
+// count or non-numeric coordinates.
+func parseRectifyQuad(s string) ([4]rectify.Point, error) {
+	parts := strings.Fields(s)
+	if len(parts) != 4 {
+		return [4]rectify.Point{}, fmt.Errorf(
+			"--rectify: need exactly 4 corners \"x0,y0 x1,y1 x2,y2 x3,y3\", got %d", len(parts))
+	}
+	var pts [4]rectify.Point
+	for i, part := range parts {
+		xy := strings.SplitN(part, ",", 2)
+		if len(xy) != 2 {
+			return [4]rectify.Point{}, fmt.Errorf("--rectify: corner %d %q must be \"x,y\"", i, part)
+		}
+		x, errX := strconv.ParseFloat(strings.TrimSpace(xy[0]), 64)
+		y, errY := strconv.ParseFloat(strings.TrimSpace(xy[1]), 64)
+		if errX != nil || errY != nil {
+			return [4]rectify.Point{}, fmt.Errorf("--rectify: corner %d %q: non-numeric coordinate", i, part)
+		}
+		pts[i] = rectify.Point{X: x, Y: y}
+	}
+	return pts, nil
+}
+
+// runPerspective runs DecodePerspective when --rectify is set. It loads the
+// image, parses the quad, forwards --charset / --font / --font-bold / --gamma
+// (linear mode), and prints the recovered text to stdout. The forward-model
+// distance and geometry are logged to stderr (unless --quiet).
+func runPerspective(ctx context.Context, imgPath string, p flagParams) error {
+	quad, err := parseRectifyQuad(p.rectify)
+	if err != nil {
+		return err
+	}
+
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	opts := []mosaictext.PerspectiveOption{
+		mosaictext.WithPerspectiveQuad(quad),
+	}
+	if p.charset != "" {
+		opts = append(opts, mosaictext.WithPerspectiveCharset(p.charset))
+	}
+	if p.blockSize > 1 {
+		opts = append(opts, mosaictext.WithPerspectiveBlockSize(p.blockSize))
+	}
+
+	// Font selection: path on disk → WithPerspectiveFontFile; bundled name →
+	// WithPerspectiveFont. Mirrors the pattern used by runRefMatch.
+	fontSource := "bundled sweep"
+	if len(p.fontPaths) > 0 && p.fontPaths[0] != "" {
+		fontPath := p.fontPaths[0]
+		data, readErr := os.ReadFile(fontPath) // #nosec G304 -- user-supplied path
+		switch {
+		case readErr == nil:
+			opts = append(opts, mosaictext.WithPerspectiveFontFile(data))
+			fontSource = "file:" + filepath.Base(fontPath)
+		case os.IsNotExist(readErr):
+			opts = append(opts, mosaictext.WithPerspectiveFont(fontPath))
+			fontSource = "bundled:" + fontPath
+		default:
+			return fmt.Errorf("--font: %w", readErr)
+		}
+	}
+
+	// Linear-light mode: --gamma maps to WithPerspectiveLinear.
+	switch p.gamma {
+	case "linear":
+		opts = append(opts, mosaictext.WithPerspectiveLinear(true))
+	case "srgb":
+		opts = append(opts, mosaictext.WithPerspectiveLinear(false))
+		// "auto"/""  → leave at default (-1, sweep both)
+	}
+
+	if !p.quiet {
+		fmt.Fprintf(os.Stderr, "Decoder: perspective (font=%s gamma=%s)\n", fontSource, cmp.Or(p.gamma, "auto"))
+	}
+
+	res, err := mosaictext.DecodePerspective(ctx, img, opts...)
+	if err != nil {
+		return fmt.Errorf("DecodePerspective: %w", err)
+	}
+
+	if !p.quiet {
+		fmt.Fprintf(os.Stderr, "rectW=%d rectH=%d dist=%.4f\n", res.RectW, res.RectH, res.Distance)
+	}
+	fmt.Println(res.Text)
+	return nil
+}
+
 // buildApp constructs the urfave/cli application.
 func buildApp() *cli.Command {
 	return &cli.Command{
@@ -1973,6 +2076,15 @@ Examples:
 				Usage: `varfont decoder: sub-rect of the target image containing the sharp visible text, "x,y,w,h" (used with --visible-text)`,
 				Value: "",
 			},
+			&cli.StringFlag{
+				Name: "rectify",
+				Usage: `perspective decode: four corners of the redaction quadrilateral in photo pixels,
+   "x0,y0 x1,y1 x2,y2 x3,y3" (top-left top-right bottom-right bottom-left).
+   When set, DecodePerspective rectifies the photo via planar homography and
+   recovers the text from the warped crop; --charset, --font, and --gamma apply.
+   Example: unpixel --rectify "40,30 80,48 68,108 46,100" photo.png`,
+				Value: "",
+			},
 		},
 		Action: run,
 	}
@@ -2048,10 +2160,15 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		fontSampleRegion:    cmd.String("font-sample-region"),
 		visibleText:         cmd.String("visible-text"),
 		visibleRegion:       cmd.String("visible-region"),
+		rectify:             cmd.String("rectify"),
 	}
 
 	if err := validateParams(p); err != nil {
 		return err
+	}
+
+	if p.rectify != "" {
+		return runPerspective(ctx, imgPath, p)
 	}
 
 	if p.blind {

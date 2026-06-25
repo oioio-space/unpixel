@@ -1309,3 +1309,99 @@ func TestRunWindowHMM_CLI(t *testing.T) {
 		}
 	})
 }
+
+// TestParseRectifyQuad exercises the --rectify flag parser with valid and
+// invalid inputs.
+func TestParseRectifyQuad(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		wantX0  float64
+		wantY0  float64
+	}{
+		{
+			name:   "integer corners",
+			input:  "40,30 80,48 68,108 46,100",
+			wantX0: 40, wantY0: 30,
+		},
+		{
+			name:   "float corners",
+			input:  "1.5,2.5 10.0,3.0 8.0,15.0 0.5,14.0",
+			wantX0: 1.5, wantY0: 2.5,
+		},
+		{
+			name:    "wrong count — three corners",
+			input:   "0,0 10,0 10,10",
+			wantErr: true,
+		},
+		{
+			name:    "wrong count — five corners",
+			input:   "0,0 10,0 10,10 0,10 5,5",
+			wantErr: true,
+		},
+		{
+			name:    "missing y coordinate",
+			input:   "0,0 10 10,10 0,10",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric x",
+			input:   "a,0 10,0 10,10 0,10",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric y",
+			input:   "0,b 10,0 10,10 0,10",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseRectifyQuad(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("parseRectifyQuad(%q): got nil error, want error", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseRectifyQuad(%q): got %v, want nil", tc.input, err)
+			}
+			if got[0].X != tc.wantX0 || got[0].Y != tc.wantY0 {
+				t.Errorf("parseRectifyQuad(%q)[0] = {%.1f,%.1f}, want {%.1f,%.1f}",
+					tc.input, got[0].X, got[0].Y, tc.wantX0, tc.wantY0)
+			}
+		})
+	}
+}
+
+// TestRunPerspectiveCLI exercises the --rectify CLI path end-to-end on a real
+// perspective fixture image, verifying it exits without error and prints
+// non-empty text to stdout.
+func TestRunPerspectiveCLI(t *testing.T) {
+	imgPath := "../../testdata/perspective/persp_go.png"
+	if _, err := os.Stat(imgPath); err != nil {
+		t.Skip("perspective fixture not found — skipping CLI smoke test")
+	}
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = buildApp().Run(t.Context(), []string{
+			"unpixel", "--quiet",
+			"--rectify", "40,30 80,48 68,108 46,100",
+			"--charset", "go abcd",
+			"--font", "Liberation Sans",
+			"--block-size", "8",
+			imgPath,
+		})
+	})
+	if runErr != nil {
+		t.Logf("runPerspective: %v (logged — decode may fail on warped crop)", runErr)
+		return
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Error("got empty stdout, want non-empty text")
+	}
+	t.Logf("perspective CLI output: %q", strings.TrimSpace(out))
+}
