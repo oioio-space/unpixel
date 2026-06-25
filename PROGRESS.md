@@ -704,34 +704,46 @@ appliquée** : chacune doit passer `mise run bench:baseline` → change → `ben
 alloc/débit, **panel 17/17 + matrix 310/310 inchangés**, `-race` propre. Les déjà-essayées-et-
 rejetées (SIMD colorDelta, compare par-bloc, PGO) **ne sont pas** à refaire.
 
-**Prérequis — combler les trous de benchmark (RÈGLE hot-path violée) :** `internal/windowhmm`
-(zéro `Benchmark` : Viterbi + KMeans), `internal/did` (pas de `BenchmarkTrellisDP` isolé),
-`internal/varfont` (le fitter est un hot loop sans bench). À ajouter AVANT d'optimiser ces zones.
+**Prérequis — combler les trous de benchmark (RÈGLE hot-path violée) : ✅ FAIT.** `internal/windowhmm`
+(`BenchmarkViterbi`/`BenchmarkViterbiLM`/`BenchmarkKMeans`), `internal/did` (`BenchmarkTrellisDP`
+isolé), `internal/varfont` (`BenchmarkFitAxes`/`BenchmarkVarRenderer_Render`) sont désormais
+benchmarkés — les trois zones étaient à couvrir avant d'optimiser, c'est chose faite.
 
 **Tier 1 — fort impact ÷ effort :**
-- [ ] **DID = vrai ICP** (`internal/did/did.go`, `mosaictext/did.go`) : aujourd'hui DP brute-force
-      (émission complète render+pixelate+MSE pour chaque (glyphe,colonne) ≈ W·|charset| par phase),
-      l'ICP annoncé n'est PAS implémenté. Ajouter un coût approché par **moyennes-de-blocs** (borne
-      exacte car l'image pixelisée est constante par bloc) en pré-passe, puis rescore exact **le long
-      du meilleur chemin seulement** (itération ICP) + élagage de colonnes (beam). Kopec : 3–25×,
-      évite jusqu'à 99,9 % des comparaisons. *(F1, ~5–20×, le plus gros levier du code récent.)*
-- [ ] **glyphMu → face par-P (sync.Pool)** (`internal/render/render.go`) : un mutex global sérialise
-      tout le travail glyphe entre goroutines → goulot Amdahl du fan-out d'offsets. Face empruntée
-      par goroutine (pool clé (bold,taille)). Preuve : `BenchmarkXImage_Render_Parallel` (`b.RunParallel`,
-      `-cpu=1,4,8,20`). *(plus haute confiance ; le bench prouve la contention directement.)*
-- [ ] **CachingScorer câblé dans GuidedStrategy** (`internal/search/strategy.go` vs `beam.go:196`) :
-      le chemin PAR DÉFAUT n'a pas le cache stageImage (seul Beam l'a). *(H1 cœur.)*
-- [ ] **blinddecode : cache de tuiles par-mot + composition** (`internal/blinddecode/wholeline.go`) :
-      `scoreWholeLine` re-rend la phrase jointe entière + 2 scans `isInk` O(sx·imgH) par combinaison
-      (≤500k). Rendre chaque mot du pool UNE fois (~470 vs 55k), composer les tuiles côte-à-côte.
-      *(F3, ~50–100× de renders sur lignes 2 mots ; valider sur panel — ça gate la sortie.)*
-- [ ] **varfont : Face réutilisée** (`internal/varfont/renderer.go`) : `NewFace` à chaque `Render`
-      (le fitter fait ~3·axes·iters évals) → réutiliser/poolifier. *(H1 conc.)*
-- [ ] **Métrique early-exit** (`internal/metric/pixelmatch.go`, chemin no-AA = défaut mosaïque) :
-      plafond `maxDiff` → sortir dès `diff ≥ seuil·total` (la plupart des candidats sont rejetés).
-      *(H4 cœur ; uniquement no-AA où le compte est monotone.)*
-- [ ] **Câbler `fontrank`** (B3, `internal/fontrank` — code mort, zéro appelant) en pré-élagage
-      avant le décodage coûteux (mosaictext/blinddecode), top-k généreux validé au panel. *(C1 conc.)*
+- [~] **DID = vrai ICP** (`internal/did/did.go`, `mosaictext/did.go`) *(F1 — TENTÉ puis REJETÉ :
+      la borne moyennes-de-blocs n'est **PAS exacte** pour `phaseX > 0`. Quand la phase décale
+      l'extraction par rapport aux frontières de blocs du canevas, le sous-bloc candidat mélange
+      deux moyennes-de-blocs adjacentes → une tuile pré-calculée indexée par `startCol % block`
+      ne peut pas la reproduire (le fast-path renvoyait 0.0 à tort vs 499/726/839 du slow-path,
+      détecté par `TestFastEmissionDID_MatchesSlow`). Élaguer sur cette borne casserait le décode.
+      Reverté ; `BenchmarkTrellisDP` (~312 µs/op) conservé pour une future tentative phase-par-phase.)*
+- [x] **glyphMu → face par-P (sync.Pool)** *(`0cf2493` — FAIT : mutex global remplacé par face
+      empruntée via `sync.Pool` clé (bold,taille) ; **~3–4× en parallèle** (-cpu=4/8/20), séquentiel
+      inchangé, 0 alloc de mutex, décode octet-identique. `BenchmarkXImage_Render_Parallel` ajouté.)*
+- [x] **CachingScorer câblé dans GuidedStrategy** *(`8e09cb6` — FAIT : chemin par défaut cache
+      désormais le stageImage comme Beam ; **2.4× warm** (−77 % B/op, −67 % allocs) sur
+      `BenchmarkGuidedSearch_cached`, chemin froid neutre, décode octet-identique.)*
+- [~] **blinddecode : cache de tuiles par-mot + composition** *(F3 — TENTÉ puis REJETÉ : la
+      composition côte-à-côte EST octet-identique au rendu joint (prouvé : 0 diff après
+      pixelisation), mais **+58 % sec/op** — le goulot de `scoreWholeLine` est SSIM + `Pixelate`,
+      pas le rendu (la face poolifiée l'a déjà rendu très bon marché) ; la copie de tuiles ajoute
+      une alloc+FillWhite+N draws qui coûtent plus que le rendu économisé. Reverté. Vrai levier
+      futur : early-exit SSIM ou pré-filtre métrique bon marché.)*
+- [x] **varfont : Face réutilisée** *(`73c9206` — FAIT : `sync.Pool` de faces côté concurrent +
+      `faceScratch` unique par `FitAxes` ; **FitAxes −8.7 % sec/op / −25 % B/op**, CalibrateFromVisible
+      −11.5 %, VarRenderer_Render −38 % B/op, convergence (evals/fit) inchangée, décode octet-identique.)*
+- [x] **Métrique early-exit** *(`11cbe81` — FAIT : `BoundedComparer` + `CountPixelsNoAABounded`
+      sortent dès `diff ≥ maxDiff` sur le chemin no-AA (compte monotone). Sûr car la valeur tronquée
+      ne sert que de signal de **rejet** (les candidats rejetés ne participent pas à l'argmin) ;
+      score exact garanti pour les candidats acceptés. **3.7× sur le seuil de rejet typique** (37×
+      à 1 %), décode octet-identique, tests `_acceptedExact`/`_rejectedFloor` ajoutés.)*
+- [~] **Câbler `fontrank`** (B3) *(TENTÉ puis REJETÉ : perte de qualité. Sur `hello-world.png`
+      le bloc détecté est 32 px → toutes les polices monospace surclassent Liberation Sans (vraie
+      police), qui tombe **#8/9** ; tout top-k < 9 changeait `Result.Font` (« Noto Sans Mono » au
+      lieu de « Liberation Sans »). Le signal histogramme-luminance de fontrank est calibré pour
+      petits blocs (6–8 px) et dégénère à 32 px. Reverté. `BenchmarkFullDecodeSweep` conservé
+      (couvre le balayage 9-polices, jusque-là non benchmarké). Pré-requis pour réessayer : signal
+      conscient de la taille de bloc, ou prune limité à `blockSize ≤ 12` → renvoi vers algo-architect.)*
 
 **Tier 2 — moyen :**
 - [~] **DID : pixeliser seulement la bande de la chasse** *(F2 — MESURÉ puis REJETÉ : −22 % B/op
@@ -740,16 +752,28 @@ rejetées (SIMD colorDelta, compare par-bloc, PGO) **ne sont pas** à refaire.
       (slots disjoints) — **prérequis** : synchroniser `widthCache` (`blinddecode.go`, sinon data race). *(H3 conc.)*
 - [ ] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — prérequis : `renderCache`
       concurrent (shardé). Fusionner les 2 niveaux de fan-out (counts×cells) en un seul budget. *(H2 conc.)*
-- [ ] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) : O(T·S²)→O(T·E),
-      table de tuples parsée une fois O(S²)→O(S). *(F4.)*
+- [x] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) *(F4 — FAIT :
+      listes de prédécesseurs creuses O(T·E) triées par `prev` (tie-break identique au dense), splits
+      de tuples parsés une fois O(S²)→O(S), cache `sync.Once` par `Model`. **−90.9 % sec/op geomean**
+      (jusqu'à −97 % ; p=0.000) sur `BenchmarkViterbi`/`BenchmarkViterbiLM` ajoutés, décode
+      octet-identique, `TestViterbiSparseIdentity` prouve le chemin identique même sur modèle
+      uniforme (toutes transitions à égalité).)*
 - [x] **trainedhmm : supprimer la 2ᵉ passe de rendu du corpus** (spans enregistrés en passe 1).
       *(F5 — FAIT : **−24 % allocs/op** benchstat, décode octet-identique. `BenchmarkTrainHMM` ajouté.)*
 - [~] **Dé-verrouiller `bestSeenTracker` global** (atomic) *(H5 — MESURÉ puis REJETÉ : −15–17 % à
       8/20 cœurs mais **+35 % à workers_1** (atomique > lock en séquentiel) ; non adopté.
       `BenchmarkSearchOffsets` conservé comme infra.)*
-- [ ] **Budget intra-node = min(Workers, offsets survivants)** (`search.go`) : nourrir le parallélisme
-      intra-DFS quand peu d'offsets survivent (cœurs sinon oisifs). *(C3.)*
-- [ ] **Pixelate : ne blanchir que la bande de padding** + `sync.Pool` du buffer dst (`pixelate.go`). *(H3 cœur.)*
+- [x] **Budget intra-node = min(Workers, offsets survivants)** (`beam.go` `searchOffsets`) *(C3 — FAIT :
+      après `DiscoverOffsets`, `cfg.Workers = min(resolveWorkers, offsetsTotal)` (copie locale, appelants
+      intacts) → `intraNodeWorkers` divise GOMAXPROCS par le parallélisme externe **réel** et nourrit
+      les cœurs oisifs quand peu d'offsets survivent. **−69/−77/−80 % à -cpu=4/8/20** sur
+      `BenchmarkSearchOffsets/workers_max`, -cpu=1 neutre, décode octet-identique, goleak propre.)*
+- [~] **Pixelate : ne blanchir que la bande de padding** + `sync.Pool` du buffer dst (`pixelate.go`)
+      *(H3 cœur — TENTÉ puis REJETÉ : (a) FillWhite partiel est octet-identique mais **domine par le
+      bruit** — le moteur (`scorer.go`) pré-pad toujours à un multiple de bloc avant `Pixelate`, donc
+      `paddedW == w` sur le chemin chaud → rien à gagner ; (b) `sync.Pool` du dst non sûr : `Pixelate`
+      retourne le buffer et l'appelant en est propriétaire (le `pcache` du scorer en garde plusieurs
+      vivants). Reverté ; `BenchmarkBlockAverage_Pixelate_Padded` conservé.)*
 
 **Tier 3 — micro / froid (barre plus basse) :**
 - [x] Scans directs `Pix[]` + break par-ligne : **`LeftEdge` FAIT** (−42 % sec/op) et **`marginColumn`
@@ -1017,3 +1041,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `90972ec` 2026-06-25 — docs(release): v0.14.0 — perspective decode (homography forward-model) + auto-detect _(3 fichiers)_
 - `dce79ce` 2026-06-25 — docs: bump docs index to v0.14.0 + note perspective decode _(2 fichiers)_
 - `63b074f` 2026-06-25 — perf: 3 benchstat-proven, decode-identical wins (of 5 candidates attempted) _(11 fichiers)_
+- `85c682b` 2026-06-25 — perf(search): marginColumn direct Pix[] middle-row scan (−59%) _(4 fichiers)_

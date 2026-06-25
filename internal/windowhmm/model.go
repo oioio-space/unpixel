@@ -1,9 +1,12 @@
 package windowhmm
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
+	"sync"
 )
 
 // Model is a trained log-space HMM for column-anchored blind decoding.
@@ -30,6 +33,13 @@ type Model struct {
 	Centroids [][]float64
 	// W is the window width in block columns.
 	W int
+
+	// predListsCache memoises the sparse predecessor-edge lists per variant
+	// (index 0 = no-LM, 1 = with-LM). They are a pure function of States and
+	// LogTrans, so they are built once and reused across the many ViterbiLM
+	// calls a single search makes on the same model.
+	predOnce       [2]sync.Once
+	predListsCache [2][][]predEdge
 }
 
 // Viterbi runs the Viterbi algorithm over the observation sequence obs and
@@ -39,6 +49,14 @@ type Model struct {
 // len(m.States)).
 func (m *Model) Viterbi(obs []int) []int {
 	return m.ViterbiLM(obs, 0, nil)
+}
+
+// predEdge is a single sparse transition edge pointing from a predecessor state
+// to the current state, pre-looked-up from [Model.LogTrans].
+type predEdge struct {
+	prev  int
+	logA  float64
+	added string // committed chars for this edge (populated only when useLM)
 }
 
 // ViterbiLM runs a language-model-fused Viterbi over the observation sequence
@@ -59,6 +77,10 @@ func (m *Model) Viterbi(obs []int) []int {
 //
 // When beta==0 or lmScore==nil the method is identical to [Viterbi] and
 // produces a byte-identical result given the same model and observations.
+//
+// The inner recursion is O(T·E) in the number of non-zero transition edges E
+// (rather than O(T·S²)). Tie-breaking between equal-score predecessors is
+// resolved in ascending predecessor-ID order, matching the dense formulation.
 func (m *Model) ViterbiLM(obs []int, beta float64, lmScore func(prevContext, addedChars string) float64) []int {
 	T := len(obs)
 	S := len(m.States)
@@ -68,12 +90,19 @@ func (m *Model) ViterbiLM(obs []int, beta float64, lmScore func(prevContext, add
 
 	useLM := beta != 0 && lmScore != nil
 
+	// predLists[s] is the sorted (ascending prev) list of non-zero edges that
+	// lead into state s, so the inner recursion only touches real edges —
+	// O(T·E) instead of O(T·S²). Tuple-split parsing is hoisted into the build
+	// (each state parsed once, O(S)). The lists are memoised on the model, so a
+	// search that calls ViterbiLM repeatedly pays the build cost only once.
+	predLists := m.predListsFor(useLM)
+
 	// delta[t][s] = log P(best path to s at t, obs[0..t]) + beta*LM(path).
 	// psi[t][s]   = predecessor state at t-1 on the best path to s at t.
 	// ctx[t][s]   = committed text on the best path to s at t (only when useLM).
 	delta := make([][]float64, T)
 	psi := make([][]int, T)
-	var ctx [][]string // ctx[t][s] = committed prefix text on best path to s at t
+	var ctx [][]string
 	for t := range T {
 		delta[t] = make([]float64, S)
 		psi[t] = make([]int, S)
@@ -91,55 +120,34 @@ func (m *Model) ViterbiLM(obs []int, beta float64, lmScore func(prevContext, add
 		// ctx[0][s] stays "" — no characters committed at initialisation.
 	}
 
-	// Precompute per-transition committed chars when useLM so we don't repeat
-	// the overlap calculation inside the t-loop. The committed prefix for a
-	// transition prev→s is the first (len(prev)-overlap(prev,s)) elements of
-	// the prev tuple joined into a string.
-	var transAdded [][]string // transAdded[prev][s] = chars committed by prev→s
-	if useLM {
-		transAdded = make([][]string, S)
-		for prev := range S {
-			transAdded[prev] = make([]string, S)
-			prevTuple := parseTuple(m.States[prev])
-			for s := range S {
-				curTuple := parseTuple(m.States[s])
-				ov := maxOverlap(prevTuple, curTuple)
-				toCommit := len(prevTuple) - ov
-				transAdded[prev][s] = strings.Join(prevTuple[:toCommit], "")
-			}
-		}
-	}
-
-	// Recursion.
+	// Recursion — O(T·E).
 	for t := 1; t < T; t++ {
+		prevDelta := delta[t-1]
+		curDelta := delta[t]
+		curPsi := psi[t]
+		var prevCtx []string
+		if useLM {
+			prevCtx = ctx[t-1]
+		}
 		for s := range S {
 			logE := m.logEmit(s, obs[t])
 			best, bestPred := math.Inf(-1), 0
 			bestCtx := ""
-			for prev := range S {
-				lTrans := math.Inf(-1)
-				if m.LogTrans[prev] != nil {
-					if v, ok := m.LogTrans[prev][s]; ok {
-						lTrans = v
-					}
-				}
+			for _, e := range predLists[s] {
 				lm := 0.0
-				if useLM {
-					added := transAdded[prev][s]
-					if added != "" {
-						lm = beta * lmScore(ctx[t-1][prev], added)
-					}
+				if useLM && e.added != "" {
+					lm = beta * lmScore(prevCtx[e.prev], e.added)
 				}
-				val := delta[t-1][prev] + lTrans + logE + lm
+				val := prevDelta[e.prev] + e.logA + logE + lm
 				if val > best {
-					best, bestPred = val, prev
+					best, bestPred = val, e.prev
 					if useLM {
-						bestCtx = ctx[t-1][prev] + transAdded[prev][s]
+						bestCtx = prevCtx[e.prev] + e.added
 					}
 				}
 			}
-			delta[t][s] = best
-			psi[t][s] = bestPred
+			curDelta[s] = best
+			curPsi[s] = bestPred
 			if useLM {
 				ctx[t][s] = bestCtx
 			}
@@ -159,6 +167,82 @@ func (m *Model) ViterbiLM(obs []int, beta float64, lmScore func(prevContext, add
 		path[t] = psi[t+1][path[t+1]]
 	}
 	return path
+}
+
+// predListsFor returns the memoised predecessor-edge lists for the given
+// variant, building them on first use. Safe for concurrent callers.
+func (m *Model) predListsFor(withLM bool) [][]predEdge {
+	i := 0
+	if withLM {
+		i = 1
+	}
+	m.predOnce[i].Do(func() {
+		m.predListsCache[i] = buildPredLists(m.States, m.LogTrans, withLM)
+	})
+	return m.predListsCache[i]
+}
+
+// buildPredLists constructs, for each state s, the sorted list of incoming
+// non-zero transition edges (predecessor → s). The list is sorted by ascending
+// predecessor ID so that tie-breaking in the Viterbi argmax (first maximum wins,
+// i.e. lowest predecessor index) is byte-identical to the dense O(S²) loop.
+//
+// When withLM is true, each edge also pre-computes the characters committed by
+// the transition (the non-overlapping tuple prefix). All tuple parsing happens
+// here — once per state, O(S) — rather than O(S²) or inside the t-loop.
+func buildPredLists(states []string, logTrans []map[int]float64, withLM bool) [][]predEdge {
+	S := len(states)
+
+	// Parse every state's tuple once (O(S)).
+	var tuples [][]string
+	if withLM {
+		tuples = make([][]string, S)
+		for s := range S {
+			tuples[s] = parseTuple(states[s])
+		}
+	}
+
+	// Count incoming edges per state so we can pre-size each slice.
+	inDegree := make([]int, S)
+	for prev := range S {
+		for s := range logTrans[prev] {
+			inDegree[s]++
+		}
+	}
+
+	predLists := make([][]predEdge, S)
+	for s := range S {
+		predLists[s] = make([]predEdge, 0, inDegree[s])
+	}
+
+	// Collect edges per destination state. The outer loop is over predecessors
+	// in ascending order, but the inner map iteration order is unspecified, so
+	// each list is sorted below to make tie-breaking deterministic.
+	for prev := range S {
+		var prevTuple []string
+		if withLM {
+			prevTuple = tuples[prev]
+		}
+		for s, logA := range logTrans[prev] {
+			added := ""
+			if withLM {
+				ov := maxOverlap(prevTuple, tuples[s])
+				toCommit := len(prevTuple) - ov
+				added = strings.Join(prevTuple[:toCommit], "")
+			}
+			predLists[s] = append(predLists[s], predEdge{prev: prev, logA: logA, added: added})
+		}
+	}
+
+	// Sort each list by ascending prev so Viterbi tie-breaking (first maximum
+	// wins, i.e. lowest predecessor index) matches the dense O(S²) loop.
+	for s := range S {
+		slices.SortFunc(predLists[s], func(a, b predEdge) int {
+			return cmp.Compare(a.prev, b.prev)
+		})
+	}
+
+	return predLists
 }
 
 // parseTuple splits a canonical pipe-separated state key into individual

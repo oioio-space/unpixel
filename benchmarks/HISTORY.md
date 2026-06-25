@@ -91,6 +91,36 @@ attempted, benchstat-gated, decode byte-identical (panel 17/17, matrix 310/310).
   pair costlier than a plain lock in the sequential case) — reverted. `BenchmarkSearchOffsets`
   kept as infra for a future re-attempt.
 
+Perf batch 2 (post-v0.14.0, PROGRESS.md Tier-1/Tier-2) — benchstat-gated, decode byte-identical
+(panel 17/17 fidelity 1.000, matrix 310/310). First filled the three hot-path benchmark gaps the
+RULE flagged: `internal/windowhmm` (`BenchmarkViterbi`/`ViterbiLM`/`KMeans`), `internal/did`
+(`BenchmarkTrellisDP`), `internal/varfont` (`BenchmarkFitAxes`/`VarRenderer_Render`). Then:
+**2 newly adopted this batch**
+- **`windowhmm` Viterbi sparse O(T·E) + tuple-split hoist + per-Model memo** (`model.go`): sparse
+  predecessor lists sorted by `prev` (identical tie-break to the dense loop), tuple table parsed once
+  O(S²)→O(S). Sparse alone: **−90.9% sec/op geomean** (up to −97%, p=0.000, n≥10) vs the dense
+  baseline. The /simplify efficiency pass then caught that `buildPredLists` was being rebuilt on every
+  `ViterbiLM` call; memoising it per `Model` (`sync.Once`, pure function of States+LogTrans) — the real
+  search pattern (many calls, one model) — cut S50/sparse05 a further ~8× (≈1029µs→≈133µs).
+  `TestViterbiSparseIdentity` proves the path is identical even on a fully-tied uniform model.
+- **`search` intra-node worker budget = min(Workers, surviving offsets)** (`beam.go` `searchOffsets`):
+  feeds otherwise-idle cores when few offsets survive. **−69/−77/−80% at -cpu=4/8/20** on
+  `BenchmarkSearchOffsets/workers_max`, -cpu=1 neutral, goleak-clean.
+**4 confirmed already-done in prior commits** (were unticked in PROGRESS.md):
+glyphMu→face pool `0cf2493` (~3–4× parallel), CachingScorer in GuidedStrategy `8e09cb6` (2.4× warm),
+metric no-AA early-exit `11cbe81` (3.7× on rejected), varfont Face reuse `73c9206` (FitAxes −8.7%/−25% B/op).
+**3 measured and REJECTED** (no-regression / no-quality-loss rule):
+- **DID true ICP**: block-mean bound is NOT exact for `phaseX>0` (candidate sub-block straddles two
+  canvas blocks) → pruning would change decode (`TestFastEmissionDID_MatchesSlow` caught the bad 0.0
+  emissions). Reverted; `BenchmarkTrellisDP` kept.
+- **blinddecode per-word tile cache**: composition IS byte-identical but **+58% sec/op** — the bottleneck
+  is SSIM+Pixelate, not render (face pool already made render cheap). Reverted.
+- **fontrank pre-prune**: quality regression — at block=32 the true font (Liberation Sans) ranks #8/9,
+  any top-k<9 changes `Result.Font`. Reverted; `BenchmarkFullDecodeSweep` kept.
+Also evaluated: **pixelate** partial-FillWhite (byte-identical but noise-dominated — engine pre-pads so
+`paddedW==w` on the hot path) + dst `sync.Pool` (unsafe: caller owns the returned buffer). Reverted;
+`BenchmarkBlockAverage_Pixelate_Padded` kept.
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the

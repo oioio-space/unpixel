@@ -155,6 +155,65 @@ func TestGlyphAdvancePixels(t *testing.T) {
 	}
 }
 
+// trellisPathSink prevents dead-code elimination of BenchmarkTrellisDP output.
+var trellisPathSink []rune
+
+// BenchmarkTrellisDP measures the isolated Viterbi column-sweep without emission
+// compute cost. It uses a pre-built emission table (flat map) that mirrors real
+// usage: W=200 columns, 36 glyphs with advances 7–14 px, random emission costs.
+// This is the baseline before any ICP / block-mean pruning is added.
+func BenchmarkTrellisDP(b *testing.B) {
+	const (
+		W       = 200
+		nGlyphs = 36
+		minAdv  = 7
+		maxAdv  = 14
+	)
+
+	// Build a deterministic emission table from a linear-congruential sequence.
+	// The actual values do not matter for the DP cost; reproducibility does.
+	glyphs := make([]GlyphSpec, nGlyphs)
+	for i := range nGlyphs {
+		glyphs[i] = GlyphSpec{
+			R:       rune('a' + i%26),
+			Advance: minAdv + i%(maxAdv-minAdv+1),
+		}
+	}
+
+	// Pre-compute all admissible (gi, col) pairs.
+	type key struct{ gi, col int }
+	emitTable := make(map[key]float64, nGlyphs*W)
+	// lcg parameters (Numerical Recipes).
+	seed := uint32(0x1234_5678)
+	lcg := func() float64 {
+		seed = seed*1664525 + 1013904223
+		return float64(seed>>8) / float64(1<<24) // [0, 1)
+	}
+	for gi := range nGlyphs {
+		adv := glyphs[gi].Advance
+		for col := range W {
+			if col+adv < W+adv+1 { // within dpSize
+				emitTable[key{gi, col}] = lcg() * 500
+			}
+		}
+	}
+
+	emitFn := func(gi, col int) float64 {
+		if v, ok := emitTable[key{gi, col}]; ok {
+			return v
+		}
+		return 1e9
+	}
+
+	lm := lang.Default()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		path, _ := TrellisDP(W, glyphs, emitFn, lm, 0.0)
+		trellisPathSink = path
+	}
+}
+
 // TestEmissionCache_PutGetHitMissLen exercises the full EmissionCache contract:
 // New → Put → Get hit → Get miss → Len.
 func TestEmissionCache_PutGetHitMissLen(t *testing.T) {

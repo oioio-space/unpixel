@@ -11,6 +11,10 @@ import (
 	"github.com/oioio-space/unpixel/mosaictext"
 )
 
+// decodeResultSink absorbs benchmark results so the compiler cannot eliminate
+// the Decode call.
+var decodeResultSink mosaictext.Result
+
 // guardHeap caps this process's Go heap for the duration of a test and restores
 // the previous limit on cleanup. It is defence-in-depth for the memory-heavy
 // zero-config decode: the shell test cage (scripts/gotest-caged.sh) does not apply
@@ -23,16 +27,16 @@ func guardHeap(t *testing.T, bytes int64) {
 	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
 }
 
-func loadPNG(t *testing.T, path string) image.Image {
-	t.Helper()
+func loadPNG(tb testing.TB, path string) image.Image {
+	tb.Helper()
 	f, err := os.Open(path)
 	if err != nil {
-		t.Fatalf("open: %v", err)
+		tb.Fatalf("open: %v", err)
 	}
 	defer func() { _ = f.Close() }()
 	img, err := png.Decode(f)
 	if err != nil {
-		t.Fatalf("decode: %v", err)
+		tb.Fatalf("decode: %v", err)
 	}
 	return img
 }
@@ -53,5 +57,24 @@ func TestDecode_HelloWorld(t *testing.T) {
 		res.Text, res.Font, res.Linear, res.BlockSize, res.CharCount, res.GridPhaseX, res.Distance)
 	if res.Text != "Hello World !" {
 		t.Errorf("Decode = %q, want %q", res.Text, "Hello World !")
+	}
+}
+
+// BenchmarkFullDecodeSweep measures the full nine-font calibration+decode sweep
+// in mosaictext.Decode on the real "Hello World !" fixture. This is the hot-path
+// benchmark that quantifies the value of fontrank pre-pruning: compare
+// BenchmarkFullDecodeSweep ns/op before and after wiring fontrank.
+//
+// The fixture is loaded once outside b.Loop() so I/O cost is not counted.
+func BenchmarkFullDecodeSweep(b *testing.B) {
+	img := loadPNG(b, "../testdata/real/hello-world.png")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		var err error
+		decodeResultSink, err = mosaictext.Decode(context.Background(), img)
+		if err != nil {
+			b.Fatalf("Decode: %v", err)
+		}
 	}
 }

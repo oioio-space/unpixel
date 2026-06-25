@@ -263,6 +263,22 @@ func searchOffsets(
 	offsets := DiscoverOffsets(ctx, tracked, cfg, emit)
 	offsetsTotal := len(offsets)
 
+	// Shrink the outer-worker budget to the actual number of surviving offsets so
+	// intraNodeWorkers (called inside each dfs invocation) distributes the idle
+	// cores to intra-node child evaluation rather than keeping them unused.
+	//
+	// Example: 20 cores, cfg.Workers=20, 3 offsets survive discovery.
+	//   Before: forEachIndex runs 3 goroutines; intraNodeWorkers = 20/20 = 1 (sequential).
+	//   After:  cfg.Workers=3; forEachIndex still runs 3 goroutines; intraNodeWorkers = 20/3 = 6.
+	//
+	// cfg is a value copy; this write is local and does not affect callers.
+	// Guard: when offsetsTotal == 0 the early-return below fires first; skip the
+	// min so cfg.Workers never becomes 0 (which resolveWorkers would misread as
+	// "use GOMAXPROCS").
+	if offsetsTotal > 0 {
+		cfg.Workers = min(resolveWorkers(cfg), offsetsTotal)
+	}
+
 	if ctx.Err() != nil || offsetsTotal == 0 {
 		emit(unpixel.Progress{Kind: unpixel.EventDone, Done: true})
 		// Best-effort: promote the best-seen discovery candidate so the caller
@@ -295,7 +311,8 @@ func searchOffsets(
 	evaluated := 0
 
 	outcomes := make([]offsetOutcome, offsetsTotal)
-	forEachIndex(ctx, offsetsTotal, resolveWorkers(cfg), func(i int) {
+	// cfg.Workers already holds min(resolveWorkers, offsetsTotal) from above.
+	forEachIndex(ctx, offsetsTotal, cfg.Workers, func(i int) {
 		offset := offsets[i]
 
 		// Per-offset tracker: captures the best-seen for this offset's DFS so

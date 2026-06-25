@@ -281,6 +281,101 @@ func TestBuildModel_emptyTransRow(t *testing.T) {
 	}
 }
 
+// TestViterbiSparseIdentity verifies that the sparse O(T·E) recursion produces
+// a path byte-identical to a reference dense O(T·S²) implementation on a
+// randomly generated model. It exercises tie-breaking: multiple predecessors
+// that reach the same score must resolve to the same winner.
+func TestViterbiSparseIdentity(t *testing.T) {
+	t.Parallel()
+
+	// Build a small model with known ties: uniform transitions so many paths
+	// score identically; the sparse and dense implementations must agree on
+	// which predecessor wins (lowest index).
+	const S, K, T = 6, 3, 10
+	logUniform := math.Log(1.0 / S)
+	logTrans := make([]map[int]float64, S)
+	for prev := range S {
+		logTrans[prev] = make(map[int]float64, S)
+		for s := range S {
+			logTrans[prev][s] = logUniform
+		}
+	}
+	logB := make([][]float64, S)
+	for s := range S {
+		logB[s] = make([]float64, K)
+		for o := range K {
+			logB[s][o] = math.Log(1.0 / K)
+		}
+	}
+	m := &Model{
+		StateID:  map[string]int{"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5},
+		States:   []string{"A", "B", "C", "D", "E", "F"},
+		K:        K,
+		LogPi:    make([]float64, S),
+		LogTrans: logTrans,
+		LogB:     logB,
+		W:        1,
+	}
+	for s := range S {
+		m.LogPi[s] = logUniform
+	}
+	obs := []int{0, 1, 2, 0, 1, 2, 0, 1, 2, 0}
+
+	got := m.Viterbi(obs)
+
+	// Dense reference: brute-force the same argmax with an explicit O(T·S²) loop.
+	wantDelta := make([][]float64, T)
+	wantPsi := make([][]int, T)
+	for t := range T {
+		wantDelta[t] = make([]float64, S)
+		wantPsi[t] = make([]int, S)
+	}
+	for s := range S {
+		wantDelta[0][s] = m.LogPi[s] + m.logEmit(s, obs[0])
+	}
+	for t := 1; t < T; t++ {
+		for s := range S {
+			logE := m.logEmit(s, obs[t])
+			best, bestPred := math.Inf(-1), 0
+			for prev := range S {
+				lTrans := math.Inf(-1)
+				if row := m.LogTrans[prev]; row != nil {
+					if v, ok := row[s]; ok {
+						lTrans = v
+					}
+				}
+				if val := wantDelta[t-1][prev] + lTrans + logE; val > best {
+					best, bestPred = val, prev
+				}
+			}
+			wantDelta[t][s] = best
+			wantPsi[t][s] = bestPred
+		}
+	}
+	want := make([]int, T)
+	best, bestS := math.Inf(-1), 0
+	for s := range S {
+		if wantDelta[T-1][s] > best {
+			best, bestS = wantDelta[T-1][s], s
+		}
+	}
+	want[T-1] = bestS
+	for t := T - 2; t >= 0; t-- {
+		want[t] = wantPsi[t+1][want[t+1]]
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("sparse Viterbi length: got %d, want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("sparse Viterbi path[%d]: got %d, want %d (full: got %v want %v)",
+				i, got[i], want[i], got, want)
+			break
+		}
+	}
+}
+
 // TestParseTuple_empty verifies that parseTuple("") returns nil (the
 // empty-string early-return path).
 func TestParseTuple_empty(t *testing.T) {
