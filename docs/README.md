@@ -1,10 +1,11 @@
 # UnPixel documentation
 
-> **Current release: v0.13.0** — pure-Go recovery of mosaic- and Gaussian-blur-redacted
-> text, with automatic parameter detection, seven optional decoders, and bilingual
-> (French/English) blind recovery. Quality and performance are tracked across releases in
-> [`benchmarks/quality-history.md`](../benchmarks/quality-history.md) and in the
-> per-run [`JOURNAL.md`](JOURNAL.md).
+> **Current release: v0.14.0** — pure-Go recovery of mosaic- and Gaussian-blur-redacted
+> text, with automatic parameter detection, the specialized decoders, bilingual
+> (French/English) blind recovery, and **perspective decode** of redactions photographed
+> at an angle (`--rectify`, manual or auto-detected corners). Quality and performance are
+> tracked across releases in [`benchmarks/quality-history.md`](../benchmarks/quality-history.md)
+> and in the per-run [`JOURNAL.md`](JOURNAL.md).
 
 Readers seeking only to run the tool should begin with the [README](../README.md). This
 index maps the remainder of the documentation.
