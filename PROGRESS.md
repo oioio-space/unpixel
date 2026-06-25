@@ -948,3 +948,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `3766174` 2026-06-25 — perf(perspective): reuse one renderer across candidates (allocs −79%) _(5 fichiers)_
 - `3d8ffb3` 2026-06-25 — feat(perspective): auto-detect the redaction quad (no manual corners) _(7 fichiers)_
 - `56dfcda` 2026-06-25 — test(perspective): gray-bg fixtures so --rectify auto is tested on disk _(7 fichiers)_
+- `e853697` 2026-06-25 — feat(rectify): sub-pixel quad corners via edge-line fitting (no decode loss) _(4 fichiers)_
