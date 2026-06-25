@@ -946,3 +946,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `2101b8f` 2026-06-25 — perf(perspective): score full Distance only for beam survivors (−34%) _(3 fichiers)_
 - `f212a1a` 2026-06-25 — perf(perspective): parallelize beam candidate evaluation (−59%) _(3 fichiers)_
 - `3766174` 2026-06-25 — perf(perspective): reuse one renderer across candidates (allocs −79%) _(5 fichiers)_
+- `3d8ffb3` 2026-06-25 — feat(perspective): auto-detect the redaction quad (no manual corners) _(7 fichiers)_

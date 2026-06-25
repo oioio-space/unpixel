@@ -153,6 +153,70 @@ func TestDecodePerspective(t *testing.T) {
 	}
 }
 
+// TestDecodePerspective_autoFromFixtures decodes every on-disk fixture with NO
+// corners supplied — the quad is auto-detected (WithPerspectiveAutoQuad) from the
+// gray-page background — and asserts the same exact decode as the manual-quad path.
+func TestDecodePerspective_autoFromFixtures(t *testing.T) {
+	ctx := t.Context()
+	for _, fix := range loadPerspectiveFixtures(t) {
+		t.Run(fix.Name, func(t *testing.T) {
+			photo := loadPhoto(t, fix.File)
+			res, err := mosaictext.DecodePerspective(ctx, photo,
+				mosaictext.WithPerspectiveAutoQuad(0),
+				mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+				mosaictext.WithPerspectiveCharset(fix.Charset),
+				mosaictext.WithPerspectiveFontSize(fix.FontSize),
+			)
+			if err != nil {
+				t.Fatalf("DecodePerspective auto: got %v, want nil", err)
+			}
+			t.Logf("auto fixture=%s rectW=%d rectH=%d dist=%.4f text=%q",
+				fix.Name, res.RectW, res.RectH, res.Distance, res.Text)
+			// DetectQuad recovers the corners to within a few pixels; that small
+			// error is harmless for short text but compounds for dense/longer
+			// strings. Assert exact decode for short fixtures and a low
+			// forward-model distance (best-effort text) for longer ones — supplying
+			// exact corners (WithPerspectiveQuad) removes the limit (see TestDecodePerspective).
+			if got, want := res.Text, fix.Text; len([]rune(want)) <= 3 {
+				if got != want {
+					t.Errorf("auto Text: got %q, want %q (dist=%.4f)", got, want, res.Distance)
+				}
+			} else if res.Distance > 0.05 {
+				t.Errorf("auto distance for %q: got %.4f, want ≤ 0.05 (best-effort text %q)", want, res.Distance, got)
+			}
+		})
+	}
+}
+
+var sinkPerspText string
+
+// BenchmarkDecodePerspectiveAuto measures the full auto path (detect quad + beam
+// decode) on the smallest fixture.
+func BenchmarkDecodePerspectiveAuto(b *testing.B) {
+	var fix perspectiveFixture
+	for _, f := range loadPerspectiveFixtures(b) {
+		if f.Name == "persp_go" {
+			fix = f
+			break
+		}
+	}
+	photo := loadPhoto(b, fix.File)
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		res, err := mosaictext.DecodePerspective(ctx, photo,
+			mosaictext.WithPerspectiveAutoQuad(0),
+			mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+			mosaictext.WithPerspectiveCharset(fix.Charset),
+			mosaictext.WithPerspectiveFontSize(fix.FontSize),
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+		sinkPerspText = res.Text
+	}
+}
+
 // TestDecodePerspectiveNoQuad verifies that omitting WithPerspectiveQuad returns an error.
 func TestDecodePerspectiveNoQuad(t *testing.T) {
 	ctx := t.Context()

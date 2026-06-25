@@ -1,7 +1,8 @@
 // Command genperspective renders perspective-distorted redaction fixtures: each
 // is a normal pixelated text redaction (via fixture.Redact) warped into a tilted
-// quadrilateral of a white photo canvas, simulating a redaction photographed at
-// an angle. It writes the PNGs plus a manifest.json recording, per image, the
+// quadrilateral on a mid-gray photo canvas (so the patch is distinguishable for
+// rectify.DetectQuad), simulating a redaction photographed at an angle. It writes
+// the PNGs plus a manifest.json recording, per image, the
 // source text/parameters and the quad corners — the image ↔ ground-truth link
 // the perspective forward-model decode is tested against.
 //
@@ -79,6 +80,20 @@ func run(out string) error {
 			return fmt.Errorf("inverse %q: %w", c.Name, err)
 		}
 		photo := rectify.Warp(red, photoToRect, photoW, photoH)
+		// Repaint everything OUTSIDE the quad mid-gray so the (white-padded) patch
+		// is distinguishable from the page — this is what lets rectify.DetectQuad
+		// (and `--rectify auto`) recover the corners. In-quad pixels are untouched,
+		// so manual-quad decoding is byte-for-byte unaffected.
+		for y := range photoH {
+			for x := range photoW {
+				rp := photoToRect.Apply(rectify.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+				if rp.X >= 0 && rp.Y >= 0 && rp.X < float64(rw) && rp.Y < float64(rh) {
+					continue
+				}
+				o := photo.PixOffset(x, y)
+				photo.Pix[o], photo.Pix[o+1], photo.Pix[o+2], photo.Pix[o+3] = 128, 128, 128, 255
+			}
+		}
 
 		file := c.Name + ".png"
 		if err := writePNG(filepath.Join(out, file), photo); err != nil {
