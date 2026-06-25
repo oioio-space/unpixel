@@ -216,6 +216,10 @@ func renderCandidate(text string, spec fixture.Spec, ttf []byte) (*image.RGBA, e
 type beamHyp struct {
 	prefix string
 	dist   float64
+	// img is the rendered+pixelated candidate, retained only within a beam level
+	// so the survivor full-Distance pass can reuse it without re-rendering; it is
+	// cleared before the hypothesis carries to the next level.
+	img *image.RGBA
 }
 
 // DecodePerspective recovers text from a mosaic-pixelated redaction that was
@@ -329,15 +333,7 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 				coveredPx := float64(candW / cfg.blockSize * cfg.blockSize)
 				xFrac := coveredPx / rW
 				beamDist := proj.PartialDistance(cand, xFrac)
-				widthGroups[candW] = append(widthGroups[candW], beamHyp{prefix: candidate, dist: beamDist})
-
-				// Global best uses full-quad Distance: the true string at the right
-				// length fills rectW exactly (dist ≈ 0); any other length scores
-				// higher due to white padding or overflow.
-				if fullDist := proj.Distance(cand); fullDist < bestDist {
-					bestDist = fullDist
-					bestText = candidate
-				}
+				widthGroups[candW] = append(widthGroups[candW], beamHyp{prefix: candidate, dist: beamDist, img: cand})
 			}
 		}
 
@@ -360,6 +356,20 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 		if len(next) > globalCap {
 			partialSortBeam(next, globalCap)
 			next = next[:globalCap]
+		}
+
+		// Global best uses the full-quad Distance, computed ONLY for the pruned
+		// survivors rather than every extension (the dominant cost — see the
+		// BenchmarkDecodePerspective profile, where Distance is ~66%). The true
+		// string at the right length fills rectW exactly (dist ≈ 0) and always
+		// survives its width class — its left blocks match, so its PartialDistance
+		// is low — so restricting the full scan to survivors preserves the result.
+		for i := range next {
+			if fullDist := proj.Distance(next[i].img); fullDist < bestDist {
+				bestDist = fullDist
+				bestText = next[i].prefix
+			}
+			next[i].img = nil // release the rendered image; not needed past this level
 		}
 		beam = next
 	}

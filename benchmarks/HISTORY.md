@@ -38,6 +38,14 @@ P4.4 (disable pixelmatch AA detection) **measured** but NOT adopted: −44% Comp
 GuidedSearch, matrix 155/155 identical, **but** it diverges from faithful Jimp.diff semantics →
 fidelity decision reserved for the user (see PROGRESS P4.4).
 
+Perspective beam (`BenchmarkDecodePerspective`, approach-B forward-model decode):
+scoring the full-quad `rectify.Projector.Distance` for **only the pruned beam survivors**
+instead of every extension — pruning with the cheaper `PartialDistance` — gave
+**−34.3%** sec/op (5.83 s → 3.83 s, p=0.002, n=6) with no alloc/memory regression
+(B/op flat, allocs −0.7%) and **byte-identical decode** (fixtures still recover
+go/cat/hello at distance 0.0000). Justified by the cpu profile: `Distance` was ~66% of
+runtime. See `mosaictext/perspective.go`.
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the

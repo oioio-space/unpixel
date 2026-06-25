@@ -942,3 +942,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `55a13bf` 2026-06-25 — feat(rectify): planar-homography core for perspective-distorted decode (approach B) _(3 fichiers)_
 - `1a9f19c` 2026-06-25 — feat(rectify): forward-model perspective decode (approach B) + on-disk fixtures _(9 fichiers)_
 - `a074514` 2026-06-25 — feat(perspective): DecodePerspective + --rectify CLI (approach B search/wiring) _(7 fichiers)_
+- `8b808f9` 2026-06-25 — feat(perspective): pure forward-model (approach B) beam search — correct decode _(8 fichiers)_
