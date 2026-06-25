@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"runtime"
+	"sync"
 
 	"github.com/oioio-space/unpixel/fonts"
 	"github.com/oioio-space/unpixel/internal/fixture"
@@ -64,6 +66,7 @@ type perspectiveConfig struct {
 	maxLen    int
 	rectW     int // 0 → derive from quad edge lengths
 	rectH     int // 0 → derive from quad edge lengths
+	workers   int // candidate-evaluation concurrency; ≤0 → GOMAXPROCS
 }
 
 func defaultPerspectiveConfig() perspectiveConfig {
@@ -73,6 +76,7 @@ func defaultPerspectiveConfig() perspectiveConfig {
 		blockSize: 8,
 		beamWidth: 36,
 		maxLen:    12,
+		workers:   runtime.GOMAXPROCS(0),
 	}
 }
 
@@ -170,10 +174,60 @@ func WithPerspectiveRectSize(w, h int) PerspectiveOption {
 	}
 }
 
+// WithPerspectiveWorkers sets how many goroutines evaluate candidates (render →
+// re-pixelate → score) concurrently per beam level. Defaults to GOMAXPROCS.
+// Values ≤ 0 are ignored. The decoded result is independent of this setting.
+func WithPerspectiveWorkers(n int) PerspectiveOption {
+	return func(c *perspectiveConfig) {
+		if n > 0 {
+			c.workers = n
+		}
+	}
+}
+
 // WithPerspectiveLinear is retained for API compatibility. It has no effect in
 // the pure forward-model beam search path and is accepted silently.
 func WithPerspectiveLinear(on bool) PerspectiveOption {
 	return func(*perspectiveConfig) {}
+}
+
+// parallelEval runs fn(0..n-1) across up to `workers` goroutines (clamped to
+// [1,n]), split into contiguous chunks. fn(i) must only write index i of any
+// shared slice, so results are race-free and independent of scheduling — the
+// decode is byte-identical to a serial run. Cancelled ctx skips remaining work.
+// No goroutine outlives the call (goleak-safe: every worker exits its chunk).
+func parallelEval(ctx context.Context, n, workers int, fn func(i int)) {
+	if n <= 0 {
+		return
+	}
+	workers = min(max(workers, 1), n)
+	if workers == 1 {
+		for i := range n {
+			if ctx.Err() != nil {
+				return
+			}
+			fn(i)
+		}
+		return
+	}
+	chunk := (n + workers - 1) / workers
+	var wg sync.WaitGroup
+	for w := range workers {
+		lo := w * chunk
+		if lo >= n {
+			break
+		}
+		hi := min(lo+chunk, n)
+		wg.Go(func() {
+			for i := lo; i < hi; i++ {
+				if ctx.Err() != nil {
+					return
+				}
+				fn(i)
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // edgeLen returns the Euclidean distance between two points.
@@ -304,37 +358,49 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 		// (e.g. "hell" at narrower width) that extend to the exact-width winner.
 		// Each width class is pruned independently to beamWidth, then merged;
 		// a seen map prevents re-scoring the same string from different paths.
-		widthGroups := make(map[int][]beamHyp)
+		// Enumerate this level's unique candidate strings (serial, deterministic),
+		// then evaluate them — render → re-pixelate → PartialDistance — in
+		// parallel. Each evaluation is independent and read-only on the projector,
+		// and renderCandidate builds its own renderer, so there is no shared state;
+		// results are written by index, keeping the grouping below independent of
+		// scheduling (byte-identical decode).
 		seen := make(map[string]bool)
-
+		var candidates []string
 		for _, h := range beam {
 			for _, ch := range charRunes {
 				if h.prefix == "" && ch == ' ' {
 					continue
 				}
-				if ctx.Err() != nil {
-					break
+				cand := h.prefix + string(ch)
+				if !seen[cand] {
+					seen[cand] = true
+					candidates = append(candidates, cand)
 				}
-
-				candidate := h.prefix + string(ch)
-				if seen[candidate] {
-					continue
-				}
-				seen[candidate] = true
-
-				cand, err := renderCandidate(candidate, spec, ttf)
-				if err != nil {
-					continue
-				}
-				candW := cand.Bounds().Dx()
-
-				// Beam score: PartialDistance over complete block columns only,
-				// so a narrow trailing glyph doesn't inflate the intra-width score.
-				coveredPx := float64(candW / cfg.blockSize * cfg.blockSize)
-				xFrac := coveredPx / rW
-				beamDist := proj.PartialDistance(cand, xFrac)
-				widthGroups[candW] = append(widthGroups[candW], beamHyp{prefix: candidate, dist: beamDist, img: cand})
 			}
+		}
+
+		evals := make([]beamHyp, len(candidates))
+		widths := make([]int, len(candidates))
+		parallelEval(ctx, len(candidates), cfg.workers, func(i int) {
+			cand, err := renderCandidate(candidates[i], spec, ttf)
+			if err != nil {
+				return // evals[i] stays zero-valued (nil img) and is skipped below
+			}
+			candW := cand.Bounds().Dx()
+			// Beam score: PartialDistance over complete block columns only, so a
+			// narrow trailing glyph doesn't inflate the intra-width score.
+			coveredPx := float64(candW / cfg.blockSize * cfg.blockSize)
+			xFrac := coveredPx / rW
+			evals[i] = beamHyp{prefix: candidates[i], dist: proj.PartialDistance(cand, xFrac), img: cand}
+			widths[i] = candW
+		})
+
+		widthGroups := make(map[int][]beamHyp)
+		for i, h := range evals {
+			if h.img == nil {
+				continue // render failed for this candidate
+			}
+			widthGroups[widths[i]] = append(widthGroups[widths[i]], h)
 		}
 
 		if len(widthGroups) == 0 {

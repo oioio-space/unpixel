@@ -46,6 +46,14 @@ instead of every extension — pruning with the cheaper `PartialDistance` — ga
 go/cat/hello at distance 0.0000). Justified by the cpu profile: `Distance` was ~66% of
 runtime. See `mosaictext/perspective.go`.
 
+Perspective beam — parallel candidate evaluation: each beam level's render →
+re-pixelate → `PartialDistance` of independent candidates now runs across
+GOMAXPROCS goroutines (chunked, results written by index → byte-identical decode,
+goleak-clean via the package `TestMain`). On a 20-core host: **−58.9%** sec/op
+(3.83 s → 1.57 s, p=0.002, n=6), B/op +0.1% / allocs +0.2% (noise). Combined with
+the survivor-only `Distance` change above, the beam is ~3.7× faster than the
+original 5.83 s. `WithPerspectiveWorkers` overrides the worker count.
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the
