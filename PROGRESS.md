@@ -947,3 +947,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `f212a1a` 2026-06-25 — perf(perspective): parallelize beam candidate evaluation (−59%) _(3 fichiers)_
 - `3766174` 2026-06-25 — perf(perspective): reuse one renderer across candidates (allocs −79%) _(5 fichiers)_
 - `3d8ffb3` 2026-06-25 — feat(perspective): auto-detect the redaction quad (no manual corners) _(7 fichiers)_
+- `56dfcda` 2026-06-25 — test(perspective): gray-bg fixtures so --rectify auto is tested on disk _(7 fichiers)_

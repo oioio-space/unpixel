@@ -19,6 +19,7 @@ package rectify
 import (
 	"errors"
 	"image"
+	"math"
 )
 
 // Point is a 2-D point in pixel coordinates. Float64 so projective division and
@@ -101,7 +102,131 @@ func DetectQuad(img *image.RGBA, tol int) ([4]Point, error) {
 	if !found {
 		return [4]Point{}, ErrNoRegion
 	}
-	return [4]Point{tl, tr, br, bl}, nil
+	// Refine the rough extreme-pixel corners (accurate to a pixel or two) to
+	// sub-pixel by fitting a line to each of the four region edges and
+	// intersecting them — this is what lets dense/long text auto-decode exactly.
+	return refineQuad(img, bgR, bgG, bgB, tol, [4]Point{tl, tr, br, bl}), nil
+}
+
+// edgeLine is a fitted line in point-direction form (a point on the line and a
+// unit direction vector), the result of total-least-squares fitting an edge.
+type edgeLine struct {
+	px, py, dx, dy float64
+}
+
+// refineQuad sharpens rough extreme-pixel corners. It collects boundary
+// foreground pixels lying within edgeBand of one of the four rough edges, fits a
+// line to each edge (total least squares), and intersects adjacent lines for
+// sub-pixel corners. It returns the rough corners unchanged if any edge has too
+// few points, a fit is degenerate, or a refined corner moves implausibly far —
+// so refinement can only help, never corrupt, the result.
+func refineQuad(img *image.RGBA, bgR, bgG, bgB, tol int, rough [4]Point) [4]Point {
+	b := img.Bounds()
+	fg := func(x, y int) bool {
+		if x < b.Min.X || y < b.Min.Y || x >= b.Max.X || y >= b.Max.Y {
+			return false
+		}
+		o := img.PixOffset(x, y)
+		d := abs(float64(int(img.Pix[o])-bgR)) +
+			abs(float64(int(img.Pix[o+1])-bgG)) +
+			abs(float64(int(img.Pix[o+2])-bgB))
+		return d > float64(tol)
+	}
+
+	const edgeBand = 5.0 // px: keep boundary points near a rough edge, drop interior noise
+	var sides [4][]Point // edge i runs rough[i] → rough[(i+1)%4]
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if !fg(x, y) {
+				continue
+			}
+			if fg(x-1, y) && fg(x+1, y) && fg(x, y-1) && fg(x, y+1) {
+				continue // interior pixel, not a boundary
+			}
+			p := Point{X: float64(x), Y: float64(y)}
+			best, bestD := -1, edgeBand
+			for i := range 4 {
+				if d := segDist(p, rough[i], rough[(i+1)%4]); d < bestD {
+					bestD, best = d, i
+				}
+			}
+			if best >= 0 {
+				// best is -1 or 0..3 (set only from `range 4`); the guard makes the
+				// index provably in range.
+				sides[best] = append(sides[best], p) // #nosec G602 -- best ∈ [0,3] here
+			}
+		}
+	}
+
+	var lines [4]edgeLine
+	for i := range 4 {
+		if len(sides[i]) < 2 {
+			return rough
+		}
+		lines[i] = fitLine(sides[i])
+	}
+
+	var out [4]Point
+	for i := range 4 {
+		p, ok := lineIntersect(lines[(i+3)%4], lines[i])
+		if !ok || dist(p, rough[i]) > 2*edgeBand {
+			return rough
+		}
+		out[i] = p
+	}
+	return out
+}
+
+// fitLine returns the total-least-squares line through pts: the centroid and the
+// principal-axis direction (angle ½·atan2(2·Sxy, Sxx−Syy)).
+func fitLine(pts []Point) edgeLine {
+	n := float64(len(pts))
+	var mx, my float64
+	for _, p := range pts {
+		mx += p.X
+		my += p.Y
+	}
+	mx, my = mx/n, my/n
+	var sxx, sxy, syy float64
+	for _, p := range pts {
+		ex, ey := p.X-mx, p.Y-my
+		sxx += ex * ex
+		sxy += ex * ey
+		syy += ey * ey
+	}
+	theta := 0.5 * math.Atan2(2*sxy, sxx-syy)
+	return edgeLine{px: mx, py: my, dx: math.Cos(theta), dy: math.Sin(theta)}
+}
+
+// lineIntersect returns the intersection of two point-direction lines, or
+// ok=false when they are (near) parallel.
+func lineIntersect(a, e edgeLine) (Point, bool) {
+	det := a.dy*e.dx - a.dx*e.dy
+	if abs(det) < 1e-9 {
+		return Point{}, false
+	}
+	rx, ry := e.px-a.px, e.py-a.py
+	s := (e.dx*ry - e.dy*rx) / det
+	return Point{X: a.px + s*a.dx, Y: a.py + s*a.dy}, true
+}
+
+// segDist returns the distance from p to the segment a–b.
+func segDist(p, a, e Point) float64 {
+	vx, vy := e.X-a.X, e.Y-a.Y
+	wx, wy := p.X-a.X, p.Y-a.Y
+	vv := vx*vx + vy*vy
+	if vv == 0 {
+		return dist(p, a)
+	}
+	t := (wx*vx + wy*vy) / vv
+	t = max(0, min(1, t))
+	return dist(p, Point{X: a.X + t*vx, Y: a.Y + t*vy})
+}
+
+// dist returns the Euclidean distance between a and b.
+func dist(a, e Point) float64 {
+	dx, dy := e.X-a.X, e.Y-a.Y
+	return math.Sqrt(dx*dx + dy*dy)
 }
 
 // cornerBackground returns the mean R,G,B of img's four corner pixels — a robust

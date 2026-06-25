@@ -303,10 +303,10 @@ func TestDetectQuad_recoversCorners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DetectQuad: %v", err)
 	}
-	// Extreme points of a filled convex quad are its vertices, within a couple of
-	// pixels (discretisation + the slanted edges).
+	// Edge-fit refinement recovers the vertices to within ~1.5px of a filled
+	// convex quad (sub-pixel on the unforeshortened corner).
 	for i := range got {
-		ptClose(t, got[i], quad[i], 3.0, fmt.Sprintf("corner %d", i))
+		ptClose(t, got[i], quad[i], 2.0, fmt.Sprintf("corner %d", i))
 	}
 }
 

@@ -63,6 +63,15 @@ both p=0.002; sec/op neutral (p=0.24 — parse was not CPU-bound, matching the c
 profile). Decode byte-identical. (The remaining 76% of bytes is per-candidate
 `image.NewRGBA` deep in render/pixelate — a future buffer-pool target.)
 
+rectify.DetectQuad — edge-fit corner refinement: after the extreme-pixel pass it
+fits a line (total least squares) to each of the four region edges and intersects
+them for sub-pixel corners (~1.4px max error vs a filled quad, sub-pixel on the
+unforeshortened corner). `BenchmarkDetectQuad` 218µs → 479µs (the boundary scan +
+fits) — a one-time cost per decode, negligible beside the ~600ms beam; bought for
+tighter auto-detect corners (lower forward-model distances; no decode regression —
+manual-quad fixtures still 0.0000). Refinement only ever helps: it bails back to
+the rough corners on a degenerate fit or an implausibly large corner move.
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the
