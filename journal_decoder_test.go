@@ -47,6 +47,7 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 	sickEntries := loadDecoderSickManifest(t)
 	realEntries := loadDecoderRealManifest(t)
 	contextSpecs := loadContextManifest(t)
+	perspectiveSpecs := loadPerspectiveManifest(t)
 
 	// C1a first: builds the per-image detail slice.
 	c1aRow, ctxDetails := runCalibrateVisibleOnContext(t, contextSpecs)
@@ -124,6 +125,12 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 		// calibrate-sample → context (C1b): a separate companion PNG provides
 		// the calibration source; only fixtures with font_sample are included.
 		c1bRow,
+
+		// perspective → perspective: forward-model decode of a redaction
+		// photographed at an angle, with manifest corners and with auto-detected
+		// corners (rectify.DetectQuad, no corners supplied).
+		runPerspectiveDecoder(t, perspectiveSpecs, false),
+		runPerspectiveDecoder(t, perspectiveSpecs, true),
 	}
 
 	return rows, ctxDetails
