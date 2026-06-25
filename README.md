@@ -97,6 +97,7 @@ tool.
 | Recover mosaic versus blur | [Mosaic vs. blur](docs/concepts/mosaic-vs-blur.md) |
 | Configure the font | [Fonts & calibration](docs/concepts/fonts-and-calibration.md) |
 | Select a decoder | [Decoders](docs/concepts/decoders.md) |
+| Decode a photo taken at an angle | [Decoders → `--rectify`](docs/concepts/decoders.md) |
 | Review the limitations | [Limits](docs/concepts/limits.md) |
 | Look up a CLI flag | [CLI reference](docs/reference/cli.md) |
 | Use the Go API | [API reference](docs/reference/api.md) |

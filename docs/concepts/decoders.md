@@ -22,6 +22,7 @@ all decoders, it is the difference between success and failure.
 | Short proportional or monospace text | **`did`** | Boundary-free DP; jointly recovers boundaries and characters |
 | Variable-font redaction, or font from context | **`varfont`** | Fits font axes to the pixels |
 | Unknown font/block/language, prose estimate | **`--blind`** | Detects all parameters; French/English dictionary prior |
+| Redaction **photographed at an angle** | **`--rectify`** | Forward-model decode through a planar homography; corners or `auto` |
 
 ## The decoders
 
@@ -75,6 +76,16 @@ Not a `--decoder` value but a complete pipeline: it detects the redaction region
 and font sizes, sweeps the bundled fonts, and scores candidates with a frequency-weighted
 French or English prior, denoising salt-and-pepper noise automatically. It is experimental
 and most reliable on synthetic mosaics rendered in bundled fonts. (`blind.Recover`.)
+
+### `--rectify` — perspective (forward-model beam)
+For a redaction **photographed at an angle**, the block grid is a projective image of the
+original square grid, so the axis-aligned-grid assumption breaks. Given the four corners of
+the redaction quadrilateral (or `auto` to detect them), a pure forward-model beam search
+renders each candidate, re-pixelates it, and **projects it through the homography onto the
+native photo** — no rectify-time resampling. Supply `--block-size` and (ideally) `--font`.
+Auto-detect (`rectify.DetectQuad`) suits one convex region on a uniform background and is
+accurate to ~1px — best for short text; supply exact corners for dense/long strings.
+(`mosaictext.DecodePerspective`; see [the CLI reference](../reference/cli.md).)
 
 ## A note on Viterbi versus beam
 

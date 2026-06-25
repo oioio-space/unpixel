@@ -134,6 +134,7 @@ See [decoders](../concepts/decoders.md) for when to use which.
 | `mosaictext.DecodeTrainedHMM(ctx, img, ...THMMOption)` | `trained-hmm` — learned-emission Viterbi (constrained alphabets) |
 | `mosaictext.DecodeDID(ctx, img, ...DIDOption)` | `did` — boundary-free DP trellis |
 | `mosaictext.DecodeVarFont(ctx, img, ...VarFontOption) (VarFontResult, error)` | `varfont` — variable-font axis fitting + calibration |
+| `mosaictext.DecodePerspective(ctx, img, ...PerspectiveOption) (PerspectiveResult, error)` | perspective — forward-model beam decode of an angled photo; `WithPerspectiveQuad` corners or `WithPerspectiveAutoQuad` |
 
 Each decoder's options follow a `With<Decoder>*` naming pattern (e.g. `WithRefFont`,
 `WithWHMMCharset`, `WithTHMMK`, `WithDIDLanguage`, `WithVarFontText`) for font, charset,
