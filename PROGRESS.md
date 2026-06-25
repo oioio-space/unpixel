@@ -618,6 +618,19 @@ encore réalisé.**
       utilisables seulement ré-entraînées/distillées sur notre dégradation. **Règle absolue** : tout
       modèle appris est **proposition/prior** (amorce le beam, départage), **jamais** le verdict
       « certain » — la vérification reste le modèle direct exact au pixel près.
+- [ ] **A4 — Ensemble / cascade de décodeurs sélectionné par vérification exacte.** Aujourd'hui le
+      zéro-config lance **un seul** décodeur (le `switch p.decoder` est exclusif) ; seul un sweep de
+      **polices** existe (`RecoverMultiFont`, classé par `BestTotal`). Étendre ce patron aux
+      **décodeurs** : lancer plusieurs décodeurs sur la même image, **re-scorer chaque sortie avec la
+      même distance forward-model exacte** (rendre la chaîne → re-pixeliser → distance), prendre
+      l'**argmin**. Comme on choisit dans un **sur-ensemble** via une métrique cohérente, le résultat
+      est **≥ n'importe quel décodeur seul → gain ou égalité, jamais perte**. Deux formes :
+      (a) **ensemble parallèle** (borné `--workers` + timeout par décodeur, cf. matrice journal) ;
+      (b) **cascade gated par la distance** (défaut rapide d'abord ; escalade si distance haute) pour
+      le coût. **Règle** : sélectionner sur la **distance image recalculée**, JAMAIS sur les scores
+      internes (incomparables) ni la self-confidence (cf. `real` conf 1.000 / fidélité 0.000). Même
+      principe « proposal-and-verify » que A3. Arbitrage = coût (décodeurs lents `did`/`trained-hmm`)
+      → opt-in (`--ensemble`) ou cascade early-exit. **À planifier, pas encore réalisé.**
 
 ### 🧩 Décodage assisté par contexte — exploiter ce qui entoure la rédaction
 
@@ -994,3 +1007,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `6fcbf8d` 2026-06-25 — test(journal): track the perspective decoder in the evolution matrix _(1 fichiers)_
 - `256a3e8` 2026-06-25 — docs: surface the perspective decoder across README / decoders / API _(4 fichiers)_
 - `0afc3ef` 2026-06-25 — docs(progress): add V2 axes — LM-in-objective (A1) + render-mismatch calibration (A2) _(1 fichiers)_
+- `4ad77fd` 2026-06-25 — docs(progress): add axis A3 — learned extensions (train-Python / infer-pure-Go) _(1 fichiers)_
