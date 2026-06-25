@@ -315,6 +315,81 @@ func BenchmarkGuidedSearch_wideCharset(b *testing.B) {
 	}
 }
 
+// BenchmarkSearchOffsets exercises the full GuidedStrategy.Search fan-out path
+// so the atomic candidate-callback hot path (evalCount.Add + progressBest.update)
+// is benchmarked under real concurrency. Sub-benchmarks vary Workers: workers_1
+// is sequential (shows single-core overhead); workers_max saturates all cores
+// (shows lock-contention reduction vs the old global mutex).
+// Use benchstat -cpu=1,4,8,20 to compare before/after.
+func BenchmarkSearchOffsets(b *testing.B) {
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	spec := fixture.Spec{
+		Text: "ab", Charset: "ab ", FontSize: 32, BlockSize: 8,
+		PaddingTop: 8, PaddingLeft: 8,
+	}
+	redacted, err := fixture.Redact(spec)
+	if err != nil {
+		b.Fatalf("redact: %v", err)
+	}
+	baseCfg := unpixel.Config{
+		Charset:        spec.Charset,
+		MaxLength:      2,
+		BlockSize:      spec.BlockSize,
+		Threshold:      0.25,
+		SpaceThreshold: 0.5,
+		Style:          spec.Style(),
+		Renderer:       r,
+		Pixelator:      pixelate.NewBlockAverage(spec.BlockSize),
+		Metric:         metric.NewPixelmatch(0.02),
+	}
+	guided := search.NewGuidedStrategy()
+
+	for _, w := range []struct {
+		name    string
+		workers int
+	}{
+		{"workers_1", 1},
+		{"workers_max", 0},
+	} {
+		b.Run(w.name, func(b *testing.B) {
+			cfg := baseCfg
+			cfg.Workers = w.workers
+			b.ReportAllocs()
+			for b.Loop() {
+				out := make(chan unpixel.Progress, 256)
+				results := make(chan unpixel.Result, 8)
+				// Search blocks until EventDone is emitted, so run in a goroutine
+				// and drain both channels to unblock the sender.
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					guided.Search(b.Context(), redacted, cfg, out, results)
+				}()
+				// Drain progress and results until Search returns.
+				for {
+					select {
+					case r, ok := <-results:
+						if ok {
+							sinkEvals = append(sinkEvals[:0], r.TopN...)
+						}
+					case _, ok := <-out:
+						if !ok {
+							goto drained
+						}
+					case <-done:
+						goto drained
+					}
+				}
+			drained:
+				<-done // wait for goroutine to finish
+			}
+		})
+	}
+}
+
 // BenchmarkGuidedDFS_wideCharset measures the auto-K heuristic (P3.11): with
 // CharsetASCII (~95 chars) and a LanguageModel set, effectiveTopK fires and
 // reduces each evalChildren call from 95 to autoTopKValue evaluations. The

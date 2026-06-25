@@ -352,7 +352,71 @@ func TestB4JPEGAugmented(t *testing.T) {
 	}
 }
 
+// sinkTHMMResult defeats dead-code elimination for TrainedHMM benchmark results.
+var sinkTHMMResult mosaictext.Result
+
 // ---- Benchmark ----
+
+// BenchmarkTrainHMM isolates the corpus-generation + HMM-training cost by
+// calling DecodeTrainedHMM with a small corpus (50 strings) so the Viterbi
+// decoding step contributes negligibly.  Use it to measure the second-pass
+// re-render optimisation with benchstat (-count=10).
+func BenchmarkTrainHMM(b *testing.B) {
+	var fontData []byte
+	for _, f := range fonts.All() {
+		if f.Name == "Liberation Mono" {
+			fontData = f.Data
+			break
+		}
+	}
+	if fontData == nil {
+		b.Skip("Liberation Mono not found")
+	}
+	const (
+		text    = "31415"
+		charset = "0123456789"
+		fs      = 32.0
+		block   = 4
+		corpus  = 50 // small: isolates training cost
+	)
+
+	r, err := defaults.RendererFromFonts(fontData, nil)
+	if err != nil {
+		b.Fatalf("renderer: %v", err)
+	}
+	rendered, sx, rErr := r.Render(text, unpixel.Style{FontSize: fs, PaddingTop: 16, PaddingLeft: 4})
+	if rErr != nil {
+		b.Fatalf("render: %v", rErr)
+	}
+	cropped := image.NewRGBA(image.Rect(0, 0, sx, rendered.Bounds().Dy()))
+	draw.Draw(cropped, cropped.Bounds(), rendered, image.Point{}, draw.Src)
+	mosaic := defaults.BlockAverage(block).Pixelate(cropped, 0, 0)
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, mosaic); err != nil {
+		b.Fatalf("png encode: %v", err)
+	}
+	imgBytes := buf.Bytes()
+
+	opts := []mosaictext.THMMOption{
+		mosaictext.WithTHMMFont("Liberation Mono"),
+		mosaictext.WithTHMMCharset(charset),
+		mosaictext.WithTHMMLinear(0),
+		mosaictext.WithTHMMK(32),
+		mosaictext.WithTHMMCorpus(corpus),
+		mosaictext.WithTHMMSeed(42),
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		img, _, dErr := image.Decode(bytes.NewReader(imgBytes))
+		if dErr != nil {
+			b.Fatalf("decode: %v", dErr)
+		}
+		res, _ := mosaictext.DecodeTrainedHMM(b.Context(), img, opts...)
+		sinkTHMMResult = res
+	}
+}
 
 // BenchmarkB4LanguageCorpus measures the overhead of language-sampler training
 // vs uniform-random training. Run with:

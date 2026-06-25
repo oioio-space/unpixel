@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/oioio-space/unpixel/internal/deblur"
+	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
@@ -330,7 +331,7 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 			o(&probe)
 		}
 		if probe.normalize != nil {
-			img = deblur.Normalize(toRGBA(img), *probe.normalize)
+			img = deblur.Normalize(imutil.ToRGBA(img), *probe.normalize)
 			normalized = true
 		}
 		if probe.l0deblur != nil {
@@ -342,11 +343,11 @@ func RecoverBlurred(ctx context.Context, img image.Image, opts ...Option) (Resul
 					l0opts.Sigma = 3 // safe fallback when image is near-flat
 				}
 			}
-			img = deblur.RecoverBlurredPreprocess(toRGBA(img), &l0opts)
+			img = deblur.RecoverBlurredPreprocess(imutil.ToRGBA(img), &l0opts)
 			l0deblurred = true
 		}
 		if probe.remosaic {
-			res, err := recoverWithRemosaic(ctx, toRGBA(img), opts)
+			res, err := recoverWithRemosaic(ctx, imutil.ToRGBA(img), opts)
 			if err != nil {
 				return Result{}, err
 			}

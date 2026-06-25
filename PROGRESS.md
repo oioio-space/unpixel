@@ -734,23 +734,27 @@ rejetées (SIMD colorDelta, compare par-bloc, PGO) **ne sont pas** à refaire.
       avant le décodage coûteux (mosaictext/blinddecode), top-k généreux validé au panel. *(C1 conc.)*
 
 **Tier 2 — moyen :**
-- [ ] **DID : pixeliser seulement la bande de la chasse** (pas tout le canevas W) *(F2, 5–15×/émission).*
+- [~] **DID : pixeliser seulement la bande de la chasse** *(F2 — MESURÉ puis REJETÉ : −22 % B/op
+      mais **+13 % sec/op** (overhead par-appel du pixeliseur > gain du canevas réduit) ; non adopté.)*
 - [ ] **Paralléliser blinddecode** (produit cartésien + balayage de polices) façon `DiscoverOffsets`
       (slots disjoints) — **prérequis** : synchroniser `widthCache` (`blinddecode.go`, sinon data race). *(H3 conc.)*
 - [ ] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — prérequis : `renderCache`
       concurrent (shardé). Fusionner les 2 niveaux de fan-out (counts×cells) en un seul budget. *(H2 conc.)*
 - [ ] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) : O(T·S²)→O(T·E),
       table de tuples parsée une fois O(S²)→O(S). *(F4.)*
-- [ ] **trainedhmm : supprimer la 2ᵉ passe de rendu du corpus** (enregistrer les spans en passe 1). *(F5, 2×.)*
-- [ ] **Dé-verrouiller `bestSeenTracker` global** (atomic pointer) + compteur `evaluated` atomique
-      (`internal/search/search.go`, `beam.go`) — la fusion déterministe ne dépend pas du tracker. *(H5.)*
+- [x] **trainedhmm : supprimer la 2ᵉ passe de rendu du corpus** (spans enregistrés en passe 1).
+      *(F5 — FAIT : **−24 % allocs/op** benchstat, décode octet-identique. `BenchmarkTrainHMM` ajouté.)*
+- [~] **Dé-verrouiller `bestSeenTracker` global** (atomic) *(H5 — MESURÉ puis REJETÉ : −15–17 % à
+      8/20 cœurs mais **+35 % à workers_1** (atomique > lock en séquentiel) ; non adopté.
+      `BenchmarkSearchOffsets` conservé comme infra.)*
 - [ ] **Budget intra-node = min(Workers, offsets survivants)** (`search.go`) : nourrir le parallélisme
       intra-DFS quand peu d'offsets survivent (cœurs sinon oisifs). *(C3.)*
 - [ ] **Pixelate : ne blanchir que la bande de padding** + `sync.Pool` du buffer dst (`pixelate.go`). *(H3 cœur.)*
 
 **Tier 3 — micro / froid (barre plus basse) :**
-- [ ] Scans directs `Pix[]` + break par-ligne dans `LeftEdge`/`Margins`/`marginColumn`/SSIM (`imutil`,
-      `metric`, `scorer.go`) au lieu de `RGBAAt`. *(H2 cœur.)* · `unpixel.toRGBA` → `imutil.ToRGBA` *(C1).*
+- [x] Scans directs `Pix[]` + break par-ligne : **`LeftEdge` FAIT** (−42 % sec/op benchstat, 0 alloc,
+      `BenchmarkLeftEdge` ajouté) ; `Margins`/`marginColumn`/SSIM restent. · **`unpixel.toRGBA` →
+      `imutil.ToRGBA` FAIT** (8 sites, dedup via `draw.Draw`). *(H2/C1.)*
 - [ ] deblur : tables de twiddles précalculées + scratch FFT réutilisé *(F7)* ; puis rfft 2× *(F8, effort élevé, froid).*
 - [ ] mini-batch k-means *(F6, 10–100× lit., froid)* ; multiframe écritures `Pix[]` directes *(F10)* ;
       `GOMEMLIMIT≈1.5GiB` dans `scripts/gotest-caged.sh` (suivre le mur cgroup 2 G).
@@ -1011,3 +1015,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `0b5258c` 2026-06-25 — docs(progress): add axis A4 — verification-selected decoder ensemble/cascade _(1 fichiers)_
 - `960100c` 2026-06-25 — docs(journal): v0.14.0 run + perspective decoder tracking (re-added) _(4 fichiers)_
 - `90972ec` 2026-06-25 — docs(release): v0.14.0 — perspective decode (homography forward-model) + auto-detect _(3 fichiers)_
+- `dce79ce` 2026-06-25 — docs: bump docs index to v0.14.0 + note perspective decode _(2 fichiers)_

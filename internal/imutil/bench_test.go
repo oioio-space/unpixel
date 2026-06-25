@@ -55,3 +55,51 @@ func BenchmarkCompose(b *testing.B) {
 	}
 	sinkRGBA = dst
 }
+
+// sinkInt defeats dead-code elimination for integer benchmark results.
+var sinkInt int
+
+// makeWhiteWithInkAt returns a w×h white RGBA image with a single non-white
+// pixel at (inkX, inkY). This gives LeftEdge and Margins a realistic early-exit
+// scenario: the ink column is well to the right of x=0 so the savings are visible.
+func makeWhiteWithInkAt(w, h, inkX, inkY int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	// Fill white.
+	for y := range h {
+		for x := range w {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	// Single ink pixel.
+	img.SetRGBA(inkX, inkY, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	return img
+}
+
+// BenchmarkLeftEdge benchmarks LeftEdge on a 400×40 image whose only non-white
+// pixel is at column 200, row 20. This exercises the early-break optimisation:
+// once column 200 is found, scanning can stop scanning further right.
+func BenchmarkLeftEdge(b *testing.B) {
+	img := makeWhiteWithInkAt(400, 40, 200, 20)
+	b.ReportAllocs()
+	for b.Loop() {
+		sinkInt = imutil.LeftEdge(img)
+	}
+}
+
+// BenchmarkMargins benchmarks Margins on a 400×40 image whose only red pixel
+// is at column 200, mid-row. This exercises the early-break path.
+func BenchmarkMargins(b *testing.B) {
+	img := image.NewRGBA(image.Rect(0, 0, 400, 40))
+	// Fill white.
+	for y := range 40 {
+		for x := range 400 {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	// Red pixel at column 200, mid-row (20).
+	img.SetRGBA(200, 20, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+	b.ReportAllocs()
+	for b.Loop() {
+		sinkInt = imutil.Margins(img)
+	}
+}

@@ -669,6 +669,13 @@ func trainHMM(
 	}
 	var allSamples []windowSample
 
+	// perStringSampleCount records the number of window samples contributed by
+	// each corpus string (in order). Strings that are skipped (render error,
+	// nCols too small, nRows mismatch, zero totalPx, all-empty covering) still
+	// push a 0 so the slice is parallel to the corpus iteration order.
+	// This lets the second pass reconstruct string boundaries without re-rendering.
+	var perStringSampleCount []int
+
 	// Corpus generation: generate corpusSize random strings of length 6–12.
 	const (
 		minLen = 6
@@ -690,6 +697,7 @@ func trainHMM(
 		// Render → (optional JPEG roundtrip, B4.2) → pixelate → extract block grid.
 		rawImg, _, err := r.Render(text, unpixel.Style{FontSize: fs})
 		if err != nil {
+			perStringSampleCount = append(perStringSampleCount, 0)
 			continue
 		}
 		pixImg := pix.Pixelate(jpegRoundtrip(toRGBA(rawImg)), 0, 0)
@@ -697,6 +705,7 @@ func trainHMM(
 		grid = whStripBlockRows(grid)
 		grid = whStripBlockCols(grid)
 		if len(grid) == 0 || len(grid[0]) < windowW {
+			perStringSampleCount = append(perStringSampleCount, 0)
 			continue
 		}
 		nCols := len(grid[0])
@@ -710,9 +719,11 @@ func trainHMM(
 		}
 		totalPx := cumAdv[n]
 		if totalPx <= 0 {
+			perStringSampleCount = append(perStringSampleCount, 0)
 			continue
 		}
 
+		stringSamples := 0
 		// Slide windowW-column window over the rendered grid columns.
 		for t := 0; t+windowW <= nCols; t++ {
 			// Determine which characters cover block columns [t, t+windowW).
@@ -755,7 +766,9 @@ func trainHMM(
 			key := windowhmm.TupleKey(covering)
 			stateID := internState(key)
 			allSamples = append(allSamples, windowSample{stateID: stateID, vec: vec})
+			stringSamples++
 		}
+		perStringSampleCount = append(perStringSampleCount, stringSamples)
 	}
 
 	if len(allSamples) == 0 || len(stateList) == 0 {
@@ -789,95 +802,32 @@ func trainHMM(
 		emitCounts[s] = make([]float64, effectiveClusters)
 	}
 
-	// Second pass: accumulate counts from the corpus using the quantised IDs.
-	// We replay the corpus in order, tracking transitions within each string's
-	// window sequence.
-	//
-	// Since allSamples is a flat slice of all windows across all strings, we
-	// need to track string boundaries. We do a second, cheap replay of the
-	// corpus using the same seed to get per-string sample counts.
-	//
-	// Strategy: during the first pass above we collected allSamples in order.
-	// Each contiguous run within a string has a "first" sample (start of string)
-	// and consecutive samples (transitions). We reconstruct this by replaying
-	// the corpus string lengths.
-	// Second pass: replay the corpus with rng2 (same seed as rng) to reconstruct
-	// per-string boundaries and accumulate start/transition counts.  Every choice
-	// that affects the rendered pixel grid — string content, JPEG roundtrip —
-	// must be reproduced identically so sampleIdx advances in lock-step with the
-	// allSamples slice built in the first pass.
-	rng2 := rand.New(rand.NewPCG(seed, seed^0xfeedface_deadbeef)) // #nosec G404 -- deterministic seed, not security
-
+	// Accumulate HMM counts from allSamples using perStringSampleCount to
+	// reconstruct string boundaries — no second render pass needed.
+	// perStringSampleCount[i] is the number of window samples contributed by
+	// corpus string i (0 if the string was skipped for any reason). Walking the
+	// flat allSamples slice in groups of that size gives us the first-sample
+	// (start) and consecutive-sample (transition) structure without re-rendering.
 	sampleIdx := 0
-	for range corpusSize {
-		n := minLen + rng2.IntN(maxLen-minLen+1)
-		text := sampleText(n) // must mirror first-pass sampleText(n) call
-		runes := []rune(text)
-		n = len(runes)
-
-		rawImg, _, err := r.Render(text, unpixel.Style{FontSize: fs})
-		if err != nil {
+	for _, count := range perStringSampleCount {
+		if count == 0 {
 			continue
 		}
-		pixImg := pix.Pixelate(jpegRoundtrip(toRGBA(rawImg)), 0, 0)
-		g := whPixToBlockGrid(pixImg, block)
-		g = whStripBlockRows(g)
-		g = whStripBlockCols(g)
-		if len(g) == 0 || len(g[0]) < windowW {
-			continue
+		// First sample in this string's group → start state.
+		s0 := allSamples[sampleIdx]
+		o0 := clusterIDs[sampleIdx]
+		emitCounts[s0.stateID][o0]++
+		startCounts[s0.stateID]++
+
+		// Subsequent samples → transition from previous state.
+		for j := 1; j < count; j++ {
+			prev := allSamples[sampleIdx+j-1]
+			cur := allSamples[sampleIdx+j]
+			o := clusterIDs[sampleIdx+j]
+			emitCounts[cur.stateID][o]++
+			transCounts[prev.stateID][cur.stateID]++
 		}
-		nCols := len(g[0])
-		nRows := len(g)
-		if nRows != tgtRows {
-			continue
-		}
-
-		cumAdv := make([]int, n+1)
-		for i, ch := range runes {
-			cumAdv[i+1] = cumAdv[i] + advances[ch]
-		}
-
-		prevSampleIdx := -1
-		for t := 0; t+windowW <= nCols; t++ {
-			colStart := t * block
-			colEnd := (t + windowW) * block
-
-			var covering []string
-			seen := make(map[int]bool, windowW)
-			for ci := range n {
-				charStart := cumAdv[ci]
-				charEnd := cumAdv[ci+1]
-				if charEnd <= colStart {
-					continue
-				}
-				if charStart >= colEnd {
-					break
-				}
-				if !seen[ci] {
-					seen[ci] = true
-					covering = append(covering, string(runes[ci]))
-				}
-			}
-			if len(covering) == 0 {
-				continue
-			}
-
-			if sampleIdx >= len(allSamples) {
-				break
-			}
-			s := allSamples[sampleIdx]
-			o := clusterIDs[sampleIdx]
-			sampleIdx++
-
-			emitCounts[s.stateID][o]++
-			if prevSampleIdx < 0 {
-				startCounts[s.stateID]++
-			} else {
-				prevStateID := allSamples[prevSampleIdx].stateID
-				transCounts[prevStateID][s.stateID]++
-			}
-			prevSampleIdx = sampleIdx - 1
-		}
+		sampleIdx += count
 	}
 
 	model := windowhmm.BuildModel(

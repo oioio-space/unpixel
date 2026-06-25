@@ -72,6 +72,23 @@ tighter auto-detect corners (lower forward-model distances; no decode regression
 manual-quad fixtures still 0.0000). Refinement only ever helps: it bails back to
 the rough corners on a degenerate fit or an implausibly large corner move.
 
+Perf batch (post-v0.14.0, PROGRESS.md "Optimisations de performance") — 5 candidates
+attempted, benchstat-gated, decode byte-identical (panel 17/17, matrix 310/310). 3 adopted:
+- **`imutil.LeftEdge` direct `Pix[]` + per-row early break** (was full-image RGBAAt, missing
+  break): **−42% sec/op** (22.7µs → 13.1µs, p=0.000, n=8), 0 allocs. Per-candidate hot path.
+  New `BenchmarkLeftEdge`/`BenchmarkMargins`.
+- **`trainHMM` single render pass** (record window spans in pass 1, drop the 2nd corpus
+  re-render): **−24% allocs/op** (19.4k → 14.8k, p=0.000); wall-clock noise-dominated at the
+  50-string bench, linear win on the 2000-string real corpus. New `BenchmarkTrainHMM`.
+- **`unpixel.toRGBA` → `imutil.ToRGBA`** (8 call sites): dedup, replaces a per-pixel `Set`
+  loop with `draw.Draw`; perf-neutral on the cold path, code-quality win.
+2 measured and REJECTED (no-regression rule):
+- **DID advance-strip pixelate**: −22% B/op but **+13% sec/op** (per-call pixelator overhead
+  dominates the smaller canvas) — reverted.
+- **`bestSeenTracker` atomic**: −15–17% at 8/20 cores but **+35% at workers_1** (atomic
+  pair costlier than a plain lock in the sequential case) — reverted. `BenchmarkSearchOffsets`
+  kept as infra for a future re-attempt.
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the

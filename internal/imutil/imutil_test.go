@@ -222,6 +222,35 @@ func TestLeftEdge_allWhiteReturnsZero(t *testing.T) {
 	}
 }
 
+func TestLeftEdge_nonZeroOrigin(t *testing.T) {
+	// Image with bounds starting at (10,5): ink at absolute x=18.
+	img := image.NewRGBA(image.Rect(10, 5, 30, 15))
+	for y := 5; y < 15; y++ {
+		for x := 10; x < 30; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	img.SetRGBA(18, 7, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	got := imutil.LeftEdge(img)
+	if got != 18 {
+		t.Errorf("LeftEdge non-zero-origin = %d, want 18", got)
+	}
+}
+
+func TestLeftEdge_nonZeroOrigin_allWhite(t *testing.T) {
+	// Non-zero-origin all-white image must return 0.
+	img := image.NewRGBA(image.Rect(10, 5, 30, 15))
+	for y := 5; y < 15; y++ {
+		for x := 10; x < 30; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	got := imutil.LeftEdge(img)
+	if got != 0 {
+		t.Errorf("LeftEdge non-zero-origin all-white = %d, want 0", got)
+	}
+}
+
 // --- Margins (red-diff left boundary) ---
 
 func TestMargins_findsFirstRedColumn(t *testing.T) {

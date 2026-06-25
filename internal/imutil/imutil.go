@@ -181,21 +181,33 @@ func BlueMargin(img *image.RGBA) (margin, center int) {
 // Returns 0 if the image is entirely white.
 //
 // faithful: main.ts getLeftEdge — full-image scan, minimum x of non-white pixel.
+//
+// Implementation scans img.Pix directly (4 bytes per pixel, no per-pixel
+// allocation) and breaks out of each row as soon as the current best column
+// is confirmed, halving the expected work when ink is centred.
 func LeftEdge(img *image.RGBA) int {
 	b := img.Bounds()
-	leftEdge := b.Max.X
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < leftEdge; x++ {
-			c := img.RGBAAt(x, y)
-			if c.R != 255 || c.G != 255 || c.B != 255 {
+	w := b.Dx()
+	h := b.Dy()
+	leftEdge := w // relative to b.Min.X; sentinel = width (all-white)
+	for y := range h {
+		rowOff := img.PixOffset(b.Min.X, b.Min.Y+y)
+		row := img.Pix[rowOff : rowOff+w*4 : rowOff+w*4]
+		for x := range leftEdge { // only scan up to current best
+			off := x * 4
+			if row[off] != 255 || row[off+1] != 255 || row[off+2] != 255 {
 				leftEdge = x
+				break // found a non-white pixel in this row; earlier columns impossible
 			}
 		}
+		if leftEdge == 0 {
+			break // can't improve further
+		}
 	}
-	if leftEdge == b.Max.X {
+	if leftEdge == w {
 		return 0
 	}
-	return leftEdge
+	return b.Min.X + leftEdge
 }
 
 // Margins scans the middle row of img for the first red pixel (R=255, G≠255,

@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"github.com/oioio-space/unpixel/internal/deblur"
+	"github.com/oioio-space/unpixel/internal/imutil"
 )
 
 // Renderer renders candidate text to an RGBA image, placing a blue sentinel
@@ -458,7 +459,7 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	if redacted == nil {
 		return nil, ErrNilImage
 	}
-	rgba := toRGBA(redacted)
+	rgba := imutil.ToRGBA(redacted)
 	// Auto-contrast: the renderer draws dark text on a light background, so a
 	// dark-background image (e.g. a dark-mode screenshot) is inverted to match.
 	// Light-background images are left untouched, so the faithful path is byte
@@ -489,7 +490,7 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 // uses it to decide whether to invert the image so it matches the dark-on-light
 // rendering pipeline.
 func InferDarkBackground(img image.Image) bool {
-	return darkBackground(toRGBA(img))
+	return darkBackground(imutil.ToRGBA(img))
 }
 
 // darkBackground samples the image border (where the background usually shows)
@@ -543,7 +544,7 @@ func invertColors(img *image.RGBA) *image.RGBA {
 // to fill a non-positive Config.BlockSize, falling back to DefaultBlockSize when
 // inference returns 0.
 func InferBlockSize(img image.Image) int {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 2 || h < 2 {
@@ -579,7 +580,7 @@ func InferBlockSize(img image.Image) int {
 // wins (preserving byte-identical behaviour for clean mosaics). When the image
 // is too small, uniform, or has no detectable period, it returns (0, 0).
 func InferBlockSizeRobust(img image.Image) (blockSize int, support float64) {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 2 || h < 2 {
@@ -899,7 +900,7 @@ func gcd(a, b int) int {
 // larger value is the estimated blur radius. The estimate is a starting point
 // for the σ-sweep in RecoverBlurred — accuracy within ±35% is sufficient.
 func InferBlurSigma(img image.Image) float64 {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 3 || h < 3 {
@@ -985,7 +986,7 @@ func InferBlurSigma(img image.Image) float64 {
 // than as an exact value. Measure it on the redacted region (see LocateRedaction)
 // or on a screenshot's sharp reference text, whichever is cleaner.
 func InferFontSize(img image.Image) float64 {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 2 || h < 2 {
@@ -1055,7 +1056,7 @@ func lum601(r, g, b uint8) int {
 //
 // Returns impulse_count / samples_checked. An empty or sub-3×3 image returns 0.
 func InferImpulseNoise(img image.Image) float64 {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 3 || h < 3 {
@@ -1156,7 +1157,7 @@ func abs(x int) int {
 // whole image is skewed by sharp surrounding text (on the Bishop Fox challenge,
 // whole-image σ≈0.6 vs ≈5.6 on the blurred line), so crop to this box first.
 func LocateRedaction(img image.Image) (image.Rectangle, bool) {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 4 || h < 4 {
@@ -1339,21 +1340,6 @@ func applyDefaults(cfg Config) Config {
 		cfg.CacheSize = DefaultCacheSize
 	}
 	return cfg
-}
-
-// toRGBA converts any image.Image to *image.RGBA.
-func toRGBA(src image.Image) *image.RGBA {
-	if r, ok := src.(*image.RGBA); ok {
-		return r
-	}
-	b := src.Bounds()
-	dst := image.NewRGBA(b)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			dst.Set(x, y, src.At(x, y))
-		}
-	}
-	return dst
 }
 
 // Option configures a Config for the high-level Recover helpers. Options are

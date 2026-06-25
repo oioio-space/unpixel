@@ -3,6 +3,8 @@ package unpixel
 import (
 	"image"
 	"slices"
+
+	"github.com/oioio-space/unpixel/internal/imutil"
 )
 
 // BlockGrid describes a detected axis-aligned mosaic lattice.
@@ -39,7 +41,7 @@ type BlockGrid struct {
 // of boundary positions consistent with that modal residue, averaged over X
 // and Y axes.
 func InferBlockGrid(img image.Image) (BlockGrid, bool) {
-	rgba := toRGBA(img)
+	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 2 || h < 2 {
