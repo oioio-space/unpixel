@@ -1009,3 +1009,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `0afc3ef` 2026-06-25 — docs(progress): add V2 axes — LM-in-objective (A1) + render-mismatch calibration (A2) _(1 fichiers)_
 - `4ad77fd` 2026-06-25 — docs(progress): add axis A3 — learned extensions (train-Python / infer-pure-Go) _(1 fichiers)_
 - `0b5258c` 2026-06-25 — docs(progress): add axis A4 — verification-selected decoder ensemble/cascade _(1 fichiers)_
+- `960100c` 2026-06-25 — docs(journal): v0.14.0 run + perspective decoder tracking (re-added) _(4 fichiers)_
