@@ -1032,3 +1032,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `85c682b` 2026-06-25 — perf(search): marginColumn direct Pix[] middle-row scan (−59%) _(4 fichiers)_
 - `f236cd7` 2026-06-25 — perf(windowhmm,search): sparse Viterbi + per-Model memo + intra-node worker budget _(9 fichiers)_
 - `fb45a14` 2026-06-25 — perf(search,deblur): evalChildren prealloc/unbox + deblur FFT twiddle tables _(5 fichiers)_
+- `1f1b3a4` 2026-06-26 — feat(realworld): opt-in zero-config capture features — auto colorspace/crop/calibrate, prefix constraint _(17 fichiers)_
