@@ -179,6 +179,65 @@ func TestProjector_trueScoresLowWrongHigh(t *testing.T) {
 	}
 }
 
+// TestPartialDistance verifies PartialDistance boundary conditions:
+//   - xFrac ≤ 0 returns 1 (maximally different, no pixels compared)
+//   - xFrac ≥ 1 delegates to Distance (same result)
+//   - xFrac ∈ (0,1) compares only the left fraction
+func TestPartialDistance(t *testing.T) {
+	const rectW, rectH = 64, 48
+	const photoW, photoH = 200, 170
+
+	trueRect := blockPattern(rectW, rectH, false)
+	quad := [4]Point{{20, 15}, {180, 30}, {170, 150}, {10, 140}}
+	rectToPhoto, err := RectToQuad(rectW, rectH, quad)
+	if err != nil {
+		t.Fatalf("RectToQuad: %v", err)
+	}
+	photoToRect, err := rectToPhoto.Inverse()
+	if err != nil {
+		t.Fatalf("Inverse: %v", err)
+	}
+	photo := Warp(trueRect, photoToRect, photoW, photoH)
+
+	proj, err := NewProjector(photo, quad, rectW, rectH)
+	if err != nil {
+		t.Fatalf("NewProjector: %v", err)
+	}
+
+	// xFrac ≤ 0 → always 1.
+	got := proj.PartialDistance(trueRect, 0)
+	if got != 1 {
+		t.Errorf("PartialDistance(xFrac=0): got %.4f, want 1.0", got)
+	}
+	got = proj.PartialDistance(trueRect, -0.5)
+	if got != 1 {
+		t.Errorf("PartialDistance(xFrac=-0.5): got %.4f, want 1.0", got)
+	}
+
+	// xFrac ≥ 1 → delegates to Distance; results must be equal.
+	wantFull := proj.Distance(trueRect)
+	got = proj.PartialDistance(trueRect, 1.0)
+	if got != wantFull {
+		t.Errorf("PartialDistance(xFrac=1.0): got %.6f, want %.6f (same as Distance)", got, wantFull)
+	}
+	got = proj.PartialDistance(trueRect, 2.0)
+	if got != wantFull {
+		t.Errorf("PartialDistance(xFrac=2.0): got %.6f, want %.6f (same as Distance)", got, wantFull)
+	}
+
+	// xFrac = 0.5 → left half only; true candidate still matches.
+	dHalf := proj.PartialDistance(trueRect, 0.5)
+	if dHalf > 0.05 {
+		t.Errorf("PartialDistance(xFrac=0.5, true candidate): got %.4f, want ≤ 0.05", dHalf)
+	}
+	// Wrong candidate (inverted) should score higher than true candidate.
+	dHalfWrong := proj.PartialDistance(blockPattern(rectW, rectH, true), 0.5)
+	if dHalfWrong <= dHalf+0.05 {
+		t.Errorf("PartialDistance wrong > true: got dWrong=%.4f, dTrue=%.4f (want dWrong > dTrue+0.05)",
+			dHalfWrong, dHalf)
+	}
+}
+
 func TestNewProjector_errors(t *testing.T) {
 	photo := patternImage(32, 32)
 	quad := [4]Point{{0, 0}, {16, 0}, {16, 16}, {0, 16}}

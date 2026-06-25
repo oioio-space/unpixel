@@ -32,6 +32,8 @@ type spec struct {
 	BlockSize   int           `json:"block_size"`
 	PaddingTop  int           `json:"padding_top"`
 	PaddingLeft int           `json:"padding_left"`
+	RectW       int           `json:"rect_w"`
+	RectH       int           `json:"rect_h"`
 	PhotoW      int           `json:"photo_w"`
 	PhotoH      int           `json:"photo_h"`
 	Quad        [4][2]float64 `json:"quad"`
@@ -86,6 +88,7 @@ func run(out string) error {
 			Name: c.Name, File: file, Text: c.Text, Charset: c.Charset,
 			FontSize: c.FontSize, BlockSize: c.BlockSize,
 			PaddingTop: c.PaddingTop, PaddingLeft: c.PaddingLeft,
+			RectW: rw, RectH: rh,
 			PhotoW: photoW, PhotoH: photoH,
 			Quad: [4][2]float64{
 				{quad[0].X, quad[0].Y},

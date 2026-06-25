@@ -101,7 +101,7 @@ unpixel --remosaic-linear --redaction blur gimp-output.png               # linea
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
 | `--timeout` | `0` (none) | Max recovery time |
 | `--l0-deblur` | off | Non-blind Pan-CVPR-2014 L0 text deblur (requires a known σ from blur-sigma inference) |
-| `--rectify` | — | Decode a perspective-distorted redaction: 4 quad corners `"x0,y0 x1,y1 x2,y2 x3,y3"` (TL TR BR BL, photo px). Pin `--block-size`; grid auto-detection is unreliable on the rectified crop. Takes precedence over other decoders |
+| `--rectify` | — | Decode a perspective-distorted redaction: 4 quad corners `"x0,y0 x1,y1 x2,y2 x3,y3"` (TL TR BR BL, photo px). Uses a pure forward-model beam search: candidates are rendered and re-pixelated at axis-aligned block size, then scored directly against the native photo pixels via the planar homography — no rectify resampling. Decodes correctly when `--block-size` and `--font` match the original. Takes precedence over other decoders |
 
 > **Tip:** lower block sizes carry less information per glyph, so a tighter
 > `--threshold` (e.g. `0.1`) prunes coincidental matches and lets the whole-image score

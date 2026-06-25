@@ -19,72 +19,86 @@ type perspectiveFixture struct {
 	Charset   string        `json:"charset"`
 	FontSize  float64       `json:"font_size"`
 	BlockSize int           `json:"block_size"`
+	RectW     int           `json:"rect_w"` // true rendered width; 0 → derive from quad
+	RectH     int           `json:"rect_h"` // true rendered height; 0 → derive from quad
 	Quad      [4][2]float64 `json:"quad"`
 }
 
-// TestDecodePerspective loads every fixture from testdata/perspective/manifest.json,
-// calls DecodePerspective with the manifest quad and charset, and asserts:
-//   - Result.Distance ≤ 0.15 (forward-model geometry is self-consistent), and
-//   - Result.Text matches the manifest text (logged, not hard-failed, for flakiness).
-func TestDecodePerspective(t *testing.T) {
-	ctx := t.Context()
-
+// loadPerspectiveFixtures reads the manifest and returns all entries.
+func loadPerspectiveFixtures(tb testing.TB) []perspectiveFixture {
+	tb.Helper()
 	data, err := os.ReadFile("../testdata/perspective/manifest.json") // #nosec G304 -- test fixture path
 	if err != nil {
-		t.Fatalf("read manifest: got %v, want nil", err)
+		tb.Fatalf("read manifest: got %v, want nil", err)
 	}
 	var fixtures []perspectiveFixture
 	if err = json.Unmarshal(data, &fixtures); err != nil {
-		t.Fatalf("parse manifest: got %v, want nil", err)
+		tb.Fatalf("parse manifest: got %v, want nil", err)
 	}
 	if len(fixtures) == 0 {
-		t.Fatal("manifest has no fixtures")
+		tb.Fatal("manifest has no fixtures")
 	}
+	return fixtures
+}
+
+// loadPhoto opens and decodes the PNG at path relative to testdata/perspective/.
+func loadPhoto(tb testing.TB, file string) image.Image {
+	tb.Helper()
+	imgPath := "../testdata/perspective/" + file
+	f, err := os.Open(imgPath) // #nosec G304 -- test fixture path
+	if err != nil {
+		tb.Fatalf("open %q: got %v, want nil", imgPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	photo, _, err := image.Decode(f)
+	if err != nil {
+		tb.Fatalf("decode %q: got %v, want nil", file, err)
+	}
+	return photo
+}
+
+// fixtureQuad converts the manifest [4][2]float64 layout to [4]rectify.Point.
+func fixtureQuad(raw [4][2]float64) [4]rectify.Point {
+	return [4]rectify.Point{
+		{X: raw[0][0], Y: raw[0][1]},
+		{X: raw[1][0], Y: raw[1][1]},
+		{X: raw[2][0], Y: raw[2][1]},
+		{X: raw[3][0], Y: raw[3][1]},
+	}
+}
+
+// TestDecodePerspective loads every fixture from testdata/perspective/manifest.json,
+// calls DecodePerspective with the manifest quad, charset, font size, and block
+// size, and asserts EXACT decode for each fixture. The fixtures were rendered
+// with Liberation Sans / font 32 / block 8 / pad 8,8; using matching candidate
+// parameters makes the true string the global distance minimum.
+func TestDecodePerspective(t *testing.T) {
+	ctx := t.Context()
+	fixtures := loadPerspectiveFixtures(t)
 
 	for _, fix := range fixtures {
 		t.Run(fix.Name, func(t *testing.T) {
-			imgPath := "../testdata/perspective/" + fix.File
-			f, err := os.Open(imgPath) // #nosec G304 -- test fixture path
-			if err != nil {
-				t.Fatalf("open %q: got %v, want nil", imgPath, err)
-			}
-			defer func() { _ = f.Close() }()
-
-			photo, _, err := image.Decode(f)
-			if err != nil {
-				t.Fatalf("decode %q: got %v, want nil", fix.File, err)
-			}
-
-			quad := [4]rectify.Point{
-				{X: fix.Quad[0][0], Y: fix.Quad[0][1]},
-				{X: fix.Quad[1][0], Y: fix.Quad[1][1]},
-				{X: fix.Quad[2][0], Y: fix.Quad[2][1]},
-				{X: fix.Quad[3][0], Y: fix.Quad[3][1]},
-			}
+			photo := loadPhoto(t, fix.File)
 
 			res, err := mosaictext.DecodePerspective(ctx, photo,
-				mosaictext.WithPerspectiveQuad(quad),
-				mosaictext.WithPerspectiveCharset(fix.Charset),
-				mosaictext.WithPerspectiveFont("Liberation Sans"),
+				mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 				mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+				mosaictext.WithPerspectiveCharset(fix.Charset),
+				mosaictext.WithPerspectiveFontSize(fix.FontSize),
+				mosaictext.WithPerspectiveRectSize(fix.RectW, fix.RectH),
+				// Default embedded font (Liberation Sans) matches the fixture renderer.
 			)
 			if err != nil {
 				t.Fatalf("DecodePerspective: got %v, want nil", err)
 			}
 
-			const distThreshold = 0.15
-			if got, want := res.Distance, distThreshold; got > want {
-				t.Errorf("Distance = %.4f, want ≤ %.4f (geometry+projection not self-consistent)", got, want)
-			}
-
-			if res.Text == fix.Text {
-				t.Logf("Text match: got %q == want %q (correct)", res.Text, fix.Text)
-			} else {
-				t.Logf("Text mismatch: got %q, want %q (logged, not failed)", res.Text, fix.Text)
-			}
-
 			t.Logf("fixture=%s rectW=%d rectH=%d dist=%.4f text=%q",
 				fix.Name, res.RectW, res.RectH, res.Distance, res.Text)
+
+			got, want := res.Text, fix.Text
+			if got != want {
+				t.Errorf("Text: got %q, want %q (dist=%.4f)", got, want, res.Distance)
+			}
 		})
 	}
 }
@@ -120,72 +134,111 @@ func TestDecodePerspectiveDegenerateQuad(t *testing.T) {
 }
 
 // TestDecodePerspectiveWithFontFile exercises the WithPerspectiveFontFile and
-// WithPerspectiveLinear option paths by running DecodePerspective with the
-// first fixture using raw TTF bytes loaded from the bundled Liberation Sans font.
+// WithPerspectiveLinear option paths using the first fixture.
 func TestDecodePerspectiveWithFontFile(t *testing.T) {
 	ctx := t.Context()
-
-	data, err := os.ReadFile("../testdata/perspective/manifest.json") // #nosec G304 -- test fixture path
-	if err != nil {
-		t.Fatalf("read manifest: got %v, want nil", err)
-	}
-	var fixtures []perspectiveFixture
-	if err = json.Unmarshal(data, &fixtures); err != nil || len(fixtures) == 0 {
-		t.Fatalf("parse manifest: got %v len=%d", err, len(fixtures))
-	}
+	fixtures := loadPerspectiveFixtures(t)
 	fix := fixtures[0]
 
-	imgPath := "../testdata/perspective/" + fix.File
-	f, err := os.Open(imgPath) // #nosec G304 -- test fixture path
-	if err != nil {
-		t.Fatalf("open %q: got %v, want nil", imgPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	photo, _, err := image.Decode(f)
-	if err != nil {
-		t.Fatalf("decode: got %v, want nil", err)
-	}
+	photo := loadPhoto(t, fix.File)
 
-	// Load the Liberation Sans TTF from the bundled font path so we can supply
-	// it via WithPerspectiveFontFile, exercising that branch.
 	ttfData, err := os.ReadFile("../fonts/embed/LiberationSans-Regular.ttf") // #nosec G304 -- test font path
 	if err != nil {
 		t.Skip("LiberationSans-Regular.ttf not found at expected path — skipping font-file branch test")
 	}
 
-	quad := [4]rectify.Point{
-		{X: fix.Quad[0][0], Y: fix.Quad[0][1]},
-		{X: fix.Quad[1][0], Y: fix.Quad[1][1]},
-		{X: fix.Quad[2][0], Y: fix.Quad[2][1]},
-		{X: fix.Quad[3][0], Y: fix.Quad[3][1]},
-	}
-
-	// WithPerspectiveLinear(true): exercises linear=1 branch.
+	// WithPerspectiveFontFile exercises the explicit-TTF branch.
 	res, err := mosaictext.DecodePerspective(ctx, photo,
-		mosaictext.WithPerspectiveQuad(quad),
+		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 		mosaictext.WithPerspectiveCharset(fix.Charset),
 		mosaictext.WithPerspectiveFontFile(ttfData),
 		mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
-		mosaictext.WithPerspectiveLinear(true),
+		mosaictext.WithPerspectiveFontSize(fix.FontSize),
+		mosaictext.WithPerspectiveRectSize(fix.RectW, fix.RectH),
+		mosaictext.WithPerspectiveLinear(true), // accepted silently (no effect)
 	)
 	if err != nil {
 		t.Fatalf("DecodePerspective with font file: got %v, want nil", err)
 	}
-	if got, want := res.Distance, 0.15; got > want {
-		t.Errorf("Distance = %.4f, want ≤ %.4f", got, want)
-	}
 	t.Logf("font-file path: dist=%.4f text=%q", res.Distance, res.Text)
 
-	// WithPerspectiveLinear(false): exercises linear=0 branch. Use empty fontTTF
-	// to fall through to the font-name path (already covered), just verifying no panic.
+	// WithPerspectiveLinear(false) exercises that option branch (no effect).
 	_, err = mosaictext.DecodePerspective(ctx, photo,
-		mosaictext.WithPerspectiveQuad(quad),
+		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 		mosaictext.WithPerspectiveCharset(fix.Charset),
 		mosaictext.WithPerspectiveFont("Liberation Sans"),
 		mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+		mosaictext.WithPerspectiveFontSize(fix.FontSize),
+		mosaictext.WithPerspectiveRectSize(fix.RectW, fix.RectH),
 		mosaictext.WithPerspectiveLinear(false),
 	)
 	if err != nil {
 		t.Fatalf("DecodePerspective linear=false: got %v, want nil", err)
+	}
+}
+
+// TestPerspectiveOptions exercises WithPerspectiveBeamWidth and
+// WithPerspectiveMaxLen by running DecodePerspective on the first fixture with
+// tightly bounded beam parameters. The decode result is not asserted — the test
+// only verifies that both options are accepted and that the search completes
+// without error.
+func TestPerspectiveOptions(t *testing.T) {
+	ctx := t.Context()
+	fixtures := loadPerspectiveFixtures(t)
+	fix := fixtures[0] // persp_go — smallest fixture (charset "go abcd")
+
+	photo := loadPhoto(t, fix.File)
+
+	_, err := mosaictext.DecodePerspective(ctx, photo,
+		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
+		mosaictext.WithPerspectiveCharset(fix.Charset),
+		mosaictext.WithPerspectiveFontSize(fix.FontSize),
+		mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+		mosaictext.WithPerspectiveRectSize(fix.RectW, fix.RectH),
+		mosaictext.WithPerspectiveBeamWidth(2),
+		mosaictext.WithPerspectiveMaxLen(2),
+	)
+	if err != nil {
+		t.Fatalf("DecodePerspective with BeamWidth=2/MaxLen=2: got %v, want nil", err)
+	}
+}
+
+// sinkPerspective is a package-level sink for benchmark results to prevent
+// the compiler from eliminating the decode call.
+var sinkPerspective mosaictext.PerspectiveResult
+
+// BenchmarkDecodePerspective measures the pure forward-model beam search over
+// the persp_cat fixture (3-character text, charset "cat eoabd", block 8).
+func BenchmarkDecodePerspective(b *testing.B) {
+	fixtures := loadPerspectiveFixtures(b)
+	var fix perspectiveFixture
+	for _, f := range fixtures {
+		if f.Name == "persp_cat" {
+			fix = f
+			break
+		}
+	}
+	if fix.Name == "" {
+		b.Fatal("persp_cat fixture not found in manifest")
+	}
+
+	photo := loadPhoto(b, fix.File)
+
+	quad := fixtureQuad(fix.Quad)
+	ctx := b.Context()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		res, err := mosaictext.DecodePerspective(ctx, photo,
+			mosaictext.WithPerspectiveQuad(quad),
+			mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
+			mosaictext.WithPerspectiveCharset(fix.Charset),
+			mosaictext.WithPerspectiveFontSize(fix.FontSize),
+			mosaictext.WithPerspectiveRectSize(fix.RectW, fix.RectH),
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+		sinkPerspective = res
 	}
 }

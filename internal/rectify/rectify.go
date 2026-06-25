@@ -298,8 +298,16 @@ func NewProjector(photo *image.RGBA, quad [4]Point, rectW, rectH int) (*Projecto
 
 // Distance returns the mean per-channel RGB difference, normalised to [0,1],
 // between the photo and the candidate projected into the photo frame, averaged
-// over the photo pixels that fall inside the redaction quad. candRect is the
-// candidate already rendered and re-pixelated at rectW×rectH (axis-aligned).
+// over the photo pixels that fall inside the redaction quad.
+//
+// The candidate is sampled at a normalised position: a photo pixel whose
+// preimage in rect space lands at (r.X, r.Y) ∈ [0,rectW)×[0,rectH) is mapped
+// to (r.X/rectW × candW, r.Y/rectH × candH) in the candidate's own pixel
+// coordinates, where candW×candH are the candidate bounds. This makes Distance
+// candidate-size-independent: a candidate rendered at any size is stretched to
+// fill the quad and compared correctly — the caller does not need to pre-scale
+// the candidate to exactly rectW×rectH.
+//
 // Only the true text reproduces the photo's projected blocks, so the true
 // candidate scores near zero and wrong candidates score higher — the same
 // generate-and-test signal as the flat pipeline, but perspective-correct.
@@ -307,16 +315,68 @@ func NewProjector(photo *image.RGBA, quad [4]Point, rectW, rectH int) (*Projecto
 // It returns 1 (maximally different) when no photo pixel falls inside the quad.
 func (p *Projector) Distance(candRect *image.RGBA) float64 {
 	cb := candRect.Bounds()
+	candW := float64(cb.Dx())
+	candH := float64(cb.Dy())
 	cmaxX, cmaxY := cb.Dx()-1, cb.Dy()-1
+	rW := float64(p.rectW)
+	rH := float64(p.rectH)
 	var sum float64
 	var n int
 	for y := p.minY; y < p.maxY; y++ {
 		for x := p.minX; x < p.maxX; x++ {
 			r := p.photoToRect.Apply(Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
-			if r.X < 0 || r.Y < 0 || r.X >= float64(p.rectW) || r.Y >= float64(p.rectH) {
+			if r.X < 0 || r.Y < 0 || r.X >= rW || r.Y >= rH {
 				continue // outside the redaction quad
 			}
-			cr, cg, cbl, _ := sampleBilinear(candRect, r.X-0.5, r.Y-0.5, cmaxX, cmaxY)
+			// Normalise the rect-space coordinate to the candidate's own bounds
+			// so a candidate of any size is stretched to fill the quad.
+			cx := r.X / rW * candW
+			cy := r.Y / rH * candH
+			cr, cg, cbl, _ := sampleBilinear(candRect, cx-0.5, cy-0.5, cmaxX, cmaxY)
+			o := p.photo.PixOffset(x, y)
+			sum += absDiff(p.photo.Pix[o], cr) + absDiff(p.photo.Pix[o+1], cg) + absDiff(p.photo.Pix[o+2], cbl)
+			n++
+		}
+	}
+	if n == 0 {
+		return 1
+	}
+	return sum / (float64(n) * 3 * 255)
+}
+
+// PartialDistance is like [Distance] but compares only the left xFrac fraction
+// of the quad in rect space (xFrac ∈ (0,1]). Photo pixels whose rect-space
+// preimage has r.X ≥ xFrac*rectW are skipped.
+//
+// This is used during beam search to score a prefix candidate of width
+// candW against only the portion of the quad the prefix fills, avoiding
+// the right-edge white-padding penalty that would otherwise rank a correct
+// short prefix lower than wrong candidates of the same length.
+func (p *Projector) PartialDistance(candRect *image.RGBA, xFrac float64) float64 {
+	if xFrac <= 0 {
+		return 1
+	}
+	if xFrac >= 1 {
+		return p.Distance(candRect)
+	}
+	cb := candRect.Bounds()
+	candW := float64(cb.Dx())
+	candH := float64(cb.Dy())
+	cmaxX, cmaxY := cb.Dx()-1, cb.Dy()-1
+	rW := float64(p.rectW)
+	rH := float64(p.rectH)
+	xLimit := xFrac * rW
+	var sum float64
+	var n int
+	for y := p.minY; y < p.maxY; y++ {
+		for x := p.minX; x < p.maxX; x++ {
+			r := p.photoToRect.Apply(Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+			if r.X < 0 || r.Y < 0 || r.X >= xLimit || r.Y >= rH {
+				continue
+			}
+			cx := r.X / rW * candW
+			cy := r.Y / rH * candH
+			cr, cg, cbl, _ := sampleBilinear(candRect, cx-0.5, cy-0.5, cmaxX, cmaxY)
 			o := p.photo.PixOffset(x, y)
 			sum += absDiff(p.photo.Pix[o], cr) + absDiff(p.photo.Pix[o+1], cg) + absDiff(p.photo.Pix[o+2], cbl)
 			n++
