@@ -577,6 +577,48 @@ corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (
 - [ ] **Émissions HMM robustes au JPEG/offset** (P8 #2 suite) : généraliser le trained-HMM (alnum +
       augmentation JPEG + balayage de phase) — le gap offset/géométrie reste le blocage `wild`.
 
+### 🧭 Axes V2 — moteur d'inversion (revue externe, 2026-06-25)
+
+Deux directions confirmées indépendamment par une revue externe (cf. discussion archivée) ;
+elles **convergent** avec les murs ci-dessus et respectent l'éthos (pur-Go, no-CGO, sortie
+*certaine* et non *plausible*). NB : la revue recommandait surtout des pistes **déjà livrées**
+(inférence block/σ, beam, HMM/Viterbi, ref-match, varfont, perspective, mémoïsation, merge //
+déterministe) ou **incompatibles** avec nos contraintes (differentiable-rendering DiffVG/PyTorch3D,
+Chrome headless, GPU, LM transformer) ; on n'en retient donc que ces deux-ci. **À planifier, pas
+encore réalisé.**
+
+- [ ] **A1 — Prior de langue *dans* l'objectif** (pas seulement en départage). Fusionner un score
+      linguistique (n-gram/KenLM **pur-Go**, ou émissions HMM apprises) au score image :
+      `score = dist_image − λ·logP(texte)`. C'est le déblocage du *mur de scoring par mot* (cf.
+      mémoire `blind-sentence-scoring-wall`) et le prolongement de B4. Garde-fou : le prior départage,
+      il **n'écrase jamais** une évidence image nette (cf. `how-it-works.md` § plausibilité).
+- [ ] **A2 — Réduction du *model mismatch* par calibration de rendu.** Le mur réel-monde n'est pas
+      l'algo de recherche mais l'écart renderer↔capture (AA, hinting, gamma, sous-pixel, échelle,
+      JPEG). Étendre `CalibrateFromVisible`/`varfont` (optimiseur **sans-gradient** Nelder-Mead/CMA-ES,
+      pas d'autodiff) pour ajuster ces paramètres depuis le texte clair adjacent, **et** enrichir le
+      forward-model (simuler AA/gamma/JPEG dans l'opérateur, dans la lignée de `--remosaic`/`--normalize`).
+      Levier le plus fort sur `real`/`wild`. Sous-produit utile : sortie **probabiliste calibrée**
+      (postérieur top-k + confiance), formalisant `TopN`/`Confidence`/`Ambiguity`.
+- [ ] **A3 — Extensions apprises : entraîner en Python, inférer en pur-Go.** L'entraînement est
+      hors-ligne ; le binaire livré reste 100 % Go, no-CGO, statique, multiplateforme — *si* l'inférence
+      est **écrite à la main en Go + poids `go:embed`** (preuve : [`go-gte`](https://github.com/rcarmo/go-gte)
+      binaire auto-suffisant SIMD ; [`go-llama2`](https://github.com/tmc/go-llama2) transformer pur-Go).
+      À **éviter** : `purego→lib native` ([`onnxruntime-purego`](https://github.com/shota3506/onnxruntime-purego),
+      gollama.cpp) qui `dlopen` une .so runtime (casse le binaire auto-suffisant) → opt-in build-tag only ;
+      et CGO+libtorch (exclu). La contrainte passe du *langage* au **modèle** : poids embarquables (~Mo),
+      petit/distillé, appelé **une fois par décodage** (pas par candidat dans la boucle chaude), ops
+      déterministes. Candidats à fort ROI, par ordre :
+      (1) **n-gram LM** (= A1, trivial à embarquer) ;
+      (2) **petit scorer/​métrique perceptuelle légère** ou **estimateur police/AA/gamma** (= A2,
+          petit MLP/CNN hand-rollé) ;
+      (3) **petite SR distillée en assist opt-in** — entraînée sur **NOTRE** dégradation (paires
+          mosaïque/flou via `fixture.Redact`/`genperspective`), pas sur du scene-text optique.
+      ⚠️ Les SR sur étagère ([SGENet](https://github.com/SijieLiu518/SGENet), GlyphSR, TextDiff) sont
+      entraînées sur **TextZoom** (basse-résolution *optique*) → hors-distribution sur nos mosaïques ;
+      utilisables seulement ré-entraînées/distillées sur notre dégradation. **Règle absolue** : tout
+      modèle appris est **proposition/prior** (amorce le beam, départage), **jamais** le verdict
+      « certain » — la vérification reste le modèle direct exact au pixel près.
+
 ### 🧩 Décodage assisté par contexte — exploiter ce qui entoure la rédaction
 
 Le mur dominant sur `real`/`wild` est la **fidélité de police** : on ne possède pas la fonte exacte,
@@ -951,3 +993,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `e853697` 2026-06-25 — feat(rectify): sub-pixel quad corners via edge-line fitting (no decode loss) _(4 fichiers)_
 - `6fcbf8d` 2026-06-25 — test(journal): track the perspective decoder in the evolution matrix _(1 fichiers)_
 - `256a3e8` 2026-06-25 — docs: surface the perspective decoder across README / decoders / API _(4 fichiers)_
+- `0afc3ef` 2026-06-25 — docs(progress): add V2 axes — LM-in-objective (A1) + render-mismatch calibration (A2) _(1 fichiers)_
