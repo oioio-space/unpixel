@@ -54,6 +54,15 @@ goleak-clean via the package `TestMain`). On a 20-core host: **−58.9%** sec/op
 the survivor-only `Distance` change above, the beam is ~3.7× faster than the
 original 5.83 s. `WithPerspectiveWorkers` overrides the worker count.
 
+Perspective beam — reuse one renderer across candidates: a memprofile showed
+`fixture.Redact` re-parsed the font on every candidate (~21% of bytes, via
+`NewXImageFromFonts`). A new reusable `fixture.Redactor` parses the font once and
+is shared across the workers (Render is concurrency-safe). benchstat -count=6
+caged: **allocs −78.7%** (959k → 205k/op) and **B/op −23.4%** (2.83 → 2.17 GiB),
+both p=0.002; sec/op neutral (p=0.24 — parse was not CPU-bound, matching the cpu
+profile). Decode byte-identical. (The remaining 76% of bytes is per-candidate
+`image.NewRGBA` deep in render/pixelate — a future buffer-pool target.)
+
 Raw latest run: see `benchmarks/latest.txt`.
 
 All changes above keep recovery output identical (faithful path unchanged); see the

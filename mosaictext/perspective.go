@@ -255,15 +255,12 @@ func resolveFont(cfg *perspectiveConfig) ([]byte, error) {
 	return nil, nil // use embedded default (Liberation Sans)
 }
 
-// renderCandidate renders the prefix text through the fixture pipeline and
-// returns the re-pixelated image. When ttf is non-nil it uses RedactFont;
-// otherwise it uses Redact (embedded Liberation Sans).
-func renderCandidate(text string, spec fixture.Spec, ttf []byte) (*image.RGBA, error) {
+// renderCandidate renders the prefix text through the reused redactor and
+// returns the re-pixelated image. The shared redactor parses the font once
+// (rather than per candidate) and is safe for concurrent use.
+func renderCandidate(text string, spec fixture.Spec, rd *fixture.Redactor) (*image.RGBA, error) {
 	spec.Text = text
-	if ttf != nil {
-		return fixture.RedactFont(spec, ttf, nil)
-	}
-	return fixture.Redact(spec)
+	return rd.Redact(spec)
 }
 
 // beamHyp is one live hypothesis in the perspective beam search.
@@ -333,6 +330,19 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 		return PerspectiveResult{}, err
 	}
 
+	// One reused renderer for the whole search: the font is parsed once instead
+	// of per candidate (the previous fixture.Redact path re-parsed it every call,
+	// ~21% of allocations). Safe to share across the parallel workers.
+	var redactor *fixture.Redactor
+	if ttf != nil {
+		redactor, err = fixture.NewRedactorFont(ttf, nil)
+	} else {
+		redactor, err = fixture.NewRedactor()
+	}
+	if err != nil {
+		return PerspectiveResult{}, err
+	}
+
 	spec := fixture.Spec{
 		Charset:     cfg.charset,
 		FontSize:    cfg.fontSize,
@@ -382,7 +392,7 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 		evals := make([]beamHyp, len(candidates))
 		widths := make([]int, len(candidates))
 		parallelEval(ctx, len(candidates), cfg.workers, func(i int) {
-			cand, err := renderCandidate(candidates[i], spec, ttf)
+			cand, err := renderCandidate(candidates[i], spec, redactor)
 			if err != nil {
 				return // evals[i] stays zero-valued (nil img) and is skipped below
 			}

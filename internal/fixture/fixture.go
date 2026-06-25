@@ -115,6 +115,38 @@ func RedactFont(s Spec, regularTTF, boldTTF []byte) (*image.RGBA, error) {
 	return redactWith(r, s)
 }
 
+// Redactor renders redactions through a single reused renderer, avoiding the
+// font re-parse that [Redact] and [RedactFont] incur on every call. Reuse it to
+// redact many specs (e.g. a search rendering one candidate per string). Its
+// [Redactor.Redact] method is safe for concurrent use: the underlying renderer's
+// Render is concurrency-safe and the rest of the pipeline is call-local.
+type Redactor struct {
+	r *render.XImage
+}
+
+// NewRedactor returns a [Redactor] using the embedded Liberation Sans font.
+func NewRedactor() (*Redactor, error) {
+	r, err := render.NewXImage()
+	if err != nil {
+		return nil, fmt.Errorf("renderer: %w", err)
+	}
+	return &Redactor{r: r}, nil
+}
+
+// NewRedactorFont returns a [Redactor] using the provided TTF/OTF font bytes.
+// Pass nil for boldTTF to derive bold from the regular face.
+func NewRedactorFont(regularTTF, boldTTF []byte) (*Redactor, error) {
+	r, err := render.NewXImageFromFonts(regularTTF, boldTTF)
+	if err != nil {
+		return nil, fmt.Errorf("renderer: %w", err)
+	}
+	return &Redactor{r: r}, nil
+}
+
+// Redact renders s.Text through the faithful render → crop → pad → pixelate
+// pipeline using the reused renderer, returning a fresh *image.RGBA.
+func (rd *Redactor) Redact(s Spec) (*image.RGBA, error) { return redactWith(rd.r, s) }
+
 // redactWith executes the render → crop → pad → pixelate pipeline using r.
 func redactWith(r *render.XImage, s Spec) (*image.RGBA, error) {
 	pix := pixelate.NewBlockAverage(s.BlockSize)
