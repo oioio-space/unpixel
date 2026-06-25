@@ -36,6 +36,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/urfave/cli/v3"
 	_ "golang.org/x/image/bmp"  // register BMP decoding
@@ -127,6 +128,10 @@ type flagParams struct {
 	visibleText         string // --visible-text: cleartext of the sharp region IN the target image (C1a)
 	visibleRegion       string // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
 	rectify             string // --rectify: "x0,y0 x1,y1 x2,y2 x3,y3" quad for perspective decode
+	autoCrop            bool   // --auto-crop: locate mosaic band and crop before search
+	autoColorspace      bool   // --auto-colorspace: detect linear vs sRGB and pick pixelator
+	autoCalibrate       bool   // --auto-calibrate: seed grid phase / x-stretch from image
+	prefix              string // --prefix: known prefix string to constrain the search
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -2097,6 +2102,35 @@ Examples:
             unpixel --rectify auto -b 8 photo.png`,
 				Value: "",
 			},
+			&cli.BoolFlag{
+				Name: "auto-crop",
+				Usage: "detect the mosaic band inside a larger screenshot and crop to it before search " +
+					"(useful when the redacted region is surrounded by sharp text). Default off.",
+			},
+			&cli.BoolFlag{
+				Name: "auto-colorspace",
+				Usage: "detect whether the mosaic was averaged in linear light (GIMP/GEGL/CSS) or sRGB " +
+					"and select the matching pixelator automatically. Falls back to sRGB when confidence is low. " +
+					"Default off (use --gamma=linear to force linear-light mode).",
+			},
+			&cli.BoolFlag{
+				Name: "auto-calibrate",
+				Usage: "seed grid phase and x-stretch from the mosaic geometry before search. " +
+					"The seed is advisory — offset discovery still covers all origins. Default off.",
+			},
+			&cli.BoolFlag{
+				Name: "auto",
+				Usage: "zero-config real-world path: enables --auto-crop, --auto-colorspace, and --auto-calibrate " +
+					"together. Equivalent to passing all three flags explicitly. Default off.",
+			},
+			&cli.StringFlag{
+				Name: "prefix",
+				Usage: "known prefix of the redacted text (e.g. \"https://\" or \"ERROR: \"); " +
+					"constrains the first len(prefix) character positions to the given runes, " +
+					"reducing the search space dramatically when part of the text is already known. " +
+					"Empty string (default) disables the constraint — byte-identical to unconstrained search.",
+				Value: "",
+			},
 		},
 		Action: run,
 	}
@@ -2173,6 +2207,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		visibleText:         cmd.String("visible-text"),
 		visibleRegion:       cmd.String("visible-region"),
 		rectify:             cmd.String("rectify"),
+		autoCrop:            cmd.Bool("auto-crop") || cmd.Bool("auto"),
+		autoColorspace:      cmd.Bool("auto-colorspace") || cmd.Bool("auto"),
+		autoCalibrate:       cmd.Bool("auto-calibrate") || cmd.Bool("auto"),
+		prefix:              cmd.String("prefix"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -2247,6 +2285,25 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	start := time.Now()
 
 	cfg := buildConfig(p)
+
+	// P5 opt-in features: auto-crop, auto-colorspace, auto-calibrate, prefix.
+	// All are off by default; none of these changes alter behaviour unless the
+	// corresponding flag is set, keeping the panel byte-identical when absent.
+	if p.autoCrop {
+		unpixel.WithAutoCrop()(&cfg)
+	}
+	if p.autoColorspace {
+		unpixel.WithAutoColorspace()(&cfg)
+	}
+	if p.autoCalibrate {
+		unpixel.WithAutoCalibrate()(&cfg)
+	}
+	if p.prefix != "" {
+		unpixel.WithPrefix(p.prefix)(&cfg)
+		if !p.quiet {
+			fmt.Fprintf(os.Stderr, "Prefix constraint: %q (%d chars locked)\n", p.prefix, utf8.RuneCountInString(p.prefix))
+		}
+	}
 
 	// Zero-config σ-search: --redaction blur (or auto-detected blur) with no
 	// explicit --blur-sigma and no user-specified font. RecoverBlurred runs its

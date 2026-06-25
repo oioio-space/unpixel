@@ -201,6 +201,23 @@ func (s BeamStrategy) Search(
 // reuse the offset-discovery / progress-emitting scaffolding for either search.
 type dfsFunc func(ctx context.Context, scorer Scorer, cfg unpixel.Config, offset unpixel.Offset, emit func(unpixel.Eval))
 
+// Offsets is the exported counterpart of the unexported searchOffsets.
+// It discovers grid offsets, runs dfs per surviving offset across cfg.Workers
+// goroutines, and emits one Result per offset followed by a terminal EventDone.
+// Use it to implement custom Strategy types that need offset-discovery scaffolding
+// with a bespoke DFS variant (e.g. GuidedDFSConstrained); pass dfs as a function
+// literal matching this signature — external callers need not name the type.
+func Offsets(
+	ctx context.Context,
+	scorer Scorer,
+	cfg unpixel.Config,
+	out chan<- unpixel.Progress,
+	results chan<- unpixel.Result,
+	dfs dfsFunc,
+) {
+	searchOffsets(ctx, scorer, cfg, out, results, dfs)
+}
+
 // offsetOutcome holds the per-offset search result, produced concurrently and
 // merged deterministically after all offsets complete.
 type offsetOutcome struct {

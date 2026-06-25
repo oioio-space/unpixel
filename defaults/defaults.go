@@ -31,12 +31,14 @@
 package defaults
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/draw"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/lang"
+	"github.com/oioio-space/unpixel/internal/locate"
 	"github.com/oioio-space/unpixel/internal/metric"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
@@ -53,6 +55,10 @@ func init() {
 	unpixel.DefaultComponents = Wire
 	unpixel.DefaultBlurStrategy = func() unpixel.Strategy {
 		return search.NewBeamStrategy(blurDefaultBeamWidth)
+	}
+	unpixel.DefaultLocateMosaicBand = locate.LocateMosaicBand
+	unpixel.DefaultConstrainedStrategy = func(prefix string) unpixel.Strategy {
+		return constrainedGuidedStrategy{prefix: prefix}
 	}
 }
 
@@ -243,4 +249,29 @@ func PixelmatchFastMetric() unpixel.Metric {
 //	cfg := unpixel.Config{Metric: defaults.SSIMMetric(0)}
 func SSIMMetric(window int) unpixel.Metric {
 	return metric.NewSSIM(window)
+}
+
+// constrainedGuidedStrategy implements unpixel.Strategy using GuidedDFSConstrained.
+// It is wired by the DefaultConstrainedStrategy hook when WithPrefix is active.
+type constrainedGuidedStrategy struct {
+	prefix string
+}
+
+// Search runs offset discovery then GuidedDFSConstrained per surviving offset,
+// fanned out across cfg.Workers goroutines with a deterministic merge. It is
+// byte-identical to GuidedStrategy when prefix is empty — GuidedDFSConstrained
+// delegates to GuidedDFS when the constraint returns nil at every position.
+func (s constrainedGuidedStrategy) Search(
+	ctx context.Context,
+	redacted *image.RGBA,
+	cfg unpixel.Config,
+	out chan<- unpixel.Progress,
+	results chan<- unpixel.Result,
+) {
+	scorer := search.NewCachingScorer(search.NewPipelineScorer(redacted, cfg), cfg.CacheSize)
+	c := search.NewPrefixConstraint(s.prefix)
+	dfs := func(ctx context.Context, sc search.Scorer, cfg unpixel.Config, offset unpixel.Offset, emit func(unpixel.Eval)) {
+		search.GuidedDFSConstrained(ctx, sc, cfg, offset, c, emit)
+	}
+	search.Offsets(ctx, scorer, cfg, out, results, dfs)
 }

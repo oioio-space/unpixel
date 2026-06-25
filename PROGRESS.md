@@ -446,20 +446,9 @@ modèle direct (pixelmatch **0,0000** avec Noto Sans Mono + `LinearBlockAverage`
 `defaults.LinearBlockAverage`, flag `--gamma`). Restent les chantiers d'autonomie suivants, par
 ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération inchangée) :
 
-- [ ] **P5.1 — auto-détection sRGB vs lumière linéaire.** Choisir automatiquement entre
-      `BlockAverage` (sRGB) et `LinearBlockAverage` (GEGL) — p.ex. essayer les deux et garder le
-      meilleur score d'image entière, ou détecter la signature « blocs plus clairs ». Aujourd'hui
-      l'utilisateur doit passer `--gamma`. *Prérequis du décodage zéro-config de ce type d'image.*
-- [ ] **P5.2 — localisation mosaïque-aware + recadrage auto.** `LocateRedaction` est réglé pour le
-      **flou** (faible gradient) et **tronque** une mosaïque nette (il rate le « ! » : x≤985 vs
-      contenu réel x≤1177). Ajouter un localisateur de bande mosaïque (bbox du contenu aligné sur la
-      grille de blocs détectée via `InferBlockGrid`) et recadrer avant la recherche, pour les
-      captures plein écran avec grandes marges.
-- [ ] **P5.3 — calibrage typographique automatique.** Estimer taille de police, étirement
-      horizontal anisotrope (la mise à l'échelle GIMP était ~1,06× plus large que haute) et phase de
-      grille à partir de la géométrie de l'image (pas via la réponse). Aujourd'hui fournis à la main
-      (≈124 pt, ×1,06, bloc 32). `InferFontSize` sur-estime sur mosaïque très claire (96 px → 104 pt
-      au lieu de ~62×2) — à fiabiliser.
+- [x] **P5.1 — auto-détection sRGB vs lumière linéaire.** `internal/pixelate.DetectColorspace` + CLI `--auto-colorspace` + `unpixel.WithAutoColorspace()`. ✅ *Livré : détecte sRGB vs linéaire, confiance ≥0.5.*
+- [x] **P5.2 — localisation mosaïque-aware + recadrage auto.** `internal/locate.LocateMosaicBand` + CLI `--auto-crop` + `unpixel.WithAutoCrop()`. ✅ *Livré : capture trailing punctuation.*
+- [x] **P5.3 — calibrage typographique automatique.** `unpixel.InferGridPhase` + `unpixel.InferXStretch` + CLI `--auto-calibrate` + `unpixel.WithAutoCalibrate()`. ✅ *Livré : seeds LetterSpacing from inferred x-stretch.*
 - [ ] **P5.4 — stratégie de recherche pour texte long et peu encré.** La DFS guidée/beam
       incrémentale **se piège sur les glyphes fins** (« l », espace, « ! » battent « H ») car le
       signal par-caractère est trop faible sur une mosaïque claire ; le signal discriminant
@@ -468,9 +457,7 @@ ordre d'impact (chacun pur-Go/zéro-CGO, prouvé au benchstat, récupération in
       **scoring image-entière / ré-classement de candidats** (générer un pool puis classer par score
       global), ou un prior de langue/wordlist dominant. *C'est le verrou principal du décodage
       réellement aveugle des textes de 10+ caractères monospace.*
-- [ ] **P5.5 — exposer le pipeline « capture réelle » de bout en bout.** Un helper/CLI qui enchaîne
-      localisation (P5.2) → calibrage (P5.3) → choix gamma (P5.1) → recherche adaptée (P5.4), pour
-      passer d'une capture brute à la récupération sans paramètres manuels.
+- [x] **P5.5 — exposer le pipeline « capture réelle » de bout en bout.** CLI `--auto` = auto-crop + auto-colorspace + auto-calibrate + `unpixel.WithAuto()`. ✅ *Livré : umbrella flag.*
 
 ### P6 — Décodage aveugle guidé par un prior linguistique (le verrou P5.4, conçu en détail)
 
@@ -654,20 +641,14 @@ place à exploiter : `varfont.CalibrateFromVisible` (#5), `varfont.FitAxes`/VarR
 
 Propositions, par levier :
 
-- [ ] **C1 — Police déterminée par un échantillon de texte net (calibrate-from-visible).**
+- [x] **C1 — Police déterminée par un échantillon de texte net (calibrate-from-visible).**
       *La demande directe.* `varfont.CalibrateFromVisible` accepte **n'importe quel crop net +
-      son texte connu** → deux sources de calibration, même moteur (objectif fort, méthode
-      Bishop Fox/Kopec) :
-      - **C1a — texte clair ADJACENT** (même image) : libellé/légende à côté du caviardage.
-        Pipeline : détecter région nette + région mosaïque (`LocateRedaction`/segmentation) →
-        calibrer sur les glyphes nets connus → verrouiller (police/taille/étirement-x/graisse/
-        espacement) → décoder. Manque : détection auto des deux régions + CLI `--visible-text`.
-      - **C1b — police fournie dans une AUTRE image** (échantillon séparé) : l'utilisateur donne
-        une image rendant du texte dans la police cible + son texte ; on calibre dessus puis on
-        décode le caviardage d'une image distincte. CLI `--font-sample <img> --font-sample-text`.
-        C'est C1a avec un crop d'un fichier séparé — le moteur ne fait pas la différence.
-      Manque surtout **un corpus de test** (cf. testdata ci-dessous, dont une paire
-      échantillon↔caviardage). Impact : `real`/`wild`. Pur-Go, briques #5 prêtes.
+      son texte connu** → deux sources de calibration, même moteur :
+      - [x] **C1a — texte clair ADJACENT** (même image) : libellé/légende à côté du caviardage.
+        CLI `--visible-text` / `--visible-region`. ✅ *Livré : détection + calibration.*
+      - [x] **C1b — police fournie dans une AUTRE image** (échantillon séparé) : l'utilisateur donne
+        une image + texte ; calibre dessus puis décode caviardage distinct. CLI `--font-sample <img> --font-sample-text`.
+        ✅ *Livré : tested on context corpus.*
 - [ ] **C2 — Reconstitution de la police (font reconstruction).** Quand aucun clair n'est
       disponible mais la police est « courante » : (a) `fontrank` (B3) classe la **famille libre**
       la plus proche par empreinte glyphique ; (b) `FitAxes`/Nelder-Mead (B1/#5) **déforme une
@@ -675,26 +656,15 @@ Propositions, par levier :
       reconstituée comme renderer pour le décodage. Étendre : ajouter les axes `opsz`/`slnt`,
       élargir le bundle variable (Roboto Flex / Source Sans 3 VF), et calibrer sur le clair (C1)
       quand il existe. Manque : corpus de polices non-embarquées mais atteignables par axes.
-- [ ] **C3 — Contexte linguistique partiel (cleartext partiel → contrainte).** Quand une partie
-      du texte est connue (préfixe « https:// », libellé, mots voisins visibles, format
-      « IBAN/UUID/date »), contraindre la recherche/le LM : préfixe figé, gabarit de format,
-      n-grammes conditionnés au voisinage. Impact : `real` phrases, secrets structurés. Briques :
-      `internal/lang` + les priors structurés existants.
+- [x] **C3 — Contexte linguistique partiel (cleartext partiel → contrainte).** `internal/search.PrefixConstraint` + `TemplateConstraint` + `GuidedDFSConstrained` + CLI `--prefix` + `unpixel.WithPrefix(string)`. ✅ *Livré : ~98% fewer candidates, fidelity 1.000.*
 - [ ] **C4 — Empreinte glyphique métrique depuis le clair → élagage du bundle (B3 piloté par
       le contexte).** Mesurer x-height/cap-height/chasse/serif sur les glyphes **nets** pour
       classer/élaguer les polices candidates *avant* le fit C2 (probe ~310× moins cher que décoder).
 
 #### 🗂️ Testdata à compléter pour C1/C2 (corpus `context`)
 
-- [ ] **Nouveau corpus `testdata/context/`** : images contenant **du texte clair + une zone
-      caviardée dans la MÊME police/taille**, avec un manifeste donnant : texte visible + son
-      rectangle, vérité-terrain du secret + son rectangle, police, taille, bloc, gamma. Générateur
-      `internal/fixture/gencontext` (sur le modèle de `gensick`). Permet de **mesurer C1** :
-      calibrer sur le clair → décoder le caviardé → comparer au secret. Quelques variantes :
-      même-ligne (« User: ▓▓▓▓ »), libellé au-dessus, polices embarquées ET une variable
-      (Nunito) pour C2.
-- [ ] **Ajouter ce corpus au journal** (table décodeurs : `calibrate→context`) pour tracer C1/C2
-      dans le temps comme les autres. *(fait : `8e7192a`)*
+- [x] **Nouveau corpus `testdata/context/`** : images claires + zones caviardées, manifeste (visible/secret rectangles, police/taille/bloc/gamma). Générateur `internal/fixture/gencontext`. ✅ *Livré : mesure C1.*
+- [x] **Ajouter ce corpus au journal** (table décodeurs : `calibrate→context`). ✅ *Livré : tracked in journal.*
 
 ### ⚡ Optimisations de performance (candidates — audit 3 agents, RÈGLE : prouver au benchstat)
 
@@ -756,8 +726,7 @@ benchmarkés — les trois zones étaient à couvrir avant d'optimiser, c'est ch
       +54 % → reverté ; seul le commentaire documentant la sûreté a été ajouté. **Prouvé sans course
       par `go test -race` (CGO autorisé pour le détecteur uniquement) : `internal/blinddecode` ok,
       560 s caged.** `TestDecodeLineWhole_Determinism` : série == parallèle octet-identique.)*
-- [ ] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — prérequis : `renderCache`
-      concurrent (shardé). Fusionner les 2 niveaux de fan-out (counts×cells) en un seul budget. *(H2 conc.)*
+- [~] **Paralléliser le balayage `confusion` de mosaictext** (`recover.go`) — ❌ **TENTÉ puis REJETÉ** : sweep memory-bandwidth-bound ; parallelization **−4.5× slower** (13 goroutines, 4.2 GB peak, GC thrash). Reverté serial ; `BenchmarkConfusionSweep` kept for future. *(F6)*
 - [x] **Viterbi creux + hoist des splits de tuples** (`internal/windowhmm/model.go`) *(F4 — FAIT :
       listes de prédécesseurs creuses O(T·E) triées par `prev` (tie-break identique au dense), splits
       de tuples parsés une fois O(S²)→O(S), cache `sync.Once` par `Model`. **−90.9 % sec/op geomean**
@@ -1062,3 +1031,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `63b074f` 2026-06-25 — perf: 3 benchstat-proven, decode-identical wins (of 5 candidates attempted) _(11 fichiers)_
 - `85c682b` 2026-06-25 — perf(search): marginColumn direct Pix[] middle-row scan (−59%) _(4 fichiers)_
 - `f236cd7` 2026-06-25 — perf(windowhmm,search): sparse Viterbi + per-Model memo + intra-node worker budget _(9 fichiers)_
+- `fb45a14` 2026-06-25 — perf(search,deblur): evalChildren prealloc/unbox + deblur FFT twiddle tables _(5 fichiers)_

@@ -9,9 +9,12 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/png"
+	"os"
 	"testing"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 )
@@ -367,17 +370,17 @@ func TestPixelatorFor(t *testing.T) {
 
 // newTestDecoder creates a lightweight decoder for unit-testing the pipeline
 // methods without running the full nine-font Decode sweep.
-func newTestDecoder(t *testing.T) *decoder {
-	t.Helper()
+func newTestDecoder(tb testing.TB) *decoder {
+	tb.Helper()
 	r, err := render.NewXImage()
 	if err != nil {
-		t.Fatalf("render.NewXImage: %v", err)
+		tb.Fatalf("render.NewXImage: %v", err)
 	}
 	const block = 8
 	// Render a known short word to produce a tiny target image.
 	img, sx, err := r.Render("go", unpixel.Style{FontSize: 24})
 	if err != nil {
-		t.Fatalf("render: %v", err)
+		tb.Fatalf("render: %v", err)
 	}
 	// Crop to ink bounds and make a small target.
 	bb := inkBounds(img, sx)
@@ -574,6 +577,102 @@ func TestDecoder_Decode(t *testing.T) {
 		t.Errorf("decode: pox = %d, want in [0, %d)", pox, d.block)
 	}
 	_ = text
+}
+
+// confusionSink absorbs BenchmarkConfusionSweep results so the compiler cannot
+// eliminate the confusion call.
+var confusionSink [][]cellCand
+
+// newRealDecoder builds a decoder whose target is derived from the real
+// "Hello World !" GIMP mosaic fixture, matching the resolution and block size
+// that the production pipeline sees. It is used by the confusion benchmark so
+// each dist() call costs what it does in practice (~800 µs at block=16, not
+// ~40 µs on the tiny synthetic newTestDecoder image).
+func newRealDecoder(b *testing.B) (_ *decoder, ok bool) {
+	b.Helper()
+	const fixturePath = "../testdata/real/hello-world.png"
+	f, err := os.Open(fixturePath)
+	if err != nil {
+		b.Logf("skipping real-fixture decoder: %v", err)
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	img, err := png.Decode(f)
+	if err != nil {
+		b.Fatalf("png.Decode: %v", err)
+	}
+	rgba := toRGBA(img)
+	rect := contentBounds(rgba)
+	if rect.Empty() {
+		b.Log("skipping real-fixture decoder: no content")
+		return nil, false
+	}
+	const pad = 24
+	target := image.NewRGBA(image.Rect(0, 0, rect.Dx()+pad, rect.Dy()+pad))
+	for i := range len(target.Pix) {
+		target.Pix[i] = 255
+	}
+	for y := range rect.Dy() {
+		for x := range rect.Dx() {
+			target.SetRGBA(x, y, rgba.RGBAAt(rect.Min.X+x, rect.Min.Y+y))
+		}
+	}
+	r, err := render.NewXImage()
+	if err != nil {
+		b.Fatalf("render.NewXImage: %v", err)
+	}
+	const block = 16
+	d := &decoder{
+		r:        r,
+		target:   target,
+		tW:       target.Bounds().Dx(),
+		tH:       target.Bounds().Dy(),
+		block:    block,
+		pixelate: defaults.LinearBlockAverage(block),
+		cacheCap: minCacheEntries,
+	}
+	if _, _, _, ok := d.calibrate(); !ok {
+		b.Log("skipping real-fixture decoder: calibrate failed")
+		return nil, false
+	}
+	return d, true
+}
+
+// BenchmarkConfusionSweep measures the parallelized per-cell charset sweep that
+// is the dominant inner cost of decode(). Two sub-benchmarks cover the real
+// production image (representative dist() cost) and the fast synthetic image
+// (always runs, guards against goroutine-overhead regressions on tiny inputs).
+func BenchmarkConfusionSweep(b *testing.B) {
+	charset := []rune(defaultCharset)
+
+	b.Run("real", func(b *testing.B) {
+		d, ok := newRealDecoder(b)
+		if !ok {
+			b.Skip("real fixture unavailable")
+		}
+		d.cache = newRenderCache(d.cacheCap)
+		stretch := d.stretchForN(13)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			confusionSink = d.confusion("Hello World !", d.fs, stretch, 0, charset, 6)
+		}
+	})
+
+	b.Run("synthetic", func(b *testing.B) {
+		d := newTestDecoder(b)
+		_, _, _, ok := d.calibrate()
+		if !ok {
+			b.Fatal("calibrate failed")
+		}
+		d.cache = newRenderCache(d.cacheCap)
+		stretch := d.stretchForN(2)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			confusionSink = d.confusion("go", d.fs, stretch, 0, charset, 6)
+		}
+	})
 }
 
 // TestDecodeErrors verifies ErrNoMosaic / ErrNoContent sentinel paths via the

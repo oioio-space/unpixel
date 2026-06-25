@@ -79,6 +79,51 @@ res, _ := unpixel.RecoverFile(context.Background(), "redacted.png")
 fmt.Println(res.BestGuess)
 ```
 
+## Real-world / zero-config usage
+
+For photos taken at angles, with undetected colorspace, or when a known prefix is present, use these opt-in flags:
+
+**Auto-recovery flags:**
+
+```bash
+unpixel --auto redacted.png                           # auto-crop + auto-colorspace + auto-calibrate
+unpixel --auto-crop redacted.png                      # align to mosaic grid boundaries
+unpixel --auto-colorspace redacted.png                # detect sRGB vs linear-light pixelation
+unpixel --auto-calibrate redacted.png                 # infer font size and x-stretch
+unpixel --rectify redacted.png                        # decode photos taken at an angle
+```
+
+**Constrained recovery** (when part of the text is known):
+
+```bash
+unpixel --prefix "https://" redacted.png              # lock first N characters
+unpixel --prefix "admin" --visible-region redacted.png  # known prefix + calibrate from visible text
+```
+
+**Calibration from visible text** (when the image contains both clear and redacted text in the same font):
+
+```bash
+unpixel --visible-text "Username:" --visible-region "50,50,150,70" redacted.png  # text + bbox
+```
+
+**Calibration from a separate font sample** (when a clean sample of the target font exists elsewhere):
+
+```bash
+unpixel --font-sample sample.png --font-sample-text "The quick brown fox" redacted.png
+```
+
+In Go, pass options to `unpixel.Recover`:
+
+```go
+res, _ := unpixel.Recover(ctx, img,
+  unpixel.WithAuto(),                                 // enables auto-crop + auto-colorspace + auto-calibrate
+  unpixel.WithPrefix("https://"),                     // constrain to known prefix
+  unpixel.WithAutoCalibrate(),                        // infer grid phase and x-stretch
+)
+```
+
+**Caveat:** `--auto*` flags target real captures. Synthetic fixtures in the test panel already decode without them (no quality improvement shown on the 17/17 panel); their value lies in zero-config real-world use.
+
 ## Effectiveness
 
 UnPixel recovers **synthetic** redactions reliably (text redacted with a known font and

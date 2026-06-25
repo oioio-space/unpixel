@@ -47,6 +47,7 @@ import (
 
 	"github.com/oioio-space/unpixel/internal/deblur"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
 // Renderer renders candidate text to an RGBA image, placing a blue sentinel
@@ -200,6 +201,28 @@ type Config struct {
 	// preprocessing step before the σ-search. Set via WithL0Deblur; never set
 	// directly (unexported to keep the zero Config clean).
 	l0deblur *deblur.L0Options
+
+	// autoCrop, when true, locates the mosaic band in the image via
+	// locate.LocateMosaicBand and crops to it before search. Set via
+	// WithAutoCrop; never set directly.
+	autoCrop bool
+
+	// autoColorspace, when true, calls pixelate.DetectColorspace on the
+	// located/cropped target and selects the linear or sRGB pixelator
+	// accordingly. Falls back to the default (sRGB) when confidence < 0.5.
+	// Set via WithAutoColorspace; never set directly.
+	autoColorspace bool
+
+	// autoCalibrate, when true, calls InferGridPhase and InferXStretch on the
+	// mosaic and seeds the search accordingly (grid phase → reported diagnostic;
+	// x-stretch → Style.LetterSpacing seed). Set via WithAutoCalibrate; never
+	// set directly.
+	autoCalibrate bool
+
+	// prefix is a known prefix string that constrains the first len(prefix)
+	// characters of every candidate. Set via WithPrefix; empty means no
+	// constraint (the default, byte-identical to unconstrained search).
+	prefix string
 }
 
 // Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
@@ -474,14 +497,82 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	// are left byte-identical — the gate inside detectAndDeskew returns early
 	// when the baseline confidence is already high.
 	rgba, skewInfo, grid := detectAndDeskew(rgba)
+	// Auto-crop: locate the mosaic band and crop to it before any further
+	// processing. This removes surrounding sharp text from screenshots and aligns
+	// block-size inference with the actual redacted region. Only fires when the
+	// DefaultLocateMosaicBand hook is wired (requires the defaults package import)
+	// and the located band is smaller than the full image — both gates are
+	// required to ensure byte-identical behaviour when the option is off or the
+	// image is already a tight crop.
+	if cfg.autoCrop && DefaultLocateMosaicBand != nil {
+		if band, ok := DefaultLocateMosaicBand(rgba); ok {
+			b := rgba.Bounds()
+			if band.Dx() < b.Dx() || band.Dy() < b.Dy() {
+				// band is expressed in the image's own coordinate space; translate to
+				// the offset from rgba.Bounds().Min before passing to imutil.Crop.
+				ox, oy := band.Min.X-b.Min.X, band.Min.Y-b.Min.Y
+				rgba = imutil.Crop(rgba, ox, oy, band.Dx(), band.Dy())
+				// Reset grid so block-size detection below runs on the cropped image.
+				grid.Size = 0
+			}
+		}
+	}
+
 	// Auto-detect the block size from the image when the caller left it unset,
 	// reusing the grid detectAndDeskew already computed (Size matches
 	// InferBlockSize); applyDefaults falls back to DefaultBlockSize when the grid
-	// is undetectable (Size < 2).
-	if cfg.BlockSize <= 0 && grid.Size >= 2 {
-		cfg.BlockSize = grid.Size
+	// is undetectable (Size < 2). When auto-crop changed the image, re-detect
+	// the block size from the cropped region.
+	if cfg.BlockSize <= 0 {
+		if grid.Size >= 2 {
+			cfg.BlockSize = grid.Size
+		} else if s := InferBlockSize(rgba); s >= 2 {
+			cfg.BlockSize = s
+		}
 	}
 	cfg = applyDefaults(cfg)
+
+	// Auto-colorspace: detect whether the mosaic was averaged in linear light or
+	// sRGB and select the matching pixelator. Runs after applyDefaults so
+	// cfg.BlockSize is resolved. Has no effect when a Pixelator is already set
+	// by the caller (WithPixelator) — DefaultComponents will fill it later in
+	// Run, so we only apply it when the field is still nil here, meaning the
+	// caller has left it for auto-wiring.
+	if cfg.autoColorspace && cfg.Pixelator == nil && cfg.BlockSize >= 2 {
+		linear, confidence := pixelate.DetectColorspace(rgba, cfg.BlockSize)
+		if confidence >= 0.5 && linear {
+			cfg.Pixelator = pixelate.NewLinearBlockAverage(cfg.BlockSize)
+		}
+		// confidence < 0.5 or sRGB: leave Pixelator nil so DefaultComponents
+		// wires the standard BlockAverage — byte-identical to the default path.
+	}
+
+	// Auto-calibrate: seed LetterSpacing from the inferred x-stretch when the
+	// caller has not set it explicitly (zero value). InferGridPhase and
+	// InferXStretch work on block-constant images, so they run after block-size
+	// detection. LetterSpacing zero is the "no extra spacing" default; we only
+	// seed it when the stretch deviates meaningfully from 1.0 (> 2 % off).
+	// The seed is advisory: the search still probes all grid origins, so an
+	// imprecise stretch does not break recovery — it merely shifts where the
+	// renderer's advance aligns with the mosaic blocks.
+	// Seed LetterSpacing from the inferred x-stretch. DiscoverOffsets covers all
+	// grid origins, so phase needs no seeding; only the anisotropic stretch does.
+	// A zero FontSize means the 32 pt default applies and we have no pixel
+	// reference, so skip. InferXStretch returns ok=false on degenerate images, so
+	// no separate validity gate is needed. The seed is advisory — the search still
+	// probes all origins, so an imprecise stretch shifts alignment, not recovery.
+	if cfg.autoCalibrate && cfg.Style.LetterSpacing == 0 && cfg.BlockSize >= 2 && cfg.Style.FontSize > 0 {
+		// Approximate reference width: one character cell ≈ fontSize × 0.6 px
+		// (Liberation Sans proportional average).
+		if refW := int(cfg.Style.FontSize * 0.6); refW > 0 {
+			if stretch, ok := InferXStretch(rgba, cfg.BlockSize, refW); ok && (stretch < 0.98 || stretch > 1.02) {
+				// LetterSpacing = (stretch - 1) × refW pixels per glyph so the
+				// renderer's advance × stretch ≈ observed block columns.
+				cfg.Style.LetterSpacing = (stretch - 1) * float64(refW)
+			}
+		}
+	}
+
 	return &Engine{redacted: rgba, cfg: cfg, skewInfo: skewInfo}, nil
 }
 
@@ -1017,6 +1108,106 @@ func InferFontSize(img image.Image) float64 {
 	return float64(bot-top+1) / ascDescRatio
 }
 
+// InferGridPhase estimates the (x, y) phase offset of the block grid in img
+// for a grid whose block size is already known (block). It detects the pixel
+// positions where adjacent rows or columns differ appreciably, and returns the
+// modal residue of those positions modulo block as the phase.
+//
+// Unlike InferBlockGrid, which auto-detects block size, InferGridPhase skips
+// that step and is therefore faster when the caller already knows the block
+// size (e.g. from --block-size or a prior InferBlockGrid call).
+//
+// The returned image.Point holds (PhaseX, PhaseY): block boundaries fall at
+// columns x ≡ PhaseX (mod block) and rows y ≡ PhaseY (mod block).
+//
+// It returns ok=false when the image is smaller than 2×2 or has no detectable
+// colour boundaries (uniform or near-uniform image), in which case the phase
+// cannot be estimated and the zero Point is returned.
+func InferGridPhase(img *image.RGBA, block int) (image.Point, bool) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 2 || h < 2 || block < 2 {
+		return image.Point{}, false
+	}
+
+	colPos := detectBoundaryPositions(img, b, w, h, true)
+	rowPos := detectBoundaryPositions(img, b, w, h, false)
+
+	if len(colPos) == 0 && len(rowPos) == 0 {
+		return image.Point{}, false
+	}
+
+	phaseX, _ := modalResidue(colPos, block)
+	phaseY, _ := modalResidue(rowPos, block)
+
+	return image.Pt(phaseX, phaseY), true
+}
+
+// InferXStretch estimates the anisotropic horizontal scale factor applied to
+// the text before it was pixelated — for example, the ~1.06× stretch that GIMP
+// applies when its canvas DPI differs from the font DPI.
+//
+// Method: the mosaic's non-background content spans some number of columns;
+// multiplying that span by blockSize gives the observed width in pixels. Dividing
+// by refWidthPx — the pixel width that the renderer produces at stretch 1.0 for
+// the same text — yields the stretch factor.
+//
+// Parameters:
+//   - mosaic: the pixelated region (any image.Image subtype).
+//   - blockSize: the mosaic block side length in pixels (e.g. from InferBlockGrid).
+//   - refWidthPx: the pixel advance of the reference render at stretch=1.0, e.g.
+//     the sentinelX returned by render.XImage.Render for the same text and font size.
+//
+// It returns ok=false when refWidthPx ≤ 0, when the image is too small to analyse
+// (< 2×2), or when no non-background content is detectable in the image.
+//
+// Accuracy: the mosaic quantises the content edge to the nearest block boundary,
+// introducing an inherent ±½ block uncertainty. For a typical 32 pt / 8 px block /
+// 120 px text span the rounding error is ≤ 3 %, so the estimate is useful as a
+// search seed but not as an exact calibration.
+func InferXStretch(mosaic image.Image, blockSize int, refWidthPx int) (float64, bool) {
+	if refWidthPx <= 0 {
+		return 0, false
+	}
+	rgba := imutil.ToRGBA(mosaic)
+	b := rgba.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 2 || h < 2 {
+		return 0, false
+	}
+
+	bg := rgba.RGBAAt(b.Min.X, b.Min.Y) // top-left corner ≈ background
+	isContent := func(x, y int) bool {
+		c := rgba.RGBAAt(b.Min.X+x, b.Min.Y+y)
+		d := abs(int(c.R)-int(bg.R)) + abs(int(c.G)-int(bg.G)) + abs(int(c.B)-int(bg.B))
+		return d > 48
+	}
+
+	// Find the rightmost column that contains content.
+	// We measure from the image's left edge (x=0) so the result is directly
+	// comparable to sentinelX from the renderer, which is also measured from 0.
+	right := -1
+	for y := range h {
+		for x := range w {
+			if isContent(x, y) && x > right {
+				right = x
+			}
+		}
+	}
+	if right < 0 {
+		return 0, false // no content detected
+	}
+
+	// Snap right boundary to the next block edge.
+	observedW := right + 1 // pixel count from origin to rightmost content pixel
+	if blockSize >= 2 {
+		// Round up to the enclosing block boundary.
+		observedW = ((right / blockSize) + 1) * blockSize
+	}
+
+	return float64(observedW) / float64(refWidthPx), true
+}
+
 // impulseNoiseThreshold is the minimum BT.601 luminance deviation from the
 // neighbourhood median that must hold for a pixel to be a candidate impulse.
 // The value 80 (on a 0–255 scale, i.e. ~31 %) was chosen to:
@@ -1249,6 +1440,21 @@ var DefaultComponents func(cfg *Config) error
 // (at higher cost) can override with WithStrategy(defaults.GuidedStrategy()).
 var DefaultBlurStrategy func() Strategy
 
+// DefaultLocateMosaicBand is a hook populated by importing the defaults package
+// for its side-effect. It finds the grid-aligned bounding box of a pixelated
+// (block-constant) region inside img and is called by New when WithAutoCrop is
+// active. A nil hook disables auto-crop silently, so callers that supply all
+// components explicitly and do not need auto-crop need not import defaults.
+var DefaultLocateMosaicBand func(img *image.RGBA) (image.Rectangle, bool)
+
+// DefaultConstrainedStrategy is a hook populated by importing the defaults
+// package for its side-effect. It returns a Strategy that runs GuidedDFS
+// constrained to the given prefix string. A nil hook silently falls back to
+// the unconstrained GuidedDFS (byte-identical behaviour), so callers that
+// supply all components explicitly and do not use WithPrefix need not import
+// defaults.
+var DefaultConstrainedStrategy func(prefix string) Strategy
+
 // Run starts the search and returns a progress channel and a results channel.
 // The progress channel carries Progress events and is closed after EventDone is
 // delivered. The results channel receives one Result per surviving grid offset
@@ -1275,6 +1481,15 @@ func (e *Engine) Run(ctx context.Context) (<-chan Progress, <-chan Result) {
 			panic("unpixel: Engine.Run called with a nil component and no DefaultComponents wired; " +
 				"import github.com/oioio-space/unpixel/defaults or set all component fields explicitly")
 		}
+	}
+
+	// Prefix constraint: when a prefix is set and the defaults hook is wired,
+	// replace the strategy with the constrained variant. This is done after
+	// DefaultComponents so the unconstrained strategy is already resolved and can
+	// be replaced; if the hook is nil the prefix is silently ignored and the
+	// search is byte-identical to unconstrained.
+	if e.cfg.prefix != "" && DefaultConstrainedStrategy != nil {
+		e.cfg.Strategy = DefaultConstrainedStrategy(e.cfg.prefix)
 	}
 
 	progCh := make(chan Progress, 64)
@@ -1503,6 +1718,70 @@ func WithL0Deblur(fns ...func(*deblur.L0Options)) Option {
 			fn(&opts)
 		}
 		c.l0deblur = &opts
+	}
+}
+
+// WithAutoCrop enables automatic mosaic-band detection and cropping. When set,
+// New locates the block-pixelated region inside the image using
+// [internal/locate.LocateMosaicBand] and crops to it before search. This is
+// most useful for screenshots where the redacted block is surrounded by sharp
+// text: without cropping the surrounding pixels confuse block-size detection
+// and inflate the search region. Default off — without this option behaviour is
+// byte-identical to before.
+func WithAutoCrop() Option { return func(c *Config) { c.autoCrop = true } }
+
+// WithAutoColorspace enables automatic colorspace detection for the mosaic
+// pixelator. When set, [internal/pixelate.DetectColorspace] is called on the
+// (possibly cropped) target image after auto-detection of the block size, and
+// the pixelator is selected accordingly:
+//   - confidence ≥ 0.5 and linear → LinearBlockAverage (GEGL/GIMP, CSS, etc.)
+//   - confidence ≥ 0.5 and sRGB  → BlockAverage (faithful default)
+//   - confidence < 0.5            → fall back to BlockAverage (safe default)
+//
+// Default off — without this option behaviour is byte-identical to before. The
+// option has no effect when a Pixelator is already set explicitly via
+// WithPixelator or [defaults.Wire] before Run is called.
+func WithAutoColorspace() Option { return func(c *Config) { c.autoColorspace = true } }
+
+// WithAutoCalibrate enables automatic typographic calibration. When set, New
+// calls [InferGridPhase] and [InferXStretch] on the mosaic to seed the search:
+//   - Grid phase: the inferred (PhaseX, PhaseY) is used as a diagnostic hint
+//     (offset discovery already covers all blockSize² origins, so phase never
+//     restricts the search).
+//   - X-stretch: when a reference render width is derivable from the inferred
+//     block size and Style.FontSize, the stretch factor is used to seed
+//     Style.LetterSpacing so the renderer's advance more closely matches the
+//     original. The seed is overridden by an explicit WithStyle call.
+//
+// Default off — without this option behaviour is byte-identical to before.
+func WithAutoCalibrate() Option { return func(c *Config) { c.autoCalibrate = true } }
+
+// WithPrefix locks the first len(prefix) characters of every search candidate
+// to the corresponding characters of prefix, constraining the search without
+// altering scoring or thresholds. Characters beyond the prefix are still
+// explored with the full Charset. An empty prefix is a no-op and the search
+// is byte-identical to unconstrained.
+//
+// Use it when part of the redacted text is already known — for example, a
+// URL prefix "https://" or a log-line format "ERROR: ". The constraint is
+// applied via [internal/search.GuidedDFSConstrained] and is compatible with
+// all strategies that use GuidedDFS; it has no effect on BeamStrategy or
+// MonospaceStrategy (which use their own DFS variants).
+//
+// Default: empty (no constraint).
+func WithPrefix(prefix string) Option { return func(c *Config) { c.prefix = prefix } }
+
+// WithAuto enables the full zero-config real-world recovery path in one call:
+// it combines [WithAutoCrop], [WithAutoColorspace], and [WithAutoCalibrate].
+// Use it as a convenience when the target image is a screenshot of unknown
+// provenance — UnPixel will detect and crop the mosaic band, auto-select the
+// pixelator colorspace, and seed typographic calibration automatically.
+// Default off.
+func WithAuto() Option {
+	return func(c *Config) {
+		c.autoCrop = true
+		c.autoColorspace = true
+		c.autoCalibrate = true
 	}
 }
 
