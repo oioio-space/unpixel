@@ -278,6 +278,61 @@ func blockPattern(w, h int, invert bool) *image.RGBA {
 	return img
 }
 
+func TestDetectQuad_recoversCorners(t *testing.T) {
+	const photoW, photoH = 200, 170
+	// A gray page with a white quad (the redaction region) filled in via the
+	// homography membership test — exactly how a patch sits on a background.
+	quad := [4]Point{{30, 20}, {175, 35}, {165, 150}, {15, 135}}
+	const rw, rh = 120, 90
+	p2r := mustPhotoToRect(t, rw, rh, quad)
+	img := image.NewRGBA(image.Rect(0, 0, photoW, photoH))
+	for y := range photoH {
+		for x := range photoW {
+			o := img.PixOffset(x, y)
+			r := p2r.Apply(Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+			inside := r.X >= 0 && r.Y >= 0 && r.X < rw && r.Y < rh
+			v := uint8(128) // gray background
+			if inside {
+				v = 255 // white region
+			}
+			img.Pix[o], img.Pix[o+1], img.Pix[o+2], img.Pix[o+3] = v, v, v, 255
+		}
+	}
+
+	got, err := DetectQuad(img, 40)
+	if err != nil {
+		t.Fatalf("DetectQuad: %v", err)
+	}
+	// Extreme points of a filled convex quad are its vertices, within a couple of
+	// pixels (discretisation + the slanted edges).
+	for i := range got {
+		ptClose(t, got[i], quad[i], 3.0, fmt.Sprintf("corner %d", i))
+	}
+}
+
+func TestDetectQuad_noRegion(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range img.Pix {
+		img.Pix[i] = 255 // uniform white: no foreground
+	}
+	if _, err := DetectQuad(img, 40); err == nil {
+		t.Error("DetectQuad on a uniform image: got nil error, want ErrNoRegion")
+	}
+}
+
+func mustPhotoToRect(t *testing.T, rw, rh int, quad [4]Point) Matrix3 {
+	t.Helper()
+	r2p, err := RectToQuad(float64(rw), float64(rh), quad)
+	if err != nil {
+		t.Fatalf("RectToQuad: %v", err)
+	}
+	p2r, err := r2p.Inverse()
+	if err != nil {
+		t.Fatalf("Inverse: %v", err)
+	}
+	return p2r
+}
+
 // patternImage builds a w×h RGBA with a smooth deterministic gradient so warp
 // interpolation has structure to preserve.
 func patternImage(w, h int) *image.RGBA {
@@ -298,6 +353,41 @@ var (
 	sinkMatrix Matrix3
 	sinkImage  *image.RGBA
 )
+
+func BenchmarkDetectQuad(b *testing.B) {
+	const w, h = 200, 170
+	quad := [4]Point{{30, 20}, {175, 35}, {165, 150}, {15, 135}}
+	r2p, err := RectToQuad(120, 90, quad)
+	if err != nil {
+		b.Fatal(err)
+	}
+	p2r, err := r2p.Inverse()
+	if err != nil {
+		b.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			o := img.PixOffset(x, y)
+			r := p2r.Apply(Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+			v := uint8(128)
+			if r.X >= 0 && r.Y >= 0 && r.X < 120 && r.Y < 90 {
+				v = 255
+			}
+			img.Pix[o], img.Pix[o+1], img.Pix[o+2], img.Pix[o+3] = v, v, v, 255
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		q, err := DetectQuad(img, 40)
+		if err != nil {
+			b.Fatal(err)
+		}
+		sinkQuad = q
+	}
+}
+
+var sinkQuad [4]Point
 
 func BenchmarkSolveDLT(b *testing.B) {
 	dst := [4]Point{{10, 20}, {110, 5}, {120, 95}, {5, 90}}

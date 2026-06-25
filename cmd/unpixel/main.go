@@ -1723,9 +1723,15 @@ func parseRectifyQuad(s string) ([4]rectify.Point, error) {
 // (linear mode), and prints the recovered text to stdout. The forward-model
 // distance and geometry are logged to stderr (unless --quiet).
 func runPerspective(ctx context.Context, imgPath string, p flagParams) error {
-	quad, err := parseRectifyQuad(p.rectify)
-	if err != nil {
-		return err
+	// "--rectify auto" detects the quad from the image; otherwise it is 4 corners.
+	auto := strings.TrimSpace(p.rectify) == "auto"
+	var quad [4]rectify.Point
+	if !auto {
+		q, err := parseRectifyQuad(p.rectify)
+		if err != nil {
+			return err
+		}
+		quad = q
 	}
 
 	img, err := loadImage(imgPath)
@@ -1739,8 +1745,11 @@ func runPerspective(ctx context.Context, imgPath string, p flagParams) error {
 		defer cancel()
 	}
 
-	opts := []mosaictext.PerspectiveOption{
-		mosaictext.WithPerspectiveQuad(quad),
+	var opts []mosaictext.PerspectiveOption
+	if auto {
+		opts = append(opts, mosaictext.WithPerspectiveAutoQuad(0))
+	} else {
+		opts = append(opts, mosaictext.WithPerspectiveQuad(quad))
 	}
 	if p.charset != "" {
 		opts = append(opts, mosaictext.WithPerspectiveCharset(p.charset))
@@ -2079,10 +2088,13 @@ Examples:
 			&cli.StringFlag{
 				Name: "rectify",
 				Usage: `perspective decode: four corners of the redaction quadrilateral in photo pixels,
-   "x0,y0 x1,y1 x2,y2 x3,y3" (top-left top-right bottom-right bottom-left).
-   When set, DecodePerspective rectifies the photo via planar homography and
-   recovers the text from the warped crop; --charset, --font, and --gamma apply.
-   Example: unpixel --rectify "40,30 80,48 68,108 46,100" photo.png`,
+   "x0,y0 x1,y1 x2,y2 x3,y3" (top-left top-right bottom-right bottom-left), or
+   "auto" to detect the quad from the image (one convex region on a uniform
+   background). A pure forward-model beam search recovers the text by projecting
+   candidates through the homography onto the native photo — no rectify resampling;
+   --charset, --font, --block-size, and --gamma apply.
+   Example: unpixel --rectify "40,30 80,48 68,108 46,100" -b 8 photo.png
+            unpixel --rectify auto -b 8 photo.png`,
 				Value: "",
 			},
 		},

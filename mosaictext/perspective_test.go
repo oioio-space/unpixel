@@ -7,9 +7,59 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oioio-space/unpixel/internal/fixture"
 	"github.com/oioio-space/unpixel/internal/rectify"
 	"github.com/oioio-space/unpixel/mosaictext"
 )
+
+// TestDecodePerspective_autoQuad exercises the full auto path: render "go", place
+// it under perspective on a GRAY page (so the white-padded patch is detectable),
+// then decode with WithPerspectiveAutoQuad and no corners supplied.
+func TestDecodePerspective_autoQuad(t *testing.T) {
+	red, err := fixture.Redact(fixture.Spec{
+		Text: "go", Charset: "go abcd", FontSize: 32, BlockSize: 8, PaddingTop: 8, PaddingLeft: 8,
+	})
+	if err != nil {
+		t.Fatalf("Redact: %v", err)
+	}
+	rw, rh := red.Bounds().Dx(), red.Bounds().Dy()
+	w, h := float64(rw), float64(rh)
+	quad := [4]rectify.Point{{X: 40, Y: 30}, {X: 40 + w, Y: 48}, {X: 40 + w - 12, Y: 30 + h + 22}, {X: 46, Y: 30 + h + 14}}
+
+	r2p, err := rectify.RectToQuad(w, h, quad)
+	if err != nil {
+		t.Fatalf("RectToQuad: %v", err)
+	}
+	p2r, err := r2p.Inverse()
+	if err != nil {
+		t.Fatalf("Inverse: %v", err)
+	}
+	// Inside the quad: warped patch (bilinear, white-padded). Outside: gray page.
+	photoW, photoH := rw+100, rh+100
+	photo := rectify.Warp(red, p2r, photoW, photoH)
+	for y := range photoH {
+		for x := range photoW {
+			rp := p2r.Apply(rectify.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
+			if rp.X >= 0 && rp.Y >= 0 && rp.X < w && rp.Y < h {
+				continue // inside quad — keep the warped patch
+			}
+			o := photo.PixOffset(x, y)
+			photo.Pix[o], photo.Pix[o+1], photo.Pix[o+2], photo.Pix[o+3] = 128, 128, 128, 255
+		}
+	}
+
+	res, err := mosaictext.DecodePerspective(t.Context(), photo,
+		mosaictext.WithPerspectiveAutoQuad(0),
+		mosaictext.WithPerspectiveBlockSize(8),
+		mosaictext.WithPerspectiveCharset("go abcd"),
+	)
+	if err != nil {
+		t.Fatalf("DecodePerspective auto: %v", err)
+	}
+	if res.Text != "go" {
+		t.Errorf("auto-quad decode: got %q, want %q (dist=%.4f)", res.Text, "go", res.Distance)
+	}
+}
 
 // perspectiveFixture mirrors one entry in testdata/perspective/manifest.json.
 type perspectiveFixture struct {

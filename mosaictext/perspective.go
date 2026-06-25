@@ -67,6 +67,8 @@ type perspectiveConfig struct {
 	rectW     int // 0 → derive from quad edge lengths
 	rectH     int // 0 → derive from quad edge lengths
 	workers   int // candidate-evaluation concurrency; ≤0 → GOMAXPROCS
+	autoQuad  bool
+	detectTol int // background-difference threshold for DetectQuad
 }
 
 func defaultPerspectiveConfig() perspectiveConfig {
@@ -77,6 +79,7 @@ func defaultPerspectiveConfig() perspectiveConfig {
 		beamWidth: 36,
 		maxLen:    12,
 		workers:   runtime.GOMAXPROCS(0),
+		detectTol: 40,
 	}
 }
 
@@ -170,6 +173,21 @@ func WithPerspectiveRectSize(w, h int) PerspectiveOption {
 		}
 		if h > 0 {
 			c.rectH = h
+		}
+	}
+}
+
+// WithPerspectiveAutoQuad enables automatic detection of the redaction quad via
+// rectify.DetectQuad when WithPerspectiveQuad is not supplied: the four extreme
+// points of the region that differs from the background by more than tol (sum of
+// abs R/G/B diffs) are taken as the corners. Works when the redaction is one
+// convex region on a roughly-uniform background; pass tol ≤ 0 for the default
+// (40). An explicit WithPerspectiveQuad always takes precedence.
+func WithPerspectiveAutoQuad(tol int) PerspectiveOption {
+	return func(c *perspectiveConfig) {
+		c.autoQuad = true
+		if tol > 0 {
+			c.detectTol = tol
 		}
 	}
 }
@@ -295,12 +313,19 @@ func DecodePerspective(ctx context.Context, photo image.Image, opts ...Perspecti
 	for _, o := range opts {
 		o(&cfg)
 	}
-	if !cfg.quadSet {
-		return PerspectiveResult{}, errors.New("mosaictext: DecodePerspective requires WithPerspectiveQuad")
+	if !cfg.quadSet && !cfg.autoQuad {
+		return PerspectiveResult{}, errors.New("mosaictext: DecodePerspective requires WithPerspectiveQuad (or WithPerspectiveAutoQuad)")
 	}
 
 	rgba := imutil.ToRGBA(photo)
 	quad := cfg.quad
+	if !cfg.quadSet {
+		detected, err := rectify.DetectQuad(rgba, cfg.detectTol)
+		if err != nil {
+			return PerspectiveResult{}, fmt.Errorf("mosaictext: DecodePerspective: auto-detect quad: %w", err)
+		}
+		quad = detected
+	}
 
 	// Derive the axis-aligned rectangle dimensions. When WithPerspectiveRectSize
 	// provides them directly (e.g. from a manifest that records the true rendered

@@ -945,3 +945,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `8b808f9` 2026-06-25 — feat(perspective): pure forward-model (approach B) beam search — correct decode _(8 fichiers)_
 - `2101b8f` 2026-06-25 — perf(perspective): score full Distance only for beam survivors (−34%) _(3 fichiers)_
 - `f212a1a` 2026-06-25 — perf(perspective): parallelize beam candidate evaluation (−59%) _(3 fichiers)_
+- `3766174` 2026-06-25 — perf(perspective): reuse one renderer across candidates (allocs −79%) _(5 fichiers)_

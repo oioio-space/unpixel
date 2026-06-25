@@ -35,8 +35,10 @@ unpixel --decoder did image.png                                           # boun
 unpixel --normalize --redaction blur real-blur.jpg                        # normalize + blur on JPEG
 
 # Perspective: a redaction photographed at an angle. Give the 4 corners of the
-# redaction quad (top-left, top-right, bottom-right, bottom-left) and the block size.
+# redaction quad (top-left, top-right, bottom-right, bottom-left) and the block size,
+# or "auto" to detect the quad (one convex region on a uniform background).
 unpixel --rectify "40,30 180,45 170,150 20,140" -b 8 --font "Liberation Sans" photo.png
+unpixel --rectify auto -b 8 --font "Liberation Sans" photo.png
 
 # Blind, bilingual recovery
 unpixel --blind --lang fr testdata/real/marx.png
@@ -101,7 +103,7 @@ unpixel --remosaic-linear --redaction blur gimp-output.png               # linea
 | `--format`, `-f` | `text` | `text` or machine-readable `json` |
 | `--timeout` | `0` (none) | Max recovery time |
 | `--l0-deblur` | off | Non-blind Pan-CVPR-2014 L0 text deblur (requires a known σ from blur-sigma inference) |
-| `--rectify` | — | Decode a perspective-distorted redaction: 4 quad corners `"x0,y0 x1,y1 x2,y2 x3,y3"` (TL TR BR BL, photo px). Uses a pure forward-model beam search: candidates are rendered and re-pixelated at axis-aligned block size, then scored directly against the native photo pixels via the planar homography — no rectify resampling. Decodes correctly when `--block-size` and `--font` match the original. Takes precedence over other decoders |
+| `--rectify` | — | Decode a perspective-distorted redaction: 4 quad corners `"x0,y0 x1,y1 x2,y2 x3,y3"` (TL TR BR BL, photo px), or `auto` to detect the quad (one convex region on a uniform background). Pure forward-model beam search: candidates are rendered/re-pixelated and scored against the native photo pixels via the planar homography — no rectify resampling. Decodes correctly when `--block-size` and `--font` match the original. Takes precedence over other decoders |
 
 > **Tip:** lower block sizes carry less information per glyph, so a tighter
 > `--threshold` (e.g. `0.1`) prunes coincidental matches and lets the whole-image score

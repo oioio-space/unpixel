@@ -41,6 +41,88 @@ type Matrix3 [9]float64
 // with three collinear correspondences, or Inverse of a degenerate matrix.
 var ErrSingular = errors.New("rectify: singular system (degenerate point configuration)")
 
+// ErrNoRegion is returned by DetectQuad when no pixel differs from the inferred
+// background beyond the tolerance — i.e. no redaction region is visible.
+var ErrNoRegion = errors.New("rectify: no foreground region detected")
+
+// DetectQuad estimates the four corners (top-left, top-right, bottom-right,
+// bottom-left) of the redaction quadrilateral in img, so callers need not supply
+// them by hand. It thresholds pixels that differ from the background colour by
+// more than tol (sum of absolute R/G/B differences) and returns the extreme
+// foreground points along the two diagonals: min(x+y)→TL, max(x+y)→BR,
+// max(x−y)→TR, min(x−y)→BL. For a convex, roughly-filled region distinct from a
+// uniform background (e.g. a mosaic patch on a page) these extreme points are the
+// quad's vertices. The background colour is inferred from the mean of the four
+// image-corner pixels. It returns [ErrNoRegion] when nothing exceeds tol.
+//
+// This is a deliberately simple detector: it assumes one convex region on a
+// uniform background. Cluttered photos need the (future) vanishing-point path.
+func DetectQuad(img *image.RGBA, tol int) ([4]Point, error) {
+	b := img.Bounds()
+	if b.Empty() {
+		return [4]Point{}, ErrNoRegion
+	}
+	bgR, bgG, bgB := cornerBackground(img)
+
+	var tl, tr, br, bl Point
+	var minSum, maxSum, minDiff, maxDiff float64
+	found := false
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			o := img.PixOffset(x, y)
+			d := abs(float64(int(img.Pix[o])-bgR)) +
+				abs(float64(int(img.Pix[o+1])-bgG)) +
+				abs(float64(int(img.Pix[o+2])-bgB))
+			if d <= float64(tol) {
+				continue
+			}
+			p := Point{X: float64(x), Y: float64(y)}
+			sum, diff := p.X+p.Y, p.X-p.Y
+			if !found {
+				found = true
+				tl, tr, br, bl = p, p, p, p
+				minSum, maxSum, minDiff, maxDiff = sum, sum, diff, diff
+				continue
+			}
+			if sum < minSum {
+				minSum, tl = sum, p
+			}
+			if sum > maxSum {
+				maxSum, br = sum, p
+			}
+			if diff > maxDiff {
+				maxDiff, tr = diff, p
+			}
+			if diff < minDiff {
+				minDiff, bl = diff, p
+			}
+		}
+	}
+	if !found {
+		return [4]Point{}, ErrNoRegion
+	}
+	return [4]Point{tl, tr, br, bl}, nil
+}
+
+// cornerBackground returns the mean R,G,B of img's four corner pixels — a robust
+// estimate of a uniform background that avoids sampling the central redaction.
+func cornerBackground(img *image.RGBA) (r, g, b int) {
+	bb := img.Bounds()
+	corners := [4]image.Point{
+		{X: bb.Min.X, Y: bb.Min.Y},
+		{X: bb.Max.X - 1, Y: bb.Min.Y},
+		{X: bb.Min.X, Y: bb.Max.Y - 1},
+		{X: bb.Max.X - 1, Y: bb.Max.Y - 1},
+	}
+	for _, c := range corners {
+		o := img.PixOffset(c.X, c.Y)
+		r += int(img.Pix[o])
+		g += int(img.Pix[o+1])
+		b += int(img.Pix[o+2])
+	}
+	return r / 4, g / 4, b / 4
+}
+
 // Apply maps p through the homography, performing the projective division.
 // The returned point is in the destination plane. When the homogeneous w
 // collapses to zero (a point mapped to infinity) the raw scaled coordinates are
