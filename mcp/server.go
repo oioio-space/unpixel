@@ -50,7 +50,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/rectify"
-	"github.com/oioio-space/unpixel/internal/search"
+	"github.com/oioio-space/unpixel/mosaictext"
 )
 
 // NewServer builds an MCP server with all UnPixel tools and resources
@@ -322,44 +322,27 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 }
 
 // VerifyCandidates scores each candidate string against the observed mosaic in
-// img and returns them ranked by ascending image distance. blockSize overrides
-// auto-detection when > 0.
+// img and returns them ranked by ascending image distance. blockSize is ignored
+// (kept for API compatibility) — block size, colorspace, font size, and grid
+// phase are all inferred from the image by [mosaictext.ScoreCandidates], which
+// runs the same auto-calibration as [mosaictext.Decode].
 //
-// Scoring approach: for each candidate the render→pixelate→metric pipeline is
-// executed once via [search.PipelineScorer.TotalScore] with a zero Offset (no
-// grid phase shift). TotalScore measures the whole-image pixel distance, which
-// is the most comparable signal across candidates of different lengths — it
-// quantifies how well the full candidate reconstruction explains the entire
-// redaction, unlike the marginal per-character score used by GuidedDFS. This
-// approach reuses existing internals without modifying decode logic.
-func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, blockSize int) (VerifyReport, error) {
-	bs := blockSize
-	if bs <= 0 {
-		grid, ok := unpixel.InferBlockGrid(img)
-		if ok && grid.Size >= 2 {
-			bs = grid.Size
-		} else {
-			bs = unpixel.DefaultBlockSize
-		}
+// Scoring: for each candidate the calibrated forward model
+//
+//	rendered(candidate) → pixelate(block, colorspace) → mseRGB(observed)
+//
+// is evaluated once. This is byte-identical to the inner scoring loop of
+// [mosaictext.Decode], so the winner here will match what Decode recovers.
+func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, _ int) (VerifyReport, error) {
+	dists, err := mosaictext.ScoreCandidates(ctx, img, candidates)
+	if err != nil {
+		return VerifyReport{}, fmt.Errorf("score candidates: %w", err)
 	}
-
-	cfg := unpixel.Config{BlockSize: bs}
-	if err := unpixel.DefaultComponents(&cfg); err != nil {
-		return VerifyReport{}, fmt.Errorf("wire components: %w", err)
-	}
-
-	rgba := imutil.ToRGBA(img)
-	scorer := search.NewPipelineScorer(rgba, cfg)
-	origin := unpixel.Offset{}
 
 	ranked := make([]RankedCandidate, len(candidates))
 	for i, c := range candidates {
-		ranked[i] = RankedCandidate{
-			Text:     c,
-			Distance: scorer.TotalScore(ctx, c, origin),
-		}
+		ranked[i] = RankedCandidate{Text: c, Distance: dists[i]}
 	}
-
 	slices.SortFunc(ranked, func(a, b RankedCandidate) int {
 		return cmp.Compare(a.Distance, b.Distance)
 	})

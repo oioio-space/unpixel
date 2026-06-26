@@ -9,7 +9,16 @@ import (
 
 // loadFixture opens a file from the fixtures directory and decodes it as an image.
 func loadFixture(name string) (image.Image, error) {
-	f, err := os.Open(fixturePath(name))
+	return loadImageFile(fixturePath(name))
+}
+
+// loadSickFixture opens a file from the sick-caption fixtures directory.
+func loadSickFixture(name string) (image.Image, error) {
+	return loadImageFile(sickFixturePath(name))
+}
+
+func loadImageFile(path string) (image.Image, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}

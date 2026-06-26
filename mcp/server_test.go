@@ -7,10 +7,17 @@ import (
 	mcpserver "github.com/oioio-space/unpixel/mcp"
 )
 
-const fixturesDir = "../testdata/fixtures"
+const (
+	fixturesDir = "../testdata/fixtures"
+	sickDir     = "../testdata/sick"
+)
 
 func fixturePath(name string) string {
 	return filepath.Join(fixturesDir, name)
+}
+
+func sickFixturePath(name string) string {
+	return filepath.Join(sickDir, name)
 }
 
 // TestAnalyze_mosaic8 verifies that unpixel_analyze correctly identifies the
@@ -67,7 +74,8 @@ func TestAnalyze_fields(t *testing.T) {
 }
 
 // TestVerifyCandidates_ranking verifies that "go" scores lower (better) than
-// unrelated candidates "xy" and "zz" on the block08_go.png fixture.
+// decoys "xy" and "zz" on the block08_go.png fixture, and that the ranking is
+// strictly sorted by ascending distance.
 func TestVerifyCandidates_ranking(t *testing.T) {
 	ctx := t.Context()
 	img, err := loadFixture("block08_go.png")
@@ -86,11 +94,113 @@ func TestVerifyCandidates_ranking(t *testing.T) {
 	if len(report.Ranked) != 3 {
 		t.Errorf("len(Ranked) = %d, want 3", len(report.Ranked))
 	}
-	// Ranked must be in ascending distance order.
 	for i := 1; i < len(report.Ranked); i++ {
 		if report.Ranked[i].Distance < report.Ranked[i-1].Distance {
 			t.Errorf("Ranked[%d].Distance (%.4f) < Ranked[%d].Distance (%.4f): not sorted",
 				i, report.Ranked[i].Distance, i-1, report.Ranked[i-1].Distance)
+		}
+	}
+}
+
+// TestVerifyCandidates_discrimination asserts that on calibrated fixtures the
+// correct answer scores strictly lower than all decoys (margin > 0). This is
+// the missing coverage that exposed the zero-config bug: the old scorer returned
+// distance≈1 for every candidate, so margin was always 0.
+func TestVerifyCandidates_discrimination(t *testing.T) {
+	tests := []struct {
+		fixture string
+		correct string
+		decoys  []string
+	}{
+		{"block08_go.png", "go", []string{"zz", "qq"}},
+		{"text_cat.png", "cat", []string{"zzz", "abc"}},
+		{"alnum_Go2.png", "Go2", []string{"zzz", "xyz"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.fixture, func(t *testing.T) {
+			ctx := t.Context()
+			img, err := loadFixture(tc.fixture)
+			if err != nil {
+				t.Fatalf("load fixture: %v", err)
+			}
+
+			all := append([]string{tc.correct}, tc.decoys...)
+			report, err := mcpserver.VerifyCandidates(ctx, img, all, 0)
+			if err != nil {
+				t.Fatalf("VerifyCandidates: %v", err)
+			}
+
+			if report.Best != tc.correct {
+				t.Errorf("Best = %q, want %q (ranked: %v)", report.Best, tc.correct, report.Ranked)
+			}
+			if report.Margin <= 0 {
+				t.Errorf("Margin = %.6f, want > 0 (no discrimination between correct and decoys; ranked: %v)",
+					report.Margin, report.Ranked)
+			}
+			// Also verify correct strictly beats every decoy individually.
+			var correctDist float64
+			for _, rc := range report.Ranked {
+				if rc.Text == tc.correct {
+					correctDist = rc.Distance
+					break
+				}
+			}
+			for _, rc := range report.Ranked {
+				if rc.Text == tc.correct {
+					continue
+				}
+				if rc.Distance <= correctDist {
+					t.Errorf("decoy %q distance %.6f ≤ correct %q distance %.6f",
+						rc.Text, rc.Distance, tc.correct, correctDist)
+				}
+			}
+		})
+	}
+}
+
+// TestVerifyCandidates_digits asserts multi-character digit discrimination:
+// "1234567" must score strictly lower than "7654321" and "0000000".
+//
+// This is the key regression test for the per-candidate-stretch bug: before
+// the fix, all same-length candidates were rendered at a width calibrated for
+// a different (shorter) char count, making the render wider than the target
+// canvas. placed() silently skipped the draw, so every candidate compared a
+// pure-white frame — scoring all identically with margin=0.
+func TestVerifyCandidates_digits(t *testing.T) {
+	ctx := t.Context()
+	img, err := loadSickFixture("digits_7d_1234567.png")
+	if err != nil {
+		t.Fatalf("load sick fixture: %v", err)
+	}
+
+	candidates := []string{"1234567", "7654321", "0000000", "9999999"}
+	report, err := mcpserver.VerifyCandidates(ctx, img, candidates, 0)
+	if err != nil {
+		t.Fatalf("VerifyCandidates: %v", err)
+	}
+
+	if report.Margin <= 0 {
+		t.Errorf("margin = %.6f, want > 0 (candidates not discriminated; ranked: %v)",
+			report.Margin, report.Ranked)
+	}
+	if report.Best != "1234567" {
+		t.Errorf("Best = %q, want %q (ranked: %v)", report.Best, "1234567", report.Ranked)
+	}
+
+	// Verify correct strictly beats every decoy.
+	var correctDist float64
+	for _, rc := range report.Ranked {
+		if rc.Text == "1234567" {
+			correctDist = rc.Distance
+			break
+		}
+	}
+	for _, rc := range report.Ranked {
+		if rc.Text == "1234567" {
+			continue
+		}
+		if rc.Distance <= correctDist {
+			t.Errorf("decoy %q distance %.6f ≤ correct distance %.6f", rc.Text, rc.Distance, correctDist)
 		}
 	}
 }
