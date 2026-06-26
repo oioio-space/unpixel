@@ -156,6 +156,24 @@ res, _ := unpixel.Recover(ctx, img,
 
 **Caveat:** `--auto*` flags and multi-decoder options (`--decoder ensemble`, `--frame`, `--did-context`) target real captures and boundary cases. Synthetic fixtures in the test panel already decode without them (panel remains 17/17 unchanged); their value lies in zero-config real-world use and tackling edge cases (JPEG boundaries, sub-pixel jitter, context-dependent pixelation).
 
+## MCP server (LLM integration)
+
+UnPixel ships an [MCP](https://modelcontextprotocol.io) server (`cmd/unpixel-mcp`, pure Go)
+that exposes the engine as an agent-callable toolbox so an LLM can drive recovery
+conversationally — inspect an image, pick a decoder, score its own candidate guesses, and
+render results for visual comparison.
+
+```bash
+go install github.com/oioio-space/unpixel/cmd/unpixel-mcp@latest
+unpixel-mcp   # speaks MCP over stdio; point your MCP client at it
+```
+
+Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` (13 methods
+behind one `method` enum; async for long runs), `unpixel_verify_candidates` (LLM proposes
+strings, UnPixel scores them by physical re-pixelation), `unpixel_render`, `unpixel_rank_fonts`,
+`unpixel_calibrate`; resources `unpixel://{fonts,charsets,methods,operating-envelope}`. Custom
+fonts upload via `font_path`/`font_base64`. See [docs](docs/) for the full schema.
+
 ## Effectiveness
 
 UnPixel recovers **synthetic** redactions reliably (text redacted with a known font and
