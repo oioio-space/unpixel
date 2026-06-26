@@ -26,3 +26,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | 2026-06-24 | `v0.13.0` | 17/17 (100%) | 1 | 1 | 744 |  |
 | 2026-06-25 | `v0.14.0` | 17/17 (100%) | 1 | 1 | 1422 |  |
 | 2026-06-26 | `v0.15.0` | 17/17 (100%) | 1 | 1 | 1745 | opt-in real-world: auto crop/colorspace/calibrate + prefix constraint |
+| 2026-06-26 | `v0.16.0` | 17/17 (100%) | 1 | 1 | 2045 | opt-in ensemble + multi-frame + context-aware DID + glyph fingerprint + opsz/slnt |
