@@ -170,6 +170,33 @@ Lecture de toute la table `## Évolution` de `docs/JOURNAL.md` (pas seulement le
 (warn sur baisse de mean ; `STRICT=1` échoue aussi). Lancé **automatiquement après**
 `mise run journal`.
 
+### 🔌 Serveur MCP — UnPixel comme boîte à outils pilotable par un LLM (2026-06-26)
+
+Package opt-in `mcp/` (`mcpserver`) + binaire `cmd/unpixel-mcp` exposant le moteur via le
+SDK officiel **pur-Go** `github.com/modelcontextprotocol/go-sdk` (no-CGO ✓). **Zéro impact**
+sur le chemin de décodage (panel 17/17 byte-identique). 8 outils + 4 resources, conçus
+*pour un agent* (consolidés, pas un mapping 1:1 des 60 flags) :
+
+- `unpixel_analyze` — inspection (grille/flou/colorspace/perspective via `rectify.DetectQuad`)
+  → recommandation de décodeur + `suggested_quad`.
+- `unpixel_decode` — workhorse : **13 méthodes derrière un enum** `method` (auto/mosaic/blurred/
+  mono-hmm/window-hmm/trained-hmm/did/varfont/perspective/reference/blind/ensemble/multi-frame),
+  sortie normalisée ; multi-frame à offsets par frame ; **upload de font custom**
+  (`font_path`/`font_base64`, validation magic sfnt, cap 16 MiB) ; perspective `auto_quad`
+  (→ `WithPerspectiveAutoQuad`) ; décodes longs en **async** (`unpixel_job_result`/`_cancel`,
+  registry borné, anti-fuite goroutine — l'extension MCP *Tasks* n'existe pas encore côté SDK).
+- `unpixel_verify_candidates` — **le différenciateur : LLM-propose / vérif-physique.** Score
+  des chaînes candidates par re-pixelisation→distance (`search.PipelineScorer.TotalScore`).
+- `unpixel_render` (→ image PNG MCP), `unpixel_rank_fonts`, `unpixel_calibrate` (multi-axes
+  wght/wdth/opsz/slnt). Resources : `unpixel://fonts|charsets|methods|operating-envelope`.
+
+**Pourquoi (cf. analyse de tendance ci-dessus) :** 6 versions de décodeurs n'ont pas cassé le
+0 exact-match sur real/wild/sick/context ; l'ingrédient manquant est un **prior sémantique**
+plus fort. `verify_candidates` permet la boucle *LLM génère des candidats plausibles → UnPixel
+falsifie physiquement*. **Prochain jalon décisif :** mesurer si ce prior décolle le 0 exact sur
+`sick`/`context` (spike), avant d'élargir le serveur. Revue go-reviewer passée (jobs/cancel,
+langue par décodeur, G304, cap police corrigés) ; gates verts (cgo/lint/gosec/test-race).
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
@@ -1042,3 +1069,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `1f1b3a4` 2026-06-26 — feat(realworld): opt-in zero-config capture features — auto colorspace/crop/calibrate, prefix constraint _(17 fichiers)_
 - `e415ed0` 2026-06-26 — feat(decode): opt-in ensemble, multi-frame, context-aware DID, glyph fingerprint, opsz/slnt _(29 fichiers)_
 - `92442f7` 2026-06-26 — test(multiframe): make TwoFrames a mechanism check, not a quality assertion _(4 fichiers)_
+- `3ff2f16` 2026-06-26 — feat(journal): auto trend-check gate over the full testdata corpus _(4 fichiers)_
