@@ -1008,3 +1008,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `fb45a14` 2026-06-25 — perf(search,deblur): evalChildren prealloc/unbox + deblur FFT twiddle tables _(5 fichiers)_
 - `1f1b3a4` 2026-06-26 — feat(realworld): opt-in zero-config capture features — auto colorspace/crop/calibrate, prefix constraint _(17 fichiers)_
 - `e415ed0` 2026-06-26 — feat(decode): opt-in ensemble, multi-frame, context-aware DID, glyph fingerprint, opsz/slnt _(29 fichiers)_
+- `92442f7` 2026-06-26 — test(multiframe): make TwoFrames a mechanism check, not a quality assertion _(4 fichiers)_
