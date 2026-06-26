@@ -197,6 +197,20 @@ falsifie physiquement*. **Prochain jalon décisif :** mesurer si ce prior décol
 `sick`/`context` (spike), avant d'élargir le serveur. Revue go-reviewer passée (jobs/cancel,
 langue par décodeur, G304, cap police corrigés) ; gates verts (cgo/lint/gosec/test-race).
 
+**Campagne de test MCP sur tout le corpus (75 images, 2026-06-26).** Pilotage `analyze`+`verify`
+sur les 7 dirs (le LLM propose, l'outil falsifie). Résultats :
+- `analyze` : classification correcte sur fixtures/blur/sick/digits/perspective ; **2 bugs trouvés
+  & corrigés** — (a) `verify_candidates` ne discriminait pas (scoring non calibré + clipping
+  multi-char → distances identiques) → `mosaictext.ScoreCandidates` (calibration complète + stretch
+  par candidat) ; (b) `analyze` flaggait **faussement `perspective`** tout redaction courte/upright
+  (tous les `context`, et même les images propres `*_gt_*`) car `DetectQuad` réussit sur n'importe
+  quel texte → gate sur l'inclinaison réelle du quad (`quadTilted`, >6 % d'écart axis-aligned).
+- `verify_candidates` après fix : **vrai #1 sur 18/27 images** (vérité vs 3 leurres) — fort sur
+  monospace court (marges 100-2300), plus faible sur proportionnel/long (mur block-mixing). Loin
+  au-dessus du hasard (1/4), mais pas un décodeur : c'est un *falsificateur* de candidats.
+- Bilan envelope : recouvrable = fixtures/blur/perspective(synthétiques) + redactions courtes via
+  la boucle LLM ; mur persistant = phrases longues proportionnelles & images réelles/wild.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
