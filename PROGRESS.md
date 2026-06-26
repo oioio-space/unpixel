@@ -137,6 +137,39 @@ et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (
   plutôt que la mémoire (directive complète 1×/session puis nudge). Politique : `CLAUDE.md`.
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
+### 📉 Analyse de tendance du journal (v0.10.0 → v0.16.0, 2026-06-26)
+
+Lecture de toute la table `## Évolution` de `docs/JOURNAL.md` (pas seulement le panel
+17-fixtures). Trois constats :
+
+1. **Deux corpora au plafond, quatre murés.** `fixtures` (best 17/17 exact) et `blur`
+   (best 13/14 exact) sont **résolus et plats depuis 6 versions** — rien à y gagner.
+   `real`/`wild`/`sick`/`context` : **zéro récupération exacte sur TOUTE l'histoire**
+   (v0.10.0→v0.16.0). Chaque feature livrée (ensemble, DID, multi-frame, calibrate,
+   varfont, blind, opsz/slnt…) n'a bougé que le **mean block-similarity de quelques
+   points**, jamais franchi le seuil d'une lecture correcte. Confirme le plateau de
+   l'« operating envelope 0/N » : on optimise une proximité qui ne se traduit pas en
+   texte juste. `wild` reste à **0 % absolu** → échec géométrique probable en amont
+   (grille/offset/`InferBlockGrid`/`LocateRedaction`), à investiguer **isolément** avant
+   tout travail de décodage.
+
+2. **Une régression a survécu 3 versions sans être vue.** `real` mean est tombé de
+   **11 % → 3 %** à **v0.13.0** (release « doc rationalization »), est resté à 3-4 % sur
+   v0.13/v0.14/v0.15, et n'a récupéré (→11 %) qu'à **v0.16.0**. Le panel ne suivant que
+   `fixtures`, la régression full-set est **passée inaperçue pendant 3 releases**. → règle :
+   « pas de régression sur tout le jeu d'images », pas seulement le panel.
+
+3. **La sortie n'est pas “encore un décodeur”.** 6 versions de décodeurs n'ont pas cassé
+   la barrière exact-match sur real/wild/sick. L'ingrédient manquant est un **prior
+   sémantique plus fort** (générateur de candidats) — ce qui valide la direction
+   **MCP LLM-propose / vérif-physique** (`verify_candidates`). Prochain test décisif :
+   mesurer si le prior LLM décolle le 0 exact sur `sick`/`context`.
+
+**Garde-fou ajouté :** `mise run trend:check` (`scripts/journal-trend-check.sh`) compare les
+2 dernières lignes `Évolution`, **échoue** sur toute régression exact/≥70 % par corpus
+(warn sur baisse de mean ; `STRICT=1` échoue aussi). Lancé **automatiquement après**
+`mise run journal`.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,

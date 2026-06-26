@@ -235,7 +235,11 @@ run = "./scripts/clean-artifacts.sh"
 
 [tasks.journal]
 description = "Evolving test journal: run all corpora (fixtures/blur/real/wild) through UnPixel (zero-config + best-config) and append a timestamped run to docs/JOURNAL.md + benchmarks/journal/*.json"
-run = "./scripts/gotest-caged.sh go test -tags journal -run TestJournal -v -timeout 60m ."
+run = "./scripts/gotest-caged.sh go test -tags journal -run TestJournal -v -timeout 60m . && ./scripts/journal-trend-check.sh"
+
+[tasks."trend:check"]
+description = "Compare the two most recent docs/JOURNAL.md évolution rows; fail on any per-corpus exact/≥70% regression across the full testdata set (warn on mean drop). Runs automatically after `journal`; STRICT=1 also fails on a mean drop > MEAN_DROP_PP."
+run = "./scripts/journal-trend-check.sh"
 
 [tasks."clean:check"]
 description = "Pre-commit gate: tidy artifacts + block any staged artifact"
