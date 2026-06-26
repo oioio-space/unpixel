@@ -40,6 +40,7 @@ import (
 	"image"
 	_ "image/jpeg" // register JPEG decoding
 	_ "image/png"  // register PNG decoding
+	"math"
 	"os"
 	"slices"
 
@@ -210,12 +211,19 @@ func Analyze(img image.Image) (AnalysisReport, error) {
 	// quad detection on an image that passed no grid test is strong evidence of
 	// a photographed / perspective-distorted mosaic.
 	if r.RecommendedDecoder == "none" || r.RecommendedDecoder == "" {
-		if quad, qErr := rectify.DetectQuad(rgba, 40); qErr == nil {
+		// DetectQuad finds a foreground region in almost any text-on-background
+		// image — including upright redactions and clean (un-redacted) text —
+		// so its mere success is NOT evidence of perspective. Only flag
+		// perspective when the quad is genuinely TILTED (its corners deviate
+		// from an axis-aligned rectangle). Otherwise an upright redaction the
+		// grid detector simply missed (e.g. a short label) would be misrouted
+		// to the perspective decoder.
+		if quad, qErr := rectify.DetectQuad(rgba, 40); qErr == nil && quadTilted(quad) {
 			r.PerspectiveDistortion = true
 			r.RecommendedDecoder = "perspective"
 			r.RedactionType = "mosaic"
 			r.RecommendedCharset = unpixel.CharsetAlnum
-			r.Rationale = "no axis-aligned grid detected but a foreground quad was found; likely a photographed mosaic"
+			r.Rationale = "a tilted foreground quad was found (non-axis-aligned); likely a photographed mosaic"
 			r.SuggestedQuad = fmt.Sprintf("%.0f,%.0f %.0f,%.0f %.0f,%.0f %.0f,%.0f",
 				quad[0].X, quad[0].Y,
 				quad[1].X, quad[1].Y,
@@ -230,6 +238,33 @@ func Analyze(img image.Image) (AnalysisReport, error) {
 	}
 
 	return r, nil
+}
+
+// quadTilted reports whether an axis-aligned-detected quad is actually skewed,
+// i.e. its top/bottom edges are non-horizontal or its left/right edges are
+// non-vertical by more than tiltTolFrac of the quad's larger dimension. A near-
+// rectangular quad (upright redaction or clean text) returns false.
+func quadTilted(q [4]rectify.Point) bool {
+	const tiltTolFrac = 0.06
+	// Corner order from DetectQuad: [0]=TL, [1]=TR, [2]=BR, [3]=BL.
+	tl, tr, br, bl := q[0], q[1], q[2], q[3]
+	minX := min(tl.X, tr.X, br.X, bl.X)
+	maxX := max(tl.X, tr.X, br.X, bl.X)
+	minY := min(tl.Y, tr.Y, br.Y, bl.Y)
+	maxY := max(tl.Y, tr.Y, br.Y, bl.Y)
+	w, h := maxX-minX, maxY-minY
+	span := max(w, h)
+	if span <= 0 {
+		return false
+	}
+	// Deviation of each edge from perfectly axis-aligned.
+	dev := max(
+		math.Abs(tl.Y-tr.Y), // top edge horizontal?
+		math.Abs(bl.Y-br.Y), // bottom edge horizontal?
+		math.Abs(tl.X-bl.X), // left edge vertical?
+		math.Abs(tr.X-br.X), // right edge vertical?
+	)
+	return dev/span > tiltTolFrac
 }
 
 // heuristic derives the recommended decoder and related fields from analysis
