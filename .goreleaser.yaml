@@ -24,6 +24,20 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
+  - id: unpixel-mcp
+    main: ./cmd/unpixel-mcp
+    binary: unpixel-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
 
 archives:
   - formats: [tar.gz]
