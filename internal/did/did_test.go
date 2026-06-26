@@ -147,6 +147,159 @@ func TestTrellisDP_TrulyUnreachable(t *testing.T) {
 	}
 }
 
+// TestTrellisDPContextual verifies that TrellisDPContextual passes the
+// left-rune context to the emission function. The emission function records
+// every (leftRune, gi, col) triple it receives; after the DP, every call at
+// col > 0 must have received the rune that the best path placed just before it.
+func TestTrellisDPContextual(t *testing.T) {
+	W := 4
+	glyphs := []GlyphSpec{
+		{R: 'A', Advance: 2},
+		{R: 'B', Advance: 1},
+	}
+
+	type callKey struct {
+		leftRune rune
+		gi, col  int
+	}
+	var calls []callKey
+
+	emitCosts := map[[2]int]float64{
+		{0, 0}: 0.1, // A at col 0
+		{0, 2}: 1.0, // A at col 2
+		{1, 2}: 0.5, // B at col 2
+		{1, 3}: 0.5, // B at col 3
+	}
+	emitFn := func(gi, col int, leftRune rune) float64 {
+		calls = append(calls, callKey{leftRune, gi, col})
+		k := [2]int{gi, col}
+		if v, ok := emitCosts[k]; ok {
+			return v
+		}
+		return math.Inf(1)
+	}
+
+	lm := lang.Default()
+	path, cost := TrellisDPContextual(W, glyphs, emitFn, lm, 0.0)
+
+	if cost > 1.0 {
+		t.Errorf("TrellisDPContextual: cost = %v, want ≤ 1.0", cost)
+	}
+	if len(path) == 0 {
+		t.Errorf("TrellisDPContextual: empty path")
+	}
+	if len(path) > 0 && path[0] != 'A' {
+		t.Errorf("TrellisDPContextual: path[0] = %c, want 'A'", path[0])
+	}
+
+	// All calls at col 0 must have leftRune = ' ' (sentence-start context).
+	for _, c := range calls {
+		if c.col == 0 && c.leftRune != ' ' {
+			t.Errorf("col 0 call: leftRune = %c, want ' '", c.leftRune)
+		}
+	}
+	// At least one call at col > 0 must have received a non-space leftRune,
+	// demonstrating that context is threaded through the DP.
+	hasContext := false
+	for _, c := range calls {
+		if c.col > 0 && c.leftRune != ' ' {
+			hasContext = true
+			break
+		}
+	}
+	if !hasContext {
+		t.Error("TrellisDPContextual: no call at col>0 received a non-space leftRune — context not threaded")
+	}
+}
+
+// TestContextualEmissionCache_PutGetHitMissLen exercises the full
+// ContextualEmissionCache contract.
+func TestContextualEmissionCache_PutGetHitMissLen(t *testing.T) {
+	c := NewContextualEmissionCache()
+
+	if c.Len() != 0 {
+		t.Errorf("Len() after New: got %d, want 0", c.Len())
+	}
+	if _, ok := c.Get('a', 0, 0); ok {
+		t.Error("Get('a',0,0) after New: got hit, want miss")
+	}
+
+	c.Put('a', 0, 0, 1.5)
+	c.Put('b', 0, 0, 2.5) // same (gi,col), different leftRune
+	c.Put('a', 1, 3, 3.5)
+
+	if c.Len() != 3 {
+		t.Errorf("Len() after 3 Puts: got %d, want 3", c.Len())
+	}
+
+	if v, ok := c.Get('a', 0, 0); !ok || v != 1.5 {
+		t.Errorf("Get('a',0,0): got (%v, %v), want (1.5, true)", v, ok)
+	}
+	if v, ok := c.Get('b', 0, 0); !ok || v != 2.5 {
+		t.Errorf("Get('b',0,0): got (%v, %v), want (2.5, true)", v, ok)
+	}
+	// Miss: (leftRune='c', gi=0, col=0) never stored.
+	if _, ok := c.Get('c', 0, 0); ok {
+		t.Error("Get('c',0,0): got hit, want miss")
+	}
+
+	// Overwrite.
+	c.Put('a', 0, 0, 9.9)
+	if c.Len() != 3 {
+		t.Errorf("Len() after overwrite: got %d, want 3", c.Len())
+	}
+	if v, ok := c.Get('a', 0, 0); !ok || v != 9.9 {
+		t.Errorf("Get('a',0,0) after overwrite: got (%v, %v), want (9.9, true)", v, ok)
+	}
+}
+
+// BenchmarkTrellisDPContextual measures the contextual trellis DP overhead vs
+// the isolated BenchmarkTrellisDP. The emission function is identical (ignores
+// leftRune) so any difference is pure DP overhead.
+func BenchmarkTrellisDPContextual(b *testing.B) {
+	const (
+		W       = 200
+		nGlyphs = 36
+		minAdv  = 7
+		maxAdv  = 14
+	)
+	glyphs := make([]GlyphSpec, nGlyphs)
+	for i := range nGlyphs {
+		glyphs[i] = GlyphSpec{
+			R:       rune('a' + i%26),
+			Advance: minAdv + i%(maxAdv-minAdv+1),
+		}
+	}
+
+	type key struct{ gi, col int }
+	emitTable := make(map[key]float64, nGlyphs*W)
+	seed := uint32(0xDEAD_BEEF)
+	lcg := func() float64 {
+		seed = seed*1664525 + 1013904223
+		return float64(seed>>8) / float64(1<<24)
+	}
+	for gi := range nGlyphs {
+		for col := range W {
+			emitTable[key{gi, col}] = lcg() * 500
+		}
+	}
+
+	emitFn := func(gi, col int, _ rune) float64 {
+		if v, ok := emitTable[key{gi, col}]; ok {
+			return v
+		}
+		return 1e9
+	}
+
+	lm := lang.Default()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		path, _ := TrellisDPContextual(W, glyphs, emitFn, lm, 0.0)
+		trellisPathSink = path
+	}
+}
+
 // TestGlyphAdvancePixels verifies pixel-advance rounding is positive.
 func TestGlyphAdvancePixels(t *testing.T) {
 	adv := GlyphAdvancePixels(10.0, 1.2) // 12 px

@@ -967,7 +967,8 @@ func buildRunSection(run journalRun) string {
 			fidStr = fmt.Sprintf("%.3f", cs.BestMeanFidelity)
 		}
 		durSec := cs.BestDurationMS / 1000
-		fmt.Fprintf(&sb, "| %s | %d/%d | %d | %s | %s | %s | %.1f | %s |\n",
+		fmt.Fprintf(
+			&sb, "| %s | %d/%d | %d | %s | %s | %s | %.1f | %s |\n",
 			corpus,
 			cs.BestOK, knowable,
 			cs.BestSensical,

@@ -60,6 +60,24 @@ unpixel --font Consolas.ttf --font-size 24 redacted.png
 unpixel --redaction blur redacted.png
 ```
 
+**4. Decoder ensemble** — run multiple decoders and select by exact image-distance (no-regression guarantee):
+
+```bash
+unpixel --decoder ensemble redacted.png
+```
+
+**5. Multi-frame decode** — combine sub-pixel-jittered frames of the same redaction:
+
+```bash
+unpixel --frame frame1.png --frame frame2.png --frame frame3.png redacted.png
+```
+
+**6. DID context-aware emission** — fix boundary blocks by rendering glyphs with neighbours:
+
+```bash
+unpixel --decoder did --did-context redacted.png
+```
+
 The best estimate is written to standard output (so that it pipes cleanly); ranked
 alternatives and progress information are written to standard error. Add `--format json`
 for machine-readable output.
@@ -72,11 +90,25 @@ import (
 	"fmt"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/mosaictext"
 	_ "github.com/oioio-space/unpixel/defaults" // wires the default pipeline
 )
 
+// Single-frame:
 res, _ := unpixel.RecoverFile(context.Background(), "redacted.png")
 fmt.Println(res.BestGuess)
+
+// Decoder ensemble (multi-decoder with exact re-score):
+ens, _ := mosaictext.DecodeEnsemble(ctx, img)
+fmt.Println(ens.BestGuess)
+
+// Multi-frame decode (requires sub-pixel-jittered frames):
+multi, _ := mosaictext.DecodeMultiFrame(ctx, []image.Image{frame1, frame2, frame3})
+fmt.Println(multi.BestGuess)
+
+// DID with context-aware emission:
+did, _ := mosaictext.DecodeDID(ctx, img, mosaictext.WithDIDContext(true))
+fmt.Println(did.BestGuess)
 ```
 
 ## Real-world / zero-config usage
@@ -122,7 +154,7 @@ res, _ := unpixel.Recover(ctx, img,
 )
 ```
 
-**Caveat:** `--auto*` flags target real captures. Synthetic fixtures in the test panel already decode without them (no quality improvement shown on the 17/17 panel); their value lies in zero-config real-world use.
+**Caveat:** `--auto*` flags and multi-decoder options (`--decoder ensemble`, `--frame`, `--did-context`) target real captures and boundary cases. Synthetic fixtures in the test panel already decode without them (panel remains 17/17 unchanged); their value lies in zero-config real-world use and tackling edge cases (JPEG boundaries, sub-pixel jitter, context-dependent pixelation).
 
 ## Effectiveness
 

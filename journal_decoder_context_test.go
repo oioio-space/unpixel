@@ -86,7 +86,8 @@ func runCalibrateVisibleOnContext(t *testing.T, specs []fixture.ContextSpec) (de
 		redactCrop := cropContextRect(img, s.RedactedRect)
 
 		ctx, cancel := context.WithTimeout(t.Context(), decoderPerTimeout)
-		res, decErr := mosaictext.DecodeVarFont(ctx, redactCrop,
+		res, decErr := mosaictext.DecodeVarFont(
+			ctx, redactCrop,
 			mosaictext.WithVarFontAxes(contextAxes()),
 			mosaictext.WithVarFontVisible(visibleCrop, s.VisibleText),
 			mosaictext.WithVarFontCharset(contextCharset),
@@ -192,7 +193,8 @@ func runCalibrateSampleOnContext(t *testing.T, specs []fixture.ContextSpec, deta
 		redactCrop := cropContextRect(img, s.RedactedRect)
 
 		ctx, cancel := context.WithTimeout(t.Context(), decoderPerTimeout)
-		res, decErr := mosaictext.DecodeVarFont(ctx, redactCrop,
+		res, decErr := mosaictext.DecodeVarFont(
+			ctx, redactCrop,
 			mosaictext.WithVarFontAxes(contextAxes()),
 			mosaictext.WithVarFontVisible(sampleCrop, s.FontSample.SampleText),
 			mosaictext.WithVarFontCharset(contextCharset),

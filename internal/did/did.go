@@ -205,3 +205,139 @@ func (c *EmissionCache) Put(gi, col int, cost float64) {
 
 // Len returns the number of cached entries, for benchmark and ICP reporting.
 func (c *EmissionCache) Len() int { return len(c.data) }
+
+// ContextualEmissionFunc computes the emission cost for glyph gi placed at
+// start column col, given that leftRune is the rune whose advance ends at col
+// (use ' ' for the sentence-start position). The left neighbor's image
+// contributes to the block average at the left boundary of glyph gi, so the
+// emission can render them together for a more faithful comparison.
+// It must be idempotent and safe to call from a single goroutine.
+type ContextualEmissionFunc func(gi int, col int, leftRune rune) float64
+
+// contextualEmissionKey is the cache key for a (leftRune, glyph-index, start-col) triple.
+type contextualEmissionKey struct {
+	leftRune rune
+	gi       int
+	col      int
+}
+
+// ContextualEmissionCache is a flat map from (leftRune, glyph-index, start-col)
+// to emission cost. It is the context-aware counterpart to EmissionCache.
+// It is not safe for concurrent use; each decoder goroutine should own its own.
+type ContextualEmissionCache struct {
+	data map[contextualEmissionKey]float64
+}
+
+// NewContextualEmissionCache returns an empty ContextualEmissionCache.
+func NewContextualEmissionCache() *ContextualEmissionCache {
+	return &ContextualEmissionCache{data: make(map[contextualEmissionKey]float64)}
+}
+
+// Get returns the cached cost and whether it was found.
+func (c *ContextualEmissionCache) Get(leftRune rune, gi, col int) (float64, bool) {
+	v, ok := c.data[contextualEmissionKey{leftRune, gi, col}]
+	return v, ok
+}
+
+// Put stores a cost for (leftRune, gi, col).
+func (c *ContextualEmissionCache) Put(leftRune rune, gi, col int, cost float64) {
+	c.data[contextualEmissionKey{leftRune, gi, col}] = cost
+}
+
+// Len returns the number of cached entries.
+func (c *ContextualEmissionCache) Len() int { return len(c.data) }
+
+// TrellisDPContextual runs Viterbi / shortest-path DP over the column trellis
+// with a context-aware emission function. It is identical to TrellisDP except
+// that emitFn receives the rune that ended at the current column (leftRune=' '
+// at the sentence start), allowing the emission to render the left neighbor
+// glyph alongside the current glyph for accurate boundary-block averaging.
+//
+// All other parameters and the coverage-relaxation behaviour are identical to
+// TrellisDP. The returned path and cost semantics are unchanged.
+func TrellisDPContextual(w int, glyphs []GlyphSpec, emitFn ContextualEmissionFunc, lm *lang.Model, lambda float64) (path []rune, cost float64) {
+	if w <= 0 || len(glyphs) == 0 {
+		return nil, math.Inf(1)
+	}
+
+	maxAdv := 0
+	for _, g := range glyphs {
+		if g.Advance > maxAdv {
+			maxAdv = g.Advance
+		}
+	}
+
+	dpSize := w + maxAdv + 1
+
+	dp := make([]float64, dpSize)
+	for i := range dp {
+		dp[i] = math.Inf(1)
+	}
+	dp[0] = 0
+
+	type backEntry struct{ gi, from int }
+	back := make([]backEntry, dpSize)
+
+	prevRune := make([]rune, dpSize)
+	for i := range prevRune {
+		prevRune[i] = ' '
+	}
+
+	for c := range w {
+		if math.IsInf(dp[c], 1) {
+			continue
+		}
+		left := prevRune[c]
+		for gi, g := range glyphs {
+			end := c + g.Advance
+			if end >= dpSize {
+				continue
+			}
+			emit := emitFn(gi, c, left)
+			if math.IsInf(emit, 1) {
+				continue
+			}
+			lmCost := 0.0
+			if lambda != 0 && lm != nil {
+				lmCost = -lambda * lm.TransitionLogProb(left, g.R)
+			}
+			total := dp[c] + emit + lmCost
+			if total < dp[end] {
+				dp[end] = total
+				back[end] = backEntry{gi: gi, from: c}
+				prevRune[end] = g.R
+			}
+		}
+	}
+
+	bestEnd := -1
+	bestCost := math.Inf(1)
+	lo := max(1, w-maxAdv)
+	hi := min(w+maxAdv, dpSize-1)
+	const coveragePenaltyPerPx = 0.1
+	for c := lo; c <= hi; c++ {
+		if math.IsInf(dp[c], 1) {
+			continue
+		}
+		adjusted := dp[c] + coveragePenaltyPerPx*math.Abs(float64(c-w))
+		if adjusted < bestCost {
+			bestCost = adjusted
+			bestEnd = c
+		}
+	}
+
+	if bestEnd < 0 || math.IsInf(dp[bestEnd], 1) {
+		return nil, math.Inf(1)
+	}
+
+	var runes []rune
+	for col := bestEnd; col > 0; {
+		be := back[col]
+		runes = append(runes, glyphs[be.gi].R)
+		col = be.from
+	}
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return runes, dp[bestEnd]
+}

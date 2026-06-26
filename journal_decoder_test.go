@@ -60,7 +60,8 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 		// default → sick: baseline using unpixel.RecoverFile with best-config params,
 		// included so the corpus table and this table are directly comparable.
 		runDecoderOnSick(t, "default", sickEntries, false, func(ctx context.Context, img image.Image, e journalSickEntry) (string, error) {
-			res, err := unpixel.RecoverFile(ctx, filepath.Join("testdata/sick", e.file()),
+			res, err := unpixel.RecoverFile(
+				ctx, filepath.Join("testdata/sick", e.file()),
 				unpixel.WithCharset(e.Charset),
 				unpixel.WithBlockSize(e.BlockSize),
 				unpixel.WithStyle(unpixel.Style{
@@ -77,7 +78,8 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 
 		// did → sick: Kopec-Chou trellis DP; capped (slow: O(charset×width) per image).
 		runDecoderOnSick(t, "did", sickEntries, true, func(ctx context.Context, img image.Image, e journalSickEntry) (string, error) {
-			res, err := mosaictext.DecodeDID(ctx, img,
+			res, err := mosaictext.DecodeDID(
+				ctx, img,
 				mosaictext.WithDIDCharset(e.Charset),
 				mosaictext.WithDIDBlockSize(e.BlockSize),
 				mosaictext.WithDIDFontSize(e.FontSize),
@@ -87,7 +89,8 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 
 		// window-hmm → sick: sliding-window beam search.
 		runDecoderOnSick(t, "window-hmm", sickEntries, false, func(ctx context.Context, img image.Image, e journalSickEntry) (string, error) {
-			res, err := mosaictext.DecodeWindowHMM(ctx, img,
+			res, err := mosaictext.DecodeWindowHMM(
+				ctx, img,
 				mosaictext.WithWHMMCharset(e.Charset),
 			)
 			return res.Text, err
@@ -96,7 +99,8 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 		// trained-hmm → sick: KMeans-trained HMM + Viterbi with language prior.
 		// Capped: training is expensive (~20–40 s per image on the full charset).
 		runDecoderOnSick(t, "trained-hmm", sickEntries, true, func(ctx context.Context, img image.Image, e journalSickEntry) (string, error) {
-			res, err := mosaictext.DecodeTrainedHMM(ctx, img,
+			res, err := mosaictext.DecodeTrainedHMM(
+				ctx, img,
 				mosaictext.WithTHMMCharset(e.Charset),
 				mosaictext.WithTHMMLanguage(lang.English),
 			)
@@ -105,7 +109,8 @@ func runDecoderMatrix(t *testing.T) ([]decoderRow, []contextDetail) {
 
 		// ref-match → sick: geometric per-cell reference match.
 		runDecoderOnSick(t, "ref-match", sickEntries, false, func(ctx context.Context, img image.Image, e journalSickEntry) (string, error) {
-			res, err := mosaictext.DecodeReference(ctx, img,
+			res, err := mosaictext.DecodeReference(
+				ctx, img,
 				mosaictext.WithRefCharset(e.Charset),
 			)
 			return res.Text, err
@@ -412,7 +417,8 @@ func buildDecoderEvolutionRows(run journalRun, drows []decoderRow) string {
 		if dr.Subset {
 			subsetStr = fmt.Sprintf("first %d", decoderSlowCap)
 		}
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(
+			&sb,
 			"| %s | %s | %s | %s | %s | %d/%d/%d/%s | %.0f | %s |\n",
 			run.Timestamp[:10],
 			run.Version,

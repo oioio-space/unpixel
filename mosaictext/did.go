@@ -91,15 +91,16 @@ type DIDResult struct {
 type DIDOption func(*didConfig)
 
 type didConfig struct {
-	charset   string
-	fontName  string  // empty → sweep all bundled fonts
-	fontData  []byte  // non-nil → use this TTF/OTF exclusively
-	fontBold  []byte  // non-nil → bold face alongside fontData
-	linear    int     // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
-	lambda    float64 // LM weight (0 → defaultDIDLambda)
-	language  lang.Language
-	fontSize  float64 // 0 → auto-calibrate from image
-	blockSize int     // 0 → auto from InferBlockGrid
+	charset         string
+	fontName        string  // empty → sweep all bundled fonts
+	fontData        []byte  // non-nil → use this TTF/OTF exclusively
+	fontBold        []byte  // non-nil → bold face alongside fontData
+	linear          int     // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
+	lambda          float64 // LM weight (0 → defaultDIDLambda)
+	language        lang.Language
+	fontSize        float64 // 0 → auto-calibrate from image
+	blockSize       int     // 0 → auto from InferBlockGrid
+	contextEmission bool    // true → render left neighbor alongside glyph
 }
 
 func defaultDIDConfig() didConfig {
@@ -185,6 +186,17 @@ func WithDIDBlockSize(size int) DIDOption {
 			c.blockSize = size
 		}
 	}
+}
+
+// WithDIDContext enables context-aware emission (opt-in, default false).
+// When true, each glyph is rendered alongside its left neighbour so that
+// boundary blocks — which in the real mosaic average pixels from two adjacent
+// glyphs — are pixelated the same way as in the target. This reduces the
+// emission bias at glyph boundaries and can improve recovery on
+// boundary-heavy or JPEG-compressed mosaics. The isolated-glyph path (default)
+// is unchanged and all clean-monospace fixtures remain valid with either mode.
+func WithDIDContext(enable bool) DIDOption {
+	return func(c *didConfig) { c.contextEmission = enable }
 }
 
 // DecodeDID recovers text from a mosaic-pixelated image using Document Image
@@ -313,7 +325,7 @@ func DecodeDID(ctx context.Context, img image.Image, opts ...DIDOption) (DIDResu
 			if ctx.Err() != nil {
 				return
 			}
-			text, dist, phaseX, evals := decodeOneDID(ctx, c.r, target, block, cfg.charset, cfg.fontSize, lm, lambda, c.linear)
+			text, dist, phaseX, evals := decodeOneDID(ctx, c.r, target, block, cfg.charset, cfg.fontSize, lm, lambda, c.linear, cfg.contextEmission)
 			results[i] = candidate{
 				text:          text,
 				fontName:      c.fontName,
@@ -369,6 +381,10 @@ func linearModes(mode int) []bool {
 // pair. It calibrates the font size, measures per-glyph advances, sweeps all
 // horizontal grid phases [0, block), and returns the best string, its mean MSE,
 // the winning phase, and the total emission evaluation count.
+//
+// When contextEmission is true, TrellisDPContextual is used so the emission
+// function receives the left-neighbour rune and renders it alongside the
+// current glyph, faithfully reproducing boundary-block averaging.
 func decodeOneDID(
 	ctx context.Context,
 	r unpixel.Renderer,
@@ -379,6 +395,7 @@ func decodeOneDID(
 	lm *lang.Model,
 	lambda float64,
 	linear bool,
+	contextEmission bool,
 ) (text string, dist float64, phaseX, emissionEvals int) {
 	tH := target.Bounds().Dy()
 
@@ -461,6 +478,13 @@ func decodeOneDID(
 		glyphImgs[i] = tile
 	}
 
+	// Index rune → glyph slot once, so the context-aware emission resolves the
+	// left neighbour in O(1) instead of scanning the whole charset per cache miss.
+	runeIdx := make(map[rune]int, len(glyphs))
+	for i, g := range glyphs {
+		runeIdx[g.R] = i
+	}
+
 	// Sweep grid phases. For each phase, run the trellis DP with memoised emissions.
 	bestText := ""
 	bestDist := math.Inf(1)
@@ -472,19 +496,48 @@ func decodeOneDID(
 			break
 		}
 
-		cache := did.NewEmissionCache()
+		var (
+			path  []rune
+			cost  float64
+			evals int
+		)
 
-		emitFn := func(gi int, col int) float64 {
-			if v, ok := cache.Get(gi, col); ok {
-				return v
+		if contextEmission {
+			cache := did.NewContextualEmissionCache()
+			emitFn := func(gi, col int, leftRune rune) float64 {
+				if v, ok := cache.Get(leftRune, gi, col); ok {
+					return v
+				}
+				// Resolve the left-neighbour glyph image. When leftRune is the
+				// sentence-start sentinel (' ') or not in the vocabulary, leftImg
+				// is nil (treated as blank in columnEmissionContextDID).
+				var leftImg *image.RGBA
+				var leftAdv int
+				if j, ok := runeIdx[leftRune]; ok {
+					leftImg = glyphImgs[j]
+					leftAdv = glyphs[j].Advance
+				}
+				c := columnEmissionContextDID(target, leftImg, glyphImgs[gi], leftAdv, glyphs[gi].Advance, col, block, phaseX, tH, pix)
+				cache.Put(leftRune, gi, col, c)
+				return c
 			}
-			cost := columnEmissionDID(target, glyphImgs[gi], glyphs[gi].Advance, col, block, phaseX, tH, pix)
-			cache.Put(gi, col, cost)
-			return cost
+			path, cost = did.TrellisDPContextual(W, glyphs, emitFn, lm, lambda)
+			evals = cache.Len()
+		} else {
+			cache := did.NewEmissionCache()
+			emitFn := func(gi, col int) float64 {
+				if v, ok := cache.Get(gi, col); ok {
+					return v
+				}
+				c := columnEmissionDID(target, glyphImgs[gi], glyphs[gi].Advance, col, block, phaseX, tH, pix)
+				cache.Put(gi, col, c)
+				return c
+			}
+			path, cost = did.TrellisDP(W, glyphs, emitFn, lm, lambda)
+			evals = cache.Len()
 		}
 
-		path, cost := did.TrellisDP(W, glyphs, emitFn, lm, lambda)
-		totalEvals += cache.Len()
+		totalEvals += evals
 
 		if len(path) == 0 || math.IsInf(cost, 1) {
 			continue
@@ -578,6 +631,107 @@ func columnEmissionDID(
 	// The pixelated canvas is offset by phaseX horizontally.
 	candSub := image.NewRGBA(image.Rect(0, 0, cmpW, bandH))
 	xdraw.Draw(candSub, candSub.Bounds(), pixelated, image.Pt(phaseX+blockStart, 0), xdraw.Src)
+
+	return mseRGB(targetSub, candSub)
+}
+
+// columnEmissionContextDID is the context-aware emission function for the DID
+// trellis. Unlike [columnEmissionDID] — which renders the current glyph in
+// isolation — this version also places the left-neighbor glyph (leftGlyphImg,
+// leftAdv pixels wide ending at startCol) on the canvas before pixelating.
+// Blocks that straddle the boundary between the left and current glyph therefore
+// average ink from both glyphs, exactly as they do in the real mosaic target.
+//
+// The comparison window and the scoring logic are otherwise identical to
+// [columnEmissionDID]: fully-interior block columns of the current glyph's
+// advance cell are used; degenerate inputs return +Inf.
+func columnEmissionContextDID(
+	target, leftGlyphImg, glyphImg *image.RGBA,
+	leftAdv, glyphAdv, startCol, block, phaseX, bandH int,
+	pixelateFn unpixel.Pixelator,
+) float64 {
+	W := target.Bounds().Dx()
+	if startCol >= W || glyphAdv <= 0 {
+		return math.Inf(1)
+	}
+	endCol := min(startCol+glyphAdv, W)
+
+	// Build a canvas wide enough for phaseX padding + the full target width.
+	canvasW := W + phaseX
+	canvas := image.NewRGBA(image.Rect(0, 0, canvasW, bandH))
+	imutil.FillWhite(canvas)
+
+	// Place the left-neighbor glyph ending at startCol so its right edge
+	// aligns with the left edge of the current glyph's advance cell.
+	if leftGlyphImg != nil && leftAdv > 0 {
+		lStart := startCol - leftAdv
+		if lStart >= 0 {
+			gW := leftGlyphImg.Bounds().Dx()
+			gH := leftGlyphImg.Bounds().Dy()
+			dstRect := image.Rect(phaseX+lStart, 0, phaseX+lStart+gW, min(gH, bandH))
+			dstRect = dstRect.Intersect(canvas.Bounds())
+			if !dstRect.Empty() {
+				xdraw.Draw(canvas, dstRect, leftGlyphImg, leftGlyphImg.Bounds().Min, xdraw.Src)
+			}
+		}
+	}
+
+	// Place the current glyph starting at startCol.
+	if glyphImg != nil {
+		gW := glyphImg.Bounds().Dx()
+		gH := glyphImg.Bounds().Dy()
+		dstRect := image.Rect(phaseX+startCol, 0, phaseX+startCol+gW, min(gH, bandH))
+		dstRect = dstRect.Intersect(canvas.Bounds())
+		if !dstRect.Empty() {
+			xdraw.Draw(canvas, dstRect, glyphImg, glyphImg.Bounds().Min, xdraw.Src)
+		}
+	}
+
+	// Pixelate at originX=0, originY=0 (grid phase baked into phaseX padding).
+	pixelated := pixelateFn.Pixelate(canvas, 0, 0)
+
+	// Score the comparison region. With a left neighbour rendered on the canvas
+	// the left boundary block is now faithfully averaged, so we include it.
+	//
+	// cmpStart: the block boundary at or before startCol (the "left boundary
+	//           block") when a real left neighbour was placed; otherwise the
+	//           first fully-interior block (ceiling, same as isolated).
+	// cmpEnd:   the last fully-interior block boundary (floor of endCol/block),
+	//           excluding the right boundary whose neighbour is still unknown.
+	var cmpStart int
+	if leftGlyphImg != nil && leftAdv > 0 && startCol-leftAdv >= 0 {
+		// Left boundary block: floor(startCol / block) * block.
+		cmpStart = (startCol / block) * block
+	} else {
+		// No left context: first fully-interior block (ceiling).
+		cmpStart = ((startCol + block - 1) / block) * block
+	}
+	cmpEnd := (endCol / block) * block // floor — excludes unknown right boundary
+
+	if cmpStart >= cmpEnd {
+		// No scorable blocks. Fall back to raw advance-cell pixel comparison.
+		cmpW := endCol - startCol
+		if cmpW <= 0 {
+			return math.Inf(1)
+		}
+		targetSub := image.NewRGBA(image.Rect(0, 0, cmpW, bandH))
+		xdraw.Draw(targetSub, targetSub.Bounds(), target, image.Pt(startCol, 0), xdraw.Src)
+		candSub := image.NewRGBA(image.Rect(0, 0, cmpW, bandH))
+		xdraw.Draw(candSub, candSub.Bounds(), pixelated, image.Pt(phaseX+startCol, 0), xdraw.Src)
+		return mseRGB(targetSub, candSub)
+	}
+
+	cmpEnd = min(cmpEnd, W)
+	cmpW := cmpEnd - cmpStart
+	if cmpW <= 0 {
+		return math.Inf(1)
+	}
+
+	targetSub := image.NewRGBA(image.Rect(0, 0, cmpW, bandH))
+	xdraw.Draw(targetSub, targetSub.Bounds(), target, image.Pt(cmpStart, 0), xdraw.Src)
+
+	candSub := image.NewRGBA(image.Rect(0, 0, cmpW, bandH))
+	xdraw.Draw(candSub, candSub.Bounds(), pixelated, image.Pt(phaseX+cmpStart, 0), xdraw.Src)
 
 	return mseRGB(targetSub, candSub)
 }

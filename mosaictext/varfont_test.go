@@ -56,7 +56,8 @@ func TestDecodeVarFont_RoundTrip(t *testing.T) {
 	// DecodeVarFont with known-text calibration mode.
 	// WithVarFontLinear(true) must match the pixelator used to build the
 	// synthetic redaction above; mismatching colour-space breaks the comparison.
-	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+	got, err := mosaictext.DecodeVarFont(
+		t.Context(), redaction,
 		mosaictext.WithVarFont(font),
 		mosaictext.WithVarFontStyle(style),
 		mosaictext.WithVarFontBlockSize(blockSize),
@@ -110,7 +111,8 @@ func TestDecodeVarFont_OptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFont: %v", err)
 	}
-	_, vfErr := mosaictext.DecodeVarFont(t.Context(), blank,
+	_, vfErr := mosaictext.DecodeVarFont(
+		t.Context(), blank,
 		mosaictext.WithVarFont(font),
 		mosaictext.WithVarFontText("a"),
 		mosaictext.WithVarFontAxes([]varfont.AxisSpec{
@@ -175,7 +177,8 @@ func TestDecodeVarFont_BlindMode(t *testing.T) {
 	redaction := pix.Pixelate(targetImg, 0, 0)
 
 	// Call DecodeVarFont in blind mode (no WithVarFontText), WithVarFontCharset set.
-	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+	got, err := mosaictext.DecodeVarFont(
+		t.Context(), redaction,
 		mosaictext.WithVarFont(font),
 		mosaictext.WithVarFontStyle(style),
 		mosaictext.WithVarFontBlockSize(blockSize),
@@ -253,7 +256,8 @@ func TestDecodeVarFont_WithVisible(t *testing.T) {
 	}
 	redaction := pix.Pixelate(decSharp, 0, 0)
 
-	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+	got, err := mosaictext.DecodeVarFont(
+		t.Context(), redaction,
 		mosaictext.WithVarFont(font),
 		mosaictext.WithVarFontStyle(style),
 		mosaictext.WithVarFontBlockSize(blockSize),
@@ -302,7 +306,8 @@ func TestDecodeVarFont_WithOptimizer(t *testing.T) {
 	}
 	redaction := pix.Pixelate(targetImg, 0, 0)
 
-	got, err := mosaictext.DecodeVarFont(t.Context(), redaction,
+	got, err := mosaictext.DecodeVarFont(
+		t.Context(), redaction,
 		mosaictext.WithVarFont(font),
 		mosaictext.WithVarFontStyle(style),
 		mosaictext.WithVarFontBlockSize(blockSize),
@@ -363,7 +368,8 @@ func BenchmarkDecodeVarFont(b *testing.B) {
 	var totalEvals int
 	var sinkResult mosaictext.VarFontResult
 	for b.Loop() {
-		r, benchErr := mosaictext.DecodeVarFont(ctx, redaction,
+		r, benchErr := mosaictext.DecodeVarFont(
+			ctx, redaction,
 			mosaictext.WithVarFont(font),
 			mosaictext.WithVarFontStyle(style),
 			mosaictext.WithVarFontBlockSize(blockSize),

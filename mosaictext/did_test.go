@@ -139,7 +139,8 @@ func TestDecodeDID_Monospace(t *testing.T) {
 	)
 	img := renderPixelated(t, r, text, fs, block, true) // linear = GIMP mode
 
-	got, err := mosaictext.DecodeDID(t.Context(), img,
+	got, err := mosaictext.DecodeDID(
+		t.Context(), img,
 		mosaictext.WithDIDFont("Liberation Mono"),
 		mosaictext.WithDIDCharset("abcdefghijklmnopqrstuvwxyz "),
 		mosaictext.WithDIDLinear(1), // pin to linear
@@ -183,7 +184,8 @@ func TestDecodeDID_Proportional(t *testing.T) {
 	)
 	img := renderPixelated(t, r, text, fs, block, true)
 
-	got, err := mosaictext.DecodeDID(t.Context(), img,
+	got, err := mosaictext.DecodeDID(
+		t.Context(), img,
 		mosaictext.WithDIDFont("Liberation Sans"),
 		mosaictext.WithDIDCharset("abcdefghijklmnopqrstuvwxyz"),
 		mosaictext.WithDIDLinear(1),
@@ -225,7 +227,8 @@ func TestDecodeDID_SickWaterSafety(t *testing.T) {
 
 	const want = "nobody is practicing water safety"
 
-	got, err := mosaictext.DecodeDID(t.Context(), img,
+	got, err := mosaictext.DecodeDID(
+		t.Context(), img,
 		mosaictext.WithDIDFont("Liberation Mono"),
 		mosaictext.WithDIDCharset("abcdefghijklmnopqrstuvwxyz "),
 		mosaictext.WithDIDLinear(-1), // auto: sweep both
@@ -297,7 +300,8 @@ func BenchmarkDecodeDID(b *testing.B) {
 
 	var totalEvals int
 	for b.Loop() {
-		got, err := mosaictext.DecodeDID(b.Context(), img,
+		got, err := mosaictext.DecodeDID(
+			b.Context(), img,
 			mosaictext.WithDIDFont("Liberation Sans"),
 			mosaictext.WithDIDCharset("abcdefghijklmnopqrstuvwxyz"),
 			mosaictext.WithDIDLinear(1),

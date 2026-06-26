@@ -179,7 +179,8 @@ func TestDecodeWindowHMM_UnknownFontNameReturnsErrNoContent(t *testing.T) {
 	// Render a real mosaic so InferBlockGrid detects a grid.
 	img := renderMosaic(t, r, "123", 32.0, 4, false)
 
-	_, decErr := DecodeWindowHMM(t.Context(), img,
+	_, decErr := DecodeWindowHMM(
+		t.Context(), img,
 		WithWHMMFont("NoSuchFontXYZ"),
 	)
 	if !errors.Is(decErr, ErrNoContent) {
@@ -210,7 +211,8 @@ func TestDecodeWindowHMM_BadFontFileReturnsError(t *testing.T) {
 	}
 	img := renderMosaic(t, r, "123", 32.0, 4, false)
 
-	_, decErr := DecodeWindowHMM(t.Context(), img,
+	_, decErr := DecodeWindowHMM(
+		t.Context(), img,
 		WithWHMMFontFile([]byte("not a font")),
 	)
 	if decErr == nil {

@@ -48,7 +48,8 @@ func TestDecodePerspective_autoQuad(t *testing.T) {
 		}
 	}
 
-	res, err := mosaictext.DecodePerspective(t.Context(), photo,
+	res, err := mosaictext.DecodePerspective(
+		t.Context(), photo,
 		mosaictext.WithPerspectiveAutoQuad(0),
 		mosaictext.WithPerspectiveBlockSize(8),
 		mosaictext.WithPerspectiveCharset("go abcd"),
@@ -130,7 +131,8 @@ func TestDecodePerspective(t *testing.T) {
 		t.Run(fix.Name, func(t *testing.T) {
 			photo := loadPhoto(t, fix.File)
 
-			res, err := mosaictext.DecodePerspective(ctx, photo,
+			res, err := mosaictext.DecodePerspective(
+				ctx, photo,
 				mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 				mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
 				mosaictext.WithPerspectiveCharset(fix.Charset),
@@ -161,7 +163,8 @@ func TestDecodePerspective_autoFromFixtures(t *testing.T) {
 	for _, fix := range loadPerspectiveFixtures(t) {
 		t.Run(fix.Name, func(t *testing.T) {
 			photo := loadPhoto(t, fix.File)
-			res, err := mosaictext.DecodePerspective(ctx, photo,
+			res, err := mosaictext.DecodePerspective(
+				ctx, photo,
 				mosaictext.WithPerspectiveAutoQuad(0),
 				mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
 				mosaictext.WithPerspectiveCharset(fix.Charset),
@@ -204,7 +207,8 @@ func BenchmarkDecodePerspectiveAuto(b *testing.B) {
 	ctx := b.Context()
 	b.ReportAllocs()
 	for b.Loop() {
-		res, err := mosaictext.DecodePerspective(ctx, photo,
+		res, err := mosaictext.DecodePerspective(
+			ctx, photo,
 			mosaictext.WithPerspectiveAutoQuad(0),
 			mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
 			mosaictext.WithPerspectiveCharset(fix.Charset),
@@ -239,7 +243,8 @@ func TestDecodePerspectiveDegenerateQuad(t *testing.T) {
 		{X: 20, Y: 0},
 		{X: 30, Y: 0},
 	}
-	_, err := mosaictext.DecodePerspective(ctx, img,
+	_, err := mosaictext.DecodePerspective(
+		ctx, img,
 		mosaictext.WithPerspectiveQuad(degen),
 	)
 	if err == nil {
@@ -262,7 +267,8 @@ func TestDecodePerspectiveWithFontFile(t *testing.T) {
 	}
 
 	// WithPerspectiveFontFile exercises the explicit-TTF branch.
-	res, err := mosaictext.DecodePerspective(ctx, photo,
+	res, err := mosaictext.DecodePerspective(
+		ctx, photo,
 		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 		mosaictext.WithPerspectiveCharset(fix.Charset),
 		mosaictext.WithPerspectiveFontFile(ttfData),
@@ -277,7 +283,8 @@ func TestDecodePerspectiveWithFontFile(t *testing.T) {
 	t.Logf("font-file path: dist=%.4f text=%q", res.Distance, res.Text)
 
 	// WithPerspectiveLinear(false) exercises that option branch (no effect).
-	_, err = mosaictext.DecodePerspective(ctx, photo,
+	_, err = mosaictext.DecodePerspective(
+		ctx, photo,
 		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 		mosaictext.WithPerspectiveCharset(fix.Charset),
 		mosaictext.WithPerspectiveFont("Liberation Sans"),
@@ -303,7 +310,8 @@ func TestPerspectiveOptions(t *testing.T) {
 
 	photo := loadPhoto(t, fix.File)
 
-	_, err := mosaictext.DecodePerspective(ctx, photo,
+	_, err := mosaictext.DecodePerspective(
+		ctx, photo,
 		mosaictext.WithPerspectiveQuad(fixtureQuad(fix.Quad)),
 		mosaictext.WithPerspectiveCharset(fix.Charset),
 		mosaictext.WithPerspectiveFontSize(fix.FontSize),
@@ -343,7 +351,8 @@ func BenchmarkDecodePerspective(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		res, err := mosaictext.DecodePerspective(ctx, photo,
+		res, err := mosaictext.DecodePerspective(
+			ctx, photo,
 			mosaictext.WithPerspectiveQuad(quad),
 			mosaictext.WithPerspectiveBlockSize(fix.BlockSize),
 			mosaictext.WithPerspectiveCharset(fix.Charset),

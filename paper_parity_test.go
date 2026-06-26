@@ -201,7 +201,8 @@ func parityRunMatched(t *testing.T, e journalSickEntry, imgPath string) (float64
 	var guess string
 	switch e.Kind {
 	case "digits":
-		res, decErr := mosaictext.DecodeTrainedHMM(ctx, img,
+		res, decErr := mosaictext.DecodeTrainedHMM(
+			ctx, img,
 			mosaictext.WithTHMMCharset(e.Charset),
 			mosaictext.WithTHMMFont(e.Font),
 		)
@@ -211,7 +212,8 @@ func parityRunMatched(t *testing.T, e journalSickEntry, imgPath string) (float64
 		}
 		guess = res.Text
 	default: // "sick" — run both window-HMM and ref-match+LM; log both, return the better score
-		wRes, wErr := mosaictext.DecodeWindowHMM(ctx, img,
+		wRes, wErr := mosaictext.DecodeWindowHMM(
+			ctx, img,
 			mosaictext.WithWHMMCharset(e.Charset),
 			mosaictext.WithWHMMFont(e.Font),
 		)
@@ -222,7 +224,8 @@ func parityRunMatched(t *testing.T, e journalSickEntry, imgPath string) (float64
 				e.Name, wRes.Text, recoveryScore(wRes.Text, e.Text))
 		}
 
-		rRes, rErr := mosaictext.DecodeReference(ctx, img,
+		rRes, rErr := mosaictext.DecodeReference(
+			ctx, img,
 			mosaictext.WithRefFont(e.Font),
 			mosaictext.WithRefCharset(e.Charset),
 			mosaictext.WithRefLanguage(mosaictext.LangEnglish),

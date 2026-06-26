@@ -112,26 +112,28 @@ type flagParams struct {
 	normalizeBg         string // "divide", "subtract", "none"
 	normalizeBin        bool
 	deblock             int
-	remosaic            bool   // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
-	remosaicGrid        int    // --remosaic-grid N: pin block grid (0 = auto)
-	remosaicLinear      bool   // --remosaic-linear: linear-light block average (GEGL/GIMP)
-	l0deblur            bool   // --l0-deblur: Pan et al. CVPR 2014 L0 text deblur preprocessing
-	letterSpacingSearch bool   // --letter-spacing-search: sweep DefaultLetterSpacings
-	thmmLang            string // --thmm-lang: language-structured corpus for trained-hmm (B4.1)
-	thmmJPEG            int    // --thmm-jpeg: JPEG quality for emission augmentation (B4.2); 0 = off
-	varfontText         string // --varfont-text: known cleartext for varfont calibration mode
-	varfontAxes         string // --varfont-axes: comma-separated axis specs e.g. "wght:200:900:500"
-	varfontLinear       bool   // --varfont-linear: linear-light pixelation for varfont decoder
-	fontSamplePath      string // --font-sample: separate image providing font calibration (C1b)
-	fontSampleText      string // --font-sample-text: cleartext matching --font-sample (required with --font-sample)
-	fontSampleRegion    string // --font-sample-region: optional "x,y,w,h" sub-rect of the sample image
-	visibleText         string // --visible-text: cleartext of the sharp region IN the target image (C1a)
-	visibleRegion       string // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
-	rectify             string // --rectify: "x0,y0 x1,y1 x2,y2 x3,y3" quad for perspective decode
-	autoCrop            bool   // --auto-crop: locate mosaic band and crop before search
-	autoColorspace      bool   // --auto-colorspace: detect linear vs sRGB and pick pixelator
-	autoCalibrate       bool   // --auto-calibrate: seed grid phase / x-stretch from image
-	prefix              string // --prefix: known prefix string to constrain the search
+	remosaic            bool     // --remosaic: Hill et al. PETS-2016 §4 blur+remosaic path
+	remosaicGrid        int      // --remosaic-grid N: pin block grid (0 = auto)
+	remosaicLinear      bool     // --remosaic-linear: linear-light block average (GEGL/GIMP)
+	l0deblur            bool     // --l0-deblur: Pan et al. CVPR 2014 L0 text deblur preprocessing
+	letterSpacingSearch bool     // --letter-spacing-search: sweep DefaultLetterSpacings
+	thmmLang            string   // --thmm-lang: language-structured corpus for trained-hmm (B4.1)
+	thmmJPEG            int      // --thmm-jpeg: JPEG quality for emission augmentation (B4.2); 0 = off
+	varfontText         string   // --varfont-text: known cleartext for varfont calibration mode
+	varfontAxes         string   // --varfont-axes: comma-separated axis specs e.g. "wght:200:900:500"
+	varfontLinear       bool     // --varfont-linear: linear-light pixelation for varfont decoder
+	fontSamplePath      string   // --font-sample: separate image providing font calibration (C1b)
+	fontSampleText      string   // --font-sample-text: cleartext matching --font-sample (required with --font-sample)
+	fontSampleRegion    string   // --font-sample-region: optional "x,y,w,h" sub-rect of the sample image
+	visibleText         string   // --visible-text: cleartext of the sharp region IN the target image (C1a)
+	visibleRegion       string   // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
+	rectify             string   // --rectify: "x0,y0 x1,y1 x2,y2 x3,y3" quad for perspective decode
+	autoCrop            bool     // --auto-crop: locate mosaic band and crop before search
+	autoColorspace      bool     // --auto-colorspace: detect linear vs sRGB and pick pixelator
+	autoCalibrate       bool     // --auto-calibrate: seed grid phase / x-stretch from image
+	prefix              string   // --prefix: known prefix string to constrain the search
+	framePaths          []string // --frame: repeated image paths for multi-frame IBP fusion
+	didContext          bool     // --did-context: context-aware emission for --decoder did
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -237,10 +239,15 @@ func validateParams(p flagParams) error {
 		return fmt.Errorf("--redaction must be %q, %q or %q, got %q", "auto", "mosaic", "blur", p.redaction)
 	}
 	switch p.decoder {
-	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did": // "" is equivalent to "default"
+	case "", "default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did", "ensemble": // "" is equivalent to "default"
 	default:
-		return fmt.Errorf("--decoder must be %q, %q, %q, %q, %q, %q, or %q, got %q",
-			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did", p.decoder)
+		return fmt.Errorf("--decoder must be %q, %q, %q, %q, %q, %q, %q, or %q, got %q",
+			"default", "mono-hmm", "ref-match", "window-hmm", "trained-hmm", "varfont", "did", "ensemble", p.decoder)
+	}
+	// --frame fuses frames then runs the standard decode, so it cannot be combined
+	// with an explicit non-default --decoder (which would be silently ignored).
+	if len(p.framePaths) > 0 && p.decoder != "" && p.decoder != "default" {
+		return fmt.Errorf("--frame cannot be combined with --decoder %q (multi-frame uses the default decoder)", p.decoder)
 	}
 	return nil
 }
@@ -1065,6 +1072,11 @@ func runDID(ctx context.Context, imgPath string, p flagParams) error {
 		opts = append(opts, mosaictext.WithDIDLinear(-1))
 	}
 
+	// --did-context: opt-in context-aware emission (default off → behaviour unchanged).
+	if p.didContext {
+		opts = append(opts, mosaictext.WithDIDContext(true))
+	}
+
 	if !p.quiet && p.format != "json" {
 		fmt.Fprintf(os.Stderr, "Decoder: did (lang=%s charset=%d chars font=%s)\n",
 			l, len([]rune(charset)), fontSource)
@@ -1098,6 +1110,170 @@ func runDID(ctx context.Context, imgPath string, p flagParams) error {
 			GridPhaseX:    res.GridPhaseX,
 			EmissionEvals: res.EmissionEvals,
 			Distance:      res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
+// runEnsemble runs the verification-selected decoder ensemble when --decoder
+// ensemble is set. It wraps the four standard Result-returning decoders —
+// Decode, DecodeHMM, DecodeWindowHMM, and DecodeTrainedHMM — as
+// EnsembleDecoder values and calls DecodeEnsemble, which returns the result
+// with the lowest whole-image MSE distance. The ensemble can only match or
+// beat any individual decoder.
+//
+// DecodeDID returns DIDResult (not Result) so it is excluded; callers who
+// need DID in the ensemble can compose their own closure in library code.
+//
+// Flags reused: --lang, --charset, --font/--font-bold, --quiet, --format,
+// --timeout.
+func runEnsemble(ctx context.Context, imgPath string, p flagParams) error {
+	img, err := loadImage(imgPath)
+	if err != nil {
+		return err
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	// Build charset-based decoder options so --charset is respected across all
+	// ensemble members.
+	var (
+		hmmOpts  []mosaictext.HMMOption
+		whmmOpts []mosaictext.WHMMOption
+		thmmOpts []mosaictext.THMMOption
+	)
+	if p.charset != "" {
+		hmmOpts = append(hmmOpts, mosaictext.WithCharset(p.charset))
+		whmmOpts = append(whmmOpts, mosaictext.WithWHMMCharset(p.charset))
+		thmmOpts = append(thmmOpts, mosaictext.WithTHMMCharset(p.charset))
+	}
+
+	decoders := []mosaictext.EnsembleDecoder{
+		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
+			return mosaictext.Decode(ctx, img)
+		}),
+		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
+			return mosaictext.DecodeHMM(ctx, img, hmmOpts...)
+		}),
+		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
+			return mosaictext.DecodeWindowHMM(ctx, img, whmmOpts...)
+		}),
+		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
+			return mosaictext.DecodeTrainedHMM(ctx, img, thmmOpts...)
+		}),
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: ensemble (%d decoders: Decode, DecodeHMM, DecodeWindowHMM, DecodeTrainedHMM)\n", len(decoders))
+	}
+
+	res, err := mosaictext.DecodeEnsemble(ctx, img, decoders)
+	if err != nil {
+		return fmt.Errorf("DecodeEnsemble: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Ensemble winner: font=%s linear=%v block=%d dist=%.4f\n",
+			res.Font, res.Linear, res.BlockSize, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess string  `json:"best_guess"`
+			Font      string  `json:"font,omitempty"`
+			Linear    bool    `json:"linear,omitzero"`
+			BlockSize int     `json:"block_size,omitzero"`
+			Distance  float64 `json:"distance,omitzero"`
+		}{
+			BestGuess: res.Text,
+			Font:      res.Font,
+			Linear:    res.Linear,
+			BlockSize: res.BlockSize,
+			Distance:  res.Distance,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if encErr := enc.Encode(out); encErr != nil {
+			return fmt.Errorf("encode json: %w", encErr)
+		}
+	default:
+		fmt.Println(res.Text)
+	}
+	return nil
+}
+
+// runMultiFrame runs the multi-frame IBP fusion decoder when one or more
+// --frame flags are provided. Each --frame path is loaded as a
+// mosaictext.Frame with (OffsetX=0, OffsetY=0); the grid phase is then
+// inferred per-frame by DecodeMultiFrame's fusion path. When exactly one
+// --frame is given the result is identical to calling Decode on that image
+// directly.
+//
+// The positional image argument is still required (for consistency with other
+// decoders) but is ignored when --frame paths are provided; the frames take
+// precedence.
+//
+// Flags reused: --quiet, --format, --timeout.
+func runMultiFrame(ctx context.Context, framePaths []string, p flagParams) error {
+	if len(framePaths) == 0 {
+		return fmt.Errorf("--frame requires at least one path")
+	}
+
+	if p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	frames := make([]mosaictext.Frame, len(framePaths))
+	for i, path := range framePaths {
+		img, err := loadImage(path)
+		if err != nil {
+			return fmt.Errorf("--frame %q: %w", path, err)
+		}
+		frames[i] = mosaictext.Frame{Img: img}
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Decoder: multi-frame IBP fusion (%d frames)\n", len(frames))
+	}
+
+	res, err := mosaictext.DecodeMultiFrame(ctx, frames)
+	if err != nil {
+		return fmt.Errorf("DecodeMultiFrame: %w", err)
+	}
+
+	if !p.quiet && p.format != "json" {
+		fmt.Fprintf(os.Stderr, "Font: %s  linear: %v  block: %d  dist: %.4f\n",
+			res.Font, res.Linear, res.BlockSize, res.Distance)
+	}
+
+	switch p.format {
+	case "json":
+		out := struct {
+			BestGuess  string `json:"best_guess"`
+			Font       string `json:"font,omitempty"`
+			Linear     bool   `json:"linear,omitzero"`
+			BlockSize  int    `json:"block_size,omitzero"`
+			FrameCount int    `json:"frame_count,omitzero"`
+		}{
+			BestGuess:  res.Text,
+			Font:       res.Font,
+			Linear:     res.Linear,
+			BlockSize:  res.BlockSize,
+			FrameCount: len(frames),
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1705,7 +1881,8 @@ func parseRectifyQuad(s string) ([4]rectify.Point, error) {
 	parts := strings.Fields(s)
 	if len(parts) != 4 {
 		return [4]rectify.Point{}, fmt.Errorf(
-			"--rectify: need exactly 4 corners \"x0,y0 x1,y1 x2,y2 x3,y3\", got %d", len(parts))
+			"--rectify: need exactly 4 corners \"x0,y0 x1,y1 x2,y2 x3,y3\", got %d", len(parts),
+		)
 	}
 	var pts [4]rectify.Point
 	for i, part := range parts {
@@ -1921,8 +2098,23 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "decoder",
-				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace), "ref-match" (pixel-exact reference matching), "window-hmm" (grid-window beam; proportional fonts), "trained-hmm" (blind column-anchored trained HMM; Hill-2016 §2.2–2.3), or "varfont" (variable-font axis fitter; requires --varfont-axes)`,
+				Usage: `decoder backend: "default" (guided DFS / beam), "mono-hmm" (analytic HMM beam for monospace), "ref-match" (pixel-exact reference matching), "window-hmm" (grid-window beam; proportional fonts), "trained-hmm" (blind column-anchored trained HMM; Hill-2016 §2.2–2.3), "varfont" (variable-font axis fitter; requires --varfont-axes), "did" (Document Image Decoding trellis), or "ensemble" (run all Result decoders and pick the lowest-distance winner)`,
 				Value: "default",
+			},
+			&cli.StringSliceFlag{
+				Name: "frame",
+				Usage: "path to a mosaic-pixelated image for multi-frame IBP fusion; repeat to add more frames " +
+					"(e.g. --frame a.png --frame b.png). Each frame is assumed offset (0,0) — the decoder " +
+					"infers sub-block phase from the image geometry. A single --frame is byte-identical to " +
+					"a normal decode on that image. Requires the positional image argument too (it is ignored " +
+					"when --frame is set).",
+			},
+			&cli.BoolFlag{
+				Name: "did-context",
+				Usage: "enable context-aware emission for --decoder did: each glyph is rendered alongside " +
+					"its left neighbour so boundary blocks are pixelated the same way as in the target. " +
+					"Reduces emission bias at glyph boundaries on JPEG-compressed or boundary-heavy mosaics. " +
+					"Default off — DID behaviour is unchanged without this flag.",
 			},
 			&cli.BoolFlag{
 				Name:  "blind",
@@ -2211,6 +2403,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		autoColorspace:      cmd.Bool("auto-colorspace") || cmd.Bool("auto"),
 		autoCalibrate:       cmd.Bool("auto-calibrate") || cmd.Bool("auto"),
 		prefix:              cmd.String("prefix"),
+		framePaths:          cmd.StringSlice("frame"),
+		didContext:          cmd.Bool("did-context"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -2219,6 +2413,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	if p.rectify != "" {
 		return runPerspective(ctx, imgPath, p)
+	}
+
+	// --frame triggers multi-frame IBP fusion; the positional arg is still
+	// required for CLI consistency but the frame paths take precedence.
+	if len(p.framePaths) > 0 {
+		return runMultiFrame(ctx, p.framePaths, p)
 	}
 
 	if p.blind {
@@ -2237,6 +2437,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return runTrainedHMM(ctx, imgPath, p)
 	case "did":
 		return runDID(ctx, imgPath, p)
+	case "ensemble":
+		return runEnsemble(ctx, imgPath, p)
 	}
 
 	if p.timeout > 0 {

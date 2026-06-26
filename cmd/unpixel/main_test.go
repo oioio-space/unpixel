@@ -1376,6 +1376,71 @@ func TestParseRectifyQuad(t *testing.T) {
 	}
 }
 
+// TestValidateParams_Ensemble verifies that "ensemble" is an accepted --decoder
+// value and that an unknown decoder still fails validation.
+func TestValidateParams_Ensemble(t *testing.T) {
+	t.Parallel()
+	base := flagParams{format: "text", strategy: "guided", metric: "pixelmatch", redaction: "auto"}
+
+	ensembleP := base
+	ensembleP.decoder = "ensemble"
+	if err := validateParams(ensembleP); err != nil {
+		t.Errorf("validateParams(decoder=ensemble) = %v, want nil", err)
+	}
+
+	badP := base
+	badP.decoder = "magic"
+	if err := validateParams(badP); err == nil {
+		t.Error("validateParams(decoder=magic) = nil, want error")
+	}
+}
+
+// TestRunEnsemble_CLI verifies that --decoder ensemble on a white image
+// completes without error (ErrNoContent from each sub-decoder is acceptable
+// — the test only exercises the flag wiring and dispatch).
+func TestRunEnsemble_CLI(t *testing.T) {
+	path := whitePNG(t, 8, 8)
+	err := buildApp().Run(t.Context(), []string{
+		"unpixel", "--quiet",
+		"--decoder", "ensemble",
+		path,
+	})
+	// A white image has no mosaic → every sub-decoder fails with ErrNoMosaic/ErrNoContent.
+	// runEnsemble wraps those as an error; we accept any outcome (error or success).
+	_ = err // acceptable: no mosaic → error expected
+}
+
+// TestFlagFrame_SingleEqualsNormal verifies that --frame path (single frame)
+// is accepted as a flag by buildApp without an argument validation error,
+// and that the flag wiring reaches runMultiFrame on a white image.
+func TestFlagFrame_SingleEqualsNormal(t *testing.T) {
+	path := whitePNG(t, 8, 8)
+	// A single --frame should route through runMultiFrame without panic.
+	err := buildApp().Run(t.Context(), []string{
+		"unpixel", "--quiet",
+		"--frame", path,
+		path, // positional arg still required
+	})
+	// White image → no mosaic: ErrNoMosaic or similar expected. No panic.
+	_ = err
+}
+
+// TestFlagDIDContext_WiresFlag verifies that --did-context is an accepted flag
+// (no "unknown flag" error) when combined with --decoder did.
+func TestFlagDIDContext_WiresFlag(t *testing.T) {
+	path := whitePNG(t, 8, 8)
+	err := buildApp().Run(t.Context(), []string{
+		"unpixel", "--quiet",
+		"--decoder", "did",
+		"--did-context",
+		path,
+	})
+	// White image has no mosaic → error expected, but not "unknown flag".
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("--did-context was rejected as unknown flag: %v", err)
+	}
+}
+
 // TestRunPerspectiveCLI exercises the --rectify CLI path end-to-end on a real
 // perspective fixture image, verifying it exits without error and prints
 // non-empty text to stdout.

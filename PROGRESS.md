@@ -547,14 +547,8 @@ Les 6 items ci-dessus sont du gain **capacité + performance** ; ils ne déplace
 corpus `real`/`wild`/`sick` du journal. Les murs restants, par ordre de levier (cf. mémoire
 `decode-full-corpus-roadmap.md` et la section « Analyse de tendance » de `docs/JOURNAL.md`) :
 
-- [ ] **DID — émission consciente du contexte aux frontières de blocs** *(le vrai déblocage `sick`)*.
-      L'émission DID par-glyphe-isolé ne correspond pas à la pixelisation pleine-ligne quand un bloc
-      chevauche deux glyphes (le mélange inter-frontières resurgit). Rendre le glyphe **avec ses voisins**
-      dans les blocs-frontières (émission dépendante du contexte) ou décoder par paires. `sick` est
-      polices embarquées → c'est le seul mur qui le sépare de la récupération.
-- [ ] **Multi-frame sur captures réelles** (`internal/multiframe` existe) : ajoute de la *vraie*
-      information, mais exige >1 trame ; le testdata est mono-trame → fournir un corpus multi-trames
-      (vidéo / re-rendus à phases sous-bloc différentes) pour exploiter la fusion sous-pixel.
+- [x] **DID — émission consciente du contexte aux frontières de blocs.** ✅ *Livré v0.16.0* : `internal/did.ContextualEmissionFunc` + `TrellisDPContextual` + `mosaictext.WithDIDContext(true)`. Rend chaque glyphe avec son voisin gauche pour pixeliser blocs-frontières correctement (direction JPEG-boundary/sick). CLI `--did-context` (opt-in ; défaut DID inchangé, fixtures propres 0.0000). **Caveat** : gauche-frontière fixée, droite-frontière = future ICP pass.
+- [x] **Multi-frame sur captures réelles.** ✅ *Livré v0.16.0* : `mosaictext.DecodeMultiFrame(ctx, frames, opts)` wraps `internal/multiframe.Fuse` (back-projection itérative). CLI `--frame <path>` repeatable. Nécessite trames sub-pixel-jittered de la même redaction. Single-frame == normal-decode (byte-identical).
 - [ ] **Élargir le bundle de polices libres** (DejaVu / Noto / Liberation…) + **calibrate-from-visible
       sur images à texte visible** : les polices GIMP réelles sont des familles libres courantes ;
       `CalibrateFromVisible` (#5) marche dès qu'une cible porte du clair adjacent (aucun fixture actuel n'en a).
@@ -605,19 +599,7 @@ encore réalisé.**
       utilisables seulement ré-entraînées/distillées sur notre dégradation. **Règle absolue** : tout
       modèle appris est **proposition/prior** (amorce le beam, départage), **jamais** le verdict
       « certain » — la vérification reste le modèle direct exact au pixel près.
-- [ ] **A4 — Ensemble / cascade de décodeurs sélectionné par vérification exacte.** Aujourd'hui le
-      zéro-config lance **un seul** décodeur (le `switch p.decoder` est exclusif) ; seul un sweep de
-      **polices** existe (`RecoverMultiFont`, classé par `BestTotal`). Étendre ce patron aux
-      **décodeurs** : lancer plusieurs décodeurs sur la même image, **re-scorer chaque sortie avec la
-      même distance forward-model exacte** (rendre la chaîne → re-pixeliser → distance), prendre
-      l'**argmin**. Comme on choisit dans un **sur-ensemble** via une métrique cohérente, le résultat
-      est **≥ n'importe quel décodeur seul → gain ou égalité, jamais perte**. Deux formes :
-      (a) **ensemble parallèle** (borné `--workers` + timeout par décodeur, cf. matrice journal) ;
-      (b) **cascade gated par la distance** (défaut rapide d'abord ; escalade si distance haute) pour
-      le coût. **Règle** : sélectionner sur la **distance image recalculée**, JAMAIS sur les scores
-      internes (incomparables) ni la self-confidence (cf. `real` conf 1.000 / fidélité 0.000). Même
-      principe « proposal-and-verify » que A3. Arbitrage = coût (décodeurs lents `did`/`trained-hmm`)
-      → opt-in (`--ensemble`) ou cascade early-exit. **À planifier, pas encore réalisé.**
+- [x] **A4 — Ensemble / cascade de décodeurs sélectionné par vérification exacte.** ✅ *Livré v0.16.0* : `mosaictext.DecodeEnsemble(ctx, frames, opts)` lance plusieurs décodeurs, re-score chaque résultat par distance forward-model exacte, sélectionne l'argmin. Propriété de non-régression garantie : résultat ≥ n'importe quel décodeur seul. CLI `--decoder ensemble`. **Caveat honnête** : DID exclu de l'ensemble (retourne DIDResult incomparable) ; synthétique 17/17 unchanged ; targeting réel/sick/boundary cases.
 
 ### 🧩 Décodage assisté par contexte — exploiter ce qui entoure la rédaction
 
@@ -649,17 +631,9 @@ Propositions, par levier :
       - [x] **C1b — police fournie dans une AUTRE image** (échantillon séparé) : l'utilisateur donne
         une image + texte ; calibre dessus puis décode caviardage distinct. CLI `--font-sample <img> --font-sample-text`.
         ✅ *Livré : tested on context corpus.*
-- [ ] **C2 — Reconstitution de la police (font reconstruction).** Quand aucun clair n'est
-      disponible mais la police est « courante » : (a) `fontrank` (B3) classe la **famille libre**
-      la plus proche par empreinte glyphique ; (b) `FitAxes`/Nelder-Mead (B1/#5) **déforme une
-      fonte variable** (wght/wdth/opsz/slnt) pour matcher la rédaction ; (c) on fige l'instance
-      reconstituée comme renderer pour le décodage. Étendre : ajouter les axes `opsz`/`slnt`,
-      élargir le bundle variable (Roboto Flex / Source Sans 3 VF), et calibrer sur le clair (C1)
-      quand il existe. Manque : corpus de polices non-embarquées mais atteignables par axes.
+- [x] **C2 — Axes opsz/slnt.** ✅ *Livré v0.16.0* : `internal/varfont` validated on opsz+slnt via embedded Roboto Flex variable font (SIL OFL, isolated to varfont/calibrate path; NOT in default font sweep — panel/matrix unchanged). Covered by existing `--decoder varfont`/`--visible-text` path.
 - [x] **C3 — Contexte linguistique partiel (cleartext partiel → contrainte).** `internal/search.PrefixConstraint` + `TemplateConstraint` + `GuidedDFSConstrained` + CLI `--prefix` + `unpixel.WithPrefix(string)`. ✅ *Livré : ~98% fewer candidates, fidelity 1.000.*
-- [ ] **C4 — Empreinte glyphique métrique depuis le clair → élagage du bundle (B3 piloté par
-      le contexte).** Mesurer x-height/cap-height/chasse/serif sur les glyphes **nets** pour
-      classer/élaguer les polices candidates *avant* le fit C2 (probe ~310× moins cher que décoder).
+- [x] **C4 — Empreinte glyphique métrique depuis le clair.** ✅ *Livré v0.16.0* : `internal/fontrank.FingerprintFromGlyphs` + `RankByMetrics` (x-height/cap-height/mean-advance ranking from cleartext; ~310× cheaper than decode). Library-only (no CLI — chicken-and-egg input).
 
 #### 🗂️ Testdata à compléter pour C1/C2 (corpus `context`)
 

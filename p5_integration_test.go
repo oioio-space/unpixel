@@ -78,7 +78,8 @@ func TestWithAutoCrop(t *testing.T) {
 	// mosaic region and the engine will attempt recovery on the located sub-band.
 	withMargin := embedInWhiteBackground(mosaic, 24)
 
-	res, err := unpixel.Recover(ctx, withMargin,
+	res, err := unpixel.Recover(
+		ctx, withMargin,
 		unpixel.WithAutoCrop(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -113,7 +114,8 @@ func TestWithAutoColorspace(t *testing.T) {
 	}
 	mosaic := pixelateSpec(t, spec)
 
-	res, err := unpixel.Recover(ctx, mosaic,
+	res, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithAutoColorspace(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -155,7 +157,8 @@ func TestWithAutoColorspaceDetectorAccuracy(t *testing.T) {
 	t.Logf("DetectColorspace on re-linearised mosaic: linear=%v confidence=%.4f", linear, confidence)
 
 	// Liveness: WithAutoColorspace must not crash on any mosaic.
-	res, err := unpixel.Recover(ctx, linearMosaic,
+	res, err := unpixel.Recover(
+		ctx, linearMosaic,
 		unpixel.WithAutoColorspace(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -198,7 +201,8 @@ func TestWithAutoCalibrateNoFontSize(t *testing.T) {
 	mosaic := pixelateSpec(t, spec)
 
 	// Without auto-calibrate (baseline).
-	resBase, err := unpixel.Recover(ctx, mosaic,
+	resBase, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
 		unpixel.WithStyle(spec.Style()),
@@ -208,7 +212,8 @@ func TestWithAutoCalibrateNoFontSize(t *testing.T) {
 	}
 
 	// With auto-calibrate and no FontSize: must be identical (no-op path).
-	resAC, err := unpixel.Recover(ctx, mosaic,
+	resAC, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithAutoCalibrate(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -237,7 +242,8 @@ func TestWithAutoCalibrateDoesNotPanic(t *testing.T) {
 	}
 	mosaic := pixelateSpec(t, spec)
 
-	res, err := unpixel.Recover(ctx, mosaic,
+	res, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithAutoCalibrate(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -267,7 +273,8 @@ func TestWithPrefix(t *testing.T) {
 	}
 	mosaic := pixelateSpec(t, spec)
 
-	resPfx, err := unpixel.Recover(ctx, mosaic,
+	resPfx, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithPrefix("hell"),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -365,7 +372,8 @@ func TestWithAuto(t *testing.T) {
 	}
 	mosaic := pixelateSpec(t, spec)
 
-	res, err := unpixel.Recover(ctx, mosaic,
+	res, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithAuto(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),
@@ -394,7 +402,8 @@ func TestDefaultBehaviourUnchanged(t *testing.T) {
 
 	// Run twice with no new options — results must be identical.
 	run := func() unpixel.Result {
-		r, err := unpixel.Recover(ctx, mosaic,
+		r, err := unpixel.Recover(
+			ctx, mosaic,
 			unpixel.WithBlockSize(spec.BlockSize),
 			unpixel.WithCharset(spec.Charset),
 			unpixel.WithStyle(spec.Style()),
@@ -430,7 +439,8 @@ func TestWithAutoCropDoesNotCrash(t *testing.T) {
 	}
 	mosaic := pixelateSpec(t, spec)
 
-	res, err := unpixel.Recover(ctx, mosaic,
+	res, err := unpixel.Recover(
+		ctx, mosaic,
 		unpixel.WithAutoCrop(),
 		unpixel.WithBlockSize(spec.BlockSize),
 		unpixel.WithCharset(spec.Charset),

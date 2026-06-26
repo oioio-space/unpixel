@@ -93,7 +93,8 @@ func runPerspectiveDecoder(t *testing.T, specs []perspectiveManifestEntry, auto 
 		if auto {
 			opts = append(opts, mosaictext.WithPerspectiveAutoQuad(0))
 		} else {
-			opts = append(opts,
+			opts = append(
+				opts,
 				mosaictext.WithPerspectiveQuad(s.quad()),
 				mosaictext.WithPerspectiveRectSize(s.RectW, s.RectH),
 			)
