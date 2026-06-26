@@ -1070,3 +1070,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `e415ed0` 2026-06-26 — feat(decode): opt-in ensemble, multi-frame, context-aware DID, glyph fingerprint, opsz/slnt _(29 fichiers)_
 - `92442f7` 2026-06-26 — test(multiframe): make TwoFrames a mechanism check, not a quality assertion _(4 fichiers)_
 - `3ff2f16` 2026-06-26 — feat(journal): auto trend-check gate over the full testdata corpus _(4 fichiers)_
+- `0d5c1f7` 2026-06-26 — fix(mcp,mosaictext): make verify_candidates discriminate (calibrated scoring) _(5 fichiers)_
