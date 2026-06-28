@@ -236,18 +236,27 @@ journal). Les seules voies restantes exigent un arbitrage à valider : (a) optim
 **changent le décodage** (scoring coarse, pruning de candidats), (b) mémoire/parallélisme accru
 (contre la contrainte caged). Le cœur est à son optimum mesuré.
 
-**SUITE — gain validé sous le gate relâché « pas de baisse d'exact-match » (2026-06-28).**
-Profilage de `BenchmarkFullDecodeSweep` (le vrai décodage zéro-config) : **~47 % du CPU dans
-`x/image/draw` kernel scaling** (`scaleX/Y_RGBA`). Cause : `decoder.renderStretched`
-(`mosaictext/recover.go`) étirait le tracking horizontal de CHAQUE candidat avec le kernel le
-plus lent (`CatmullRom`) — alors que le candidat étiré est aussitôt block-averagé puis comparé en
-MSE, donc l'interpolation fine est lessivée par la pixelisation. Bascule → **`ApproxBiLinear`**.
-benchstat (count=3, cagé) : full-decode **~138 s → ~76.8 s (−44.5 %)**, **B/op −61 %** (290→114 GB),
-allocs −24 %. **Aucune perte d'exact-match** : panel 17/17 fidélité 1.000 (les fixtures sont en
-stretch unitaire → byte-identique), tests décode chemin-stretch (ScoreCandidates/VerifyCandidates/
-DecodeReference/Decode) tous verts ; journal full-corpus pour confirmer les comptes exact. Commit
-`83299e5`. → l'objectif +20 % est dépassé sur le chemin de décodage réel (les fixtures, déjà
-rapides en stretch unitaire, ne sont pas affectées).
+**SUITE — gate relâché « pas de baisse d'exact-match » (2026-06-28). ⚠️ ApproxBiLinear RÉVERTÉ.**
+Profilage de `BenchmarkFullDecodeSweep` : **~47 % du CPU dans `x/image/draw` kernel scaling**
+(`decoder.renderStretched` étirait chaque candidat avec `CatmullRom`). J'ai tenté
+`ApproxBiLinear` (commit `83299e5`, ~−44 % full-decode) MAIS **c'était une régression exact-match** :
+ça faisait basculer le décodage réel `hello-world.png` hors de « Hello World ! » — attrapé par
+`TestDecode_HelloWorld` (le panel ne l'a pas vu car les fixtures sont en stretch unitaire et
+n'exercent pas le scaler). **Reverté** (commit `007e45a`, retour `CatmullRom`, hello-world re-décode
+« Hello World ! » dist=46.73). Leçon : gater les changements du chemin stretch sur
+`TestDecode_HelloWorld`, pas seulement le panel. Le scaler CatmullRom est *load-bearing* pour la
+précision — pas un gaspillage.
+
+**Gains perf VALIDES retenus (byte-identiques, prouvés)** sur le chemin partagé render→pixelate→grid
+des décodeurs block-grid (window-hmm/did/trained-hmm/ref-match), trouvés en profilant le **vrai**
+décode window-hmm (dont le coût n'est PAS le DP HMM — ViterbiLM/KMeans = 0 % — mais ces primitives) :
+- `ExtractBlocksDirect` (`0145b05`) : lire le pixel haut-gauche de chaque bloc déjà uniforme au lieu
+  de ré-moyenner block² pixels identiques — **−91.9 %** extraction (p=0.000), ~−13 % window-hmm.
+- `PixelateToGrid` (`825d859`) : moyenne par bloc directement dans une grille compacte, sans l'image
+  pleine taille intermédiaire — **−51..−64 %** (sRGB), **−91 % allocs** ; 13 sous-tests byte-identité.
+Tous deux byte-identiques (panel 17/17 fidélité 1.000). **Pas de +20 % whole-app** : ces gains sont
+réels mais le journal agrégé reste dominé par les décodeurs ; l'unique grand levier (ApproxBiLinear)
+était une régression. Honnêteté : mon commit `83299e5` était sous-gaté — corrigé.
 
 ## ✅ Reste à faire
 
