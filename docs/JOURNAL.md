@@ -29,6 +29,7 @@ section, and C1a/C1b are also in the `## Évolution — décodeurs` table.
 | 2026-06-26 | v0.17.0     | 330de57 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/22% | 0/9/0/3% | 54    | 2881    |
 | 2026-06-28 | v0.17.0+dev | 83299e5 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/20% | 0/9/0/3% | 54 | 2870 |
 | 2026-06-28 | v0.17.0+dev | 7dd2d77 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54 | 2893 |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54 | 2800 |
 
 
 ## Analyse de tendance
@@ -119,6 +120,121 @@ restants — fidélité de police (real, *B1*) et frontières de phrases (sick, 
 cf. roadmap PROGRESS.md « Prochaines étapes » + [[decode-full-corpus-roadmap]],
 [[blind-sentence-scoring-wall]]).
 
+
+## Run 2026-06-28T21:58:47Z — 6fd3308
+
+**Environment:** Go go1.26.4 · linux/amd64 · NumCPU=20 GOMAXPROCS=20 · total 2799.6 s
+
+### Résumé par corpus
+
+| Corpus | exact | ≥70% | mean% | mean-conf | mean-fidelity | dur(s) | échecs (top buckets) |
+|---|---|---|---|---|---|---|---|
+| fixtures | 17/17 | 17 | 100% | 1.000 | 1.000 | 1.4 | — |
+| blur | 13/14 | 14 | 99% | 0.982 | 0.984 | 23.5 | wrong-gly ×1 |
+| real | 0/3 | 0 | 11% | 1.000 | 0.000 | 270.2 | wrong-len ×1, wrong-gly ×2 |
+| wild | 0/5 | 0 | 0% | 0.527 | 0.318 | 451.9 | below-thr ×3, wrong-len ×2 |
+| sick | 0/10 | 0 | 21% | 0.915 | 0.166 | 540.3 | below-thr ×1, wrong-len ×9 |
+
+### fixtures
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `block04_go` | `go` | ok/`go`/100%/conf=1.00/ms=101 | ok/`go`/100%/conf=1.00/ms=30 | — |
+| `block08_go` | `go` | ok/`go`/100%/conf=1.00/ms=29 | ok/`go`/100%/conf=1.00/ms=27 | — |
+| `block16_go` | `go` | fail/`c`/0%/conf=0.56/ms=67 | ok/`go`/100%/conf=1.00/ms=45 | below-threshold / no confident candidate |
+| `size24_go` | `go` | fail/`u`/0%/conf=0.69/ms=17 | ok/`go`/100%/conf=1.00/ms=18 | below-threshold / no confident candidate |
+| `size40_go` | `go` | fail/`a`/0%/conf=0.45/ms=21 | ok/`go`/100%/conf=1.00/ms=34 | below-threshold / no confident candidate |
+| `bold_go` | `go` | fail/`a`/0%/conf=0.62/ms=17 | ok/`go`/100%/conf=1.00/ms=24 | below-threshold / no confident candidate |
+| `alnum_Go2` | `Go2` | fail/`t`/0%/conf=0.74/ms=19 | ok/`Go2`/100%/conf=1.00/ms=18 | below-threshold / no confident candidate |
+| `symbols_x_eq_1` | `x=1` | fail/`x`/33%/conf=1.00/ms=1035 | ok/`x=1`/100%/conf=1.00/ms=110 | wrong length (got 1 want 3) |
+| `pad_04_04_go` | `go` | ok/`go`/100%/conf=1.00/ms=59 | ok/`go`/100%/conf=1.00/ms=49 | — |
+| `pad_12_12_go` | `go` | fail/`q`/0%/conf=0.67/ms=38 | ok/`go`/100%/conf=1.00/ms=114 | below-threshold / no confident candidate |
+| `text_single_x` | `x` | ok/`x`/100%/conf=1.00/ms=85 | ok/`x`/100%/conf=1.00/ms=57 | — |
+| `text_cat` | `cat` | ok/`cat`/100%/conf=1.00/ms=5016 | ok/`cat`/100%/conf=1.00/ms=149 | — |
+| `text_with_space` | `a b` | ok/`a b`/100%/conf=1.00/ms=853 | ok/`a b`/100%/conf=1.00/ms=40 | — |
+| `text_hello` | `hello` | ok/`hello`/100%/conf=1.00/ms=2507 | ok/`hello`/100%/conf=1.00/ms=221 | — |
+| `secret_admin` | `admin` | ok/`admin`/100%/conf=1.00/ms=22926 | ok/`admin`/100%/conf=1.00/ms=240 | — |
+| `secret_azerty` | `azerty` | fail/`azert`/83%/conf=1.00/ms=6063 | ok/`azerty`/100%/conf=1.00/ms=216 | wrong length (got 5 want 6) |
+| `secret_pin1234` | `1234` | fail/`y`/0%/conf=0.72/ms=36 | ok/`1234`/100%/conf=1.00/ms=37 | below-threshold / no confident candidate |
+
+### blur
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `blur_go_s2` | `go` | ok/`go`/100%/conf=1.00/ms=1141 | ok/`go`/100%/conf=1.00/ms=69 | — |
+| `blur_go_s3` | `go` | ok/`go`/100%/conf=1.00/ms=1606 | ok/`go`/100%/conf=1.00/ms=76 | — |
+| `blur_go_s4` | `go` | ok/`go`/100%/conf=1.00/ms=1959 | ok/`go`/100%/conf=1.00/ms=78 | — |
+| `blur_go_s6` | `go` | ok/`go`/100%/conf=0.91/ms=279 | ok/`go`/100%/conf=0.91/ms=35 | — |
+| `blur_cat_s2` | `cat` | ok/`cat`/100%/conf=1.00/ms=8165 | ok/`cat`/100%/conf=1.00/ms=434 | — |
+| `blur_cat_s3` | `cat` | ok/`cat`/100%/conf=1.00/ms=2229 | ok/`cat`/100%/conf=1.00/ms=206 | — |
+| `blur_cat_s4` | `cat` | ok/`cat`/100%/conf=1.00/ms=2590 | ok/`cat`/100%/conf=1.00/ms=199 | — |
+| `blur_cat_s6` | `cat` | ok/`cat`/100%/conf=0.89/ms=3030 | ok/`cat`/100%/conf=0.89/ms=223 | — |
+| `blur_hello_s2` | `hello` | ok/`hello`/100%/conf=0.96/ms=9145 | ok/`hello`/100%/conf=0.96/ms=1528 | — |
+| `blur_hello_s3` | `hello` | ok/`hello`/100%/conf=1.00/ms=17359 | ok/`hello`/100%/conf=1.00/ms=3087 | — |
+| `blur_hello_s4` | `hello` | ok/`hello`/100%/conf=0.99/ms=4582 | ok/`hello`/100%/conf=0.99/ms=593 | — |
+| `blur_hello_s6` | `hello` | ok/`hello`/100%/conf=1.00/ms=2729 | ok/`hello`/100%/conf=1.00/ms=243 | — |
+| `blur_connect_s3` | `connect` | ok/`connect`/100%/conf=1.00/ms=30000 | fail/`cennect`/86%/conf=1.00/ms=6370 | wrong glyphs (font fidelity / params) |
+| `blur_connect_s6` | `connect` | fail/`connevi`/71%/conf=0.94/ms=30000 | ok/`connect`/100%/conf=1.00/ms=10336 | wrong glyphs (font fidelity / params) |
+
+### real
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `hello-world` | `Hello World !` | fail/`a          va`/8%/conf=1.00/ms=30029 | fail/`a        '''`/8%/conf=1.00/ms=90016 | wrong glyphs (font fidelity / params) |
+| `hello-world-noisy` | `Hello World !` | fail/`a           aa`/8%/conf=1.00/ms=30189 | fail/`'a       ''''`/8%/conf=1.00/ms=90013 | wrong length (got 14 want 13) |
+| `marx` | `Celui qui ne connaît pas…` | fail/`a                  …`/16%/conf=1.00/ms=30065 | fail/`a                  …`/16%/conf=1.00/ms=90188 | wrong length (got 63 want 62) |
+
+### wild
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `m1` | `—` | unknown/`wow s            ,,…`/NA/conf=1.00/ms=30010 | unknown/`w                  …`/NA/conf=1.00/ms=90027 | — |
+| `m2` | `—` | unknown/`-`/NA/conf=0.35/ms=35 | unknown/`-`/NA/conf=0.35/ms=33 | — |
+| `m3` | `—` | unknown/`F`/NA/conf=0.23/ms=29 | unknown/`F`/NA/conf=0.23/ms=31 | — |
+| `m4` | `Hello from the other side` | fail/`!`/0%/conf=0.27/ms=60 | fail/`!`/0%/conf=0.27/ms=47 | below-threshold / no confident candidate |
+| `m5` | `Hello from the other side` | fail/`(`/0%/conf=0.36/ms=46 | fail/`(`/0%/conf=0.36/ms=46 | below-threshold / no confident candidate |
+| `b1` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30003 | unknown/`!"`/NA/conf=1.00/ms=90016 | — |
+| `b2` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30001 | unknown/`!"`/NA/conf=1.00/ms=90002 | — |
+| `b3` | `DEBLUR` | fail/`',`/0%/conf=1.00/ms=30013 | fail/`',`/0%/conf=1.00/ms=79371 | wrong length (got 2 want 6) |
+| `b4` | `BLUR` | fail/`@`/0%/conf=0.00/ms=12344 | fail/`@`/0%/conf=0.00/ms=12299 | below-threshold / no confident candidate |
+| `b5` | `Blur Text` | fail/`,,`/0%/conf=1.00/ms=30005 | fail/`__`/0%/conf=1.00/ms=90000 | wrong length (got 2 want 9) |
+
+### sick
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `sick_wrestling` | `two dogs are wrestling a…` | fail/`two       s        …`/24%/conf=1.00/ms=30019 | fail/`two       s   re wr…`/38%/conf=1.00/ms=90057 | wrong length (got 32 want 34) |
+| `sick_boys_outdoors` | `the young boys are playi…` | fail/`ifu   a b`/17%/conf=1.00/ms=30011 | fail/`ifu`/6%/conf=1.00/ms=90030 | wrong length (got 9 want 35) |
+| `sick_water_safety` | `nobody is practicing wat…` | fail/`lre  z    n   x`/15%/conf=1.00/ms=30012 | fail/`lreoz    n`/15%/conf=1.00/ms=90031 | wrong length (got 15 want 33) |
+| `sick_man_playing` | `a man is playing a guitar` | fail/`a man is pl  y  ig …`/64%/conf=1.00/ms=30016 | fail/`a man is piay  ig a…`/64%/conf=1.00/ms=90051 | wrong length (got 24 want 25) |
+| `sick_children_playing` | `two children are playing…` | fail/`t     vh l be    um…`/22%/conf=1.00/ms=30014 | fail/`t e  vh l be`/22%/conf=1.00/ms=90032 | wrong length (got 23 want 36) |
+| `sick_woman_singing` | `a woman is singing a song` | fail/`a  w  ncu`/20%/conf=1.00/ms=30012 | fail/`a  wevacr`/16%/conf=1.00/ms=90041 | wrong length (got 9 want 25) |
+| `digits_7d_1234567` | `1234567` | fail/`ij`/0%/conf=1.00/ms=1516 | fail/`12`/29%/conf=0.86/ms=32 | wrong length (got 2 want 7) |
+| `digits_8d_98765432` | `98765432` | fail/`q`/0%/conf=1.00/ms=68 | fail/`1`/0%/conf=0.71/ms=16 | wrong length (got 1 want 8) |
+| `digits_9d_012345678` | `012345678` | fail/`d`/0%/conf=1.00/ms=104 | fail/`1`/11%/conf=0.81/ms=14 | wrong length (got 1 want 9) |
+| `digits_10d_1029384756` | `1029384756` | fail/`ru`/0%/conf=1.00/ms=5204 | fail/`2`/10%/conf=0.77/ms=30 | wrong length (got 2 want 10) |
+
+### context
+
+Context-assisted decode (C1a/C1b): the font is calibrated from a visible source
+(C1a: a sharp `visible_rect` in the same image; C1b: a separate font-sample PNG),
+then the redacted region is decoded blind. Calibration finds the font well
+(dist≈0 in unit tests), but blind recovery of the redacted secret stays weak —
+this section makes each fixture visible per-image rather than as a single 0/9 row.
+
+| image | secret | C1a visible: guess/score | C1b sample: guess/score | block |
+|---|---|---|---|---|
+| `ctx_sameline_user` | `hunter2` | `W`/0% | — | 8 |
+| `ctx_sameline_pin` | `4892` | `W`/0% | — | 8 |
+| `ctx_sameline_mono_token` | `a3f9b2` | `O`/0% | — | 8 |
+| `ctx_label_password` | `Pa55w0rd!` | `W`/0% | — | 8 |
+| `ctx_label_secret` | `X7kQ9m` | `m`/17% | — | 8 |
+| `ctx_varfont_wght600` | `Tr0ub4dor` | `W`/0% | — | 8 |
+| `ctx_varfont_wght750` | `G4te2024` | `G`/12% | — | 8 |
+| `ctx_sameline_block10` | `r00t` | `T`/0% | — | 10 |
+| `ctx_crossimg_wght700` | `Secret7` | `A`/0% | `G`/0% | 8 |
+
+C1a (calibrate-visible): 0/9 exact, mean 3%. C1b (calibrate-sample): 0/1 exact.
 
 ## Run 2026-06-28T20:09:36Z — 7dd2d77
 
@@ -1380,4 +1496,15 @@ are capped to the first 4 sick images (noted in the Subset column).
 | 2026-06-28 | v0.17.0+dev | 7dd2d77 | calibrate-sample | context | 0/1/0/0% | 0 |  |
 | 2026-06-28 | v0.17.0+dev | 7dd2d77 | perspective | perspective | 3/3/3/100% | 4 |  |
 | 2026-06-28 | v0.17.0+dev | 7dd2d77 | perspective-auto | perspective | 2/3/2/87% | 4 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | default | sick | 0/10/0/22% | 270 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | did | sick | 0/4/0/8% | 171 | first 4 |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | window-hmm | sick | 0/10/0/4% | 286 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | trained-hmm | sick | 0/4/0/35% | 164 | first 4 |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | ref-match | sick | 4/10/4/54% | 6 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | varfont | real | 0/3/0/0% | 0 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | blind | sick | 0/10/0/11% | 12 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | calibrate-visible | context | 0/9/0/3% | 1 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | calibrate-sample | context | 0/1/0/0% | 0 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | perspective | perspective | 3/3/3/100% | 4 |  |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | perspective-auto | perspective | 2/3/2/87% | 4 |  |
 
