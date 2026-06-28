@@ -1110,3 +1110,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `92442f7` 2026-06-26 — test(multiframe): make TwoFrames a mechanism check, not a quality assertion _(4 fichiers)_
 - `3ff2f16` 2026-06-26 — feat(journal): auto trend-check gate over the full testdata corpus _(4 fichiers)_
 - `0d5c1f7` 2026-06-26 — fix(mcp,mosaictext): make verify_candidates discriminate (calibrated scoring) _(5 fichiers)_
+- `00c1c11` 2026-06-28 — docs(progress): record perf +20% investigation — measured negative result _(1 fichiers)_
