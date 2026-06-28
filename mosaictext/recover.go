@@ -226,11 +226,12 @@ func (d *decoder) renderStretched(text string, fs, stretch float64) *image.RGBA 
 		nw = 1
 	}
 	st := image.NewRGBA(image.Rect(0, 0, nw, bb.Dy()))
-	// ApproxBiLinear (not CatmullRom): the stretched candidate is immediately
-	// block-averaged and MSE-compared, so the high-quality kernel's fine
-	// interpolation is washed out by pixelation — bilinear gives the same decode
-	// at ~3-5× the scaling speed (CatmullRom was ~47% of full-decode CPU).
-	xdraw.ApproxBiLinear.Scale(st, st.Bounds(), ink, ink.Bounds(), xdraw.Over, nil)
+	// CatmullRom is load-bearing for decode accuracy: ApproxBiLinear (tried for a
+	// ~44% speedup) changed the stretched render just enough to flip the real
+	// hello-world decode off "Hello World !" — an exact-match regression caught by
+	// TestDecode_HelloWorld (panel fixtures use unit stretch so they didn't catch
+	// it). The kernel quality matters here; keep CatmullRom.
+	xdraw.CatmullRom.Scale(st, st.Bounds(), ink, ink.Bounds(), xdraw.Over, nil)
 	return st
 }
 
