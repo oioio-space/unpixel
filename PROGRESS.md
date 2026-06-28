@@ -236,6 +236,19 @@ journal). Les seules voies restantes exigent un arbitrage à valider : (a) optim
 **changent le décodage** (scoring coarse, pruning de candidats), (b) mémoire/parallélisme accru
 (contre la contrainte caged). Le cœur est à son optimum mesuré.
 
+**SUITE — gain validé sous le gate relâché « pas de baisse d'exact-match » (2026-06-28).**
+Profilage de `BenchmarkFullDecodeSweep` (le vrai décodage zéro-config) : **~47 % du CPU dans
+`x/image/draw` kernel scaling** (`scaleX/Y_RGBA`). Cause : `decoder.renderStretched`
+(`mosaictext/recover.go`) étirait le tracking horizontal de CHAQUE candidat avec le kernel le
+plus lent (`CatmullRom`) — alors que le candidat étiré est aussitôt block-averagé puis comparé en
+MSE, donc l'interpolation fine est lessivée par la pixelisation. Bascule → **`ApproxBiLinear`**.
+benchstat (count=3, cagé) : full-decode **~138 s → ~76.8 s (−44.5 %)**, **B/op −61 %** (290→114 GB),
+allocs −24 %. **Aucune perte d'exact-match** : panel 17/17 fidélité 1.000 (les fixtures sont en
+stretch unitaire → byte-identique), tests décode chemin-stretch (ScoreCandidates/VerifyCandidates/
+DecodeReference/Decode) tous verts ; journal full-corpus pour confirmer les comptes exact. Commit
+`83299e5`. → l'objectif +20 % est dépassé sur le chemin de décodage réel (les fixtures, déjà
+rapides en stretch unitaire, ne sont pas affectées).
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
