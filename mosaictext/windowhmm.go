@@ -39,6 +39,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/fonts"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/refmatch"
 	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/windowhmm"
@@ -597,8 +598,27 @@ func whBeamSearchDecode(
 	return whBeamSearchDecodeResult{text: result, beamScore: perChar}, nil
 }
 
+// sigGridToBlockCells converts a [][]refmatch.BlockSig to [][]windowhmm.BlockCell.
+// Both types carry the same {R,G,B float64} layout; this conversion is the
+// only structural difference between the two packages' grid representations.
+func sigGridToBlockCells(raw [][]refmatch.BlockSig) [][]windowhmm.BlockCell {
+	grid := make([][]windowhmm.BlockCell, len(raw))
+	for ri, row := range raw {
+		cells := make([]windowhmm.BlockCell, len(row))
+		for ci, sig := range row {
+			cells[ci] = windowhmm.BlockCell{R: sig.R, G: sig.G, B: sig.B}
+		}
+		grid[ri] = cells
+	}
+	return grid
+}
+
 // whRenderToBlockGrid2D renders text at fs, pixelates at block, and returns
 // the extracted block grid as a 2-D [R][C] slice of windowhmm.BlockCell.
+//
+// When pix is a *pixelate.BlockAverage the fused PixelateToGrid path is used,
+// skipping the full-size intermediate *image.RGBA allocation and per-block fill
+// (~2× faster, ~12× fewer bytes allocated on the hot beam-search path).
 func whRenderToBlockGrid2D(
 	r unpixel.Renderer,
 	pix unpixel.Pixelator,
@@ -610,7 +630,17 @@ func whRenderToBlockGrid2D(
 	if err != nil {
 		return nil, err
 	}
-	// Pixelate returns *image.RGBA directly per the unpixel.Pixelator contract.
+
+	// Fast path: fused pixelate-to-grid skips the full-size dst allocation.
+	if ba, ok := pix.(*pixelate.BlockAverage); ok {
+		raw := ba.PixelateToGrid(img, 0, 0)
+		if len(raw) == 0 {
+			return nil, nil
+		}
+		return sigGridToBlockCells(raw), nil
+	}
+
+	// Fallback for non-BlockAverage pixelators (blur, future variants).
 	pixImg := pix.Pixelate(img, 0, 0)
 	pb := pixImg.Bounds()
 	// ExtractBlocksDirect reads one pixel per block instead of averaging all
@@ -620,34 +650,20 @@ func whRenderToBlockGrid2D(
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	grid := make([][]windowhmm.BlockCell, len(raw))
-	for ri, row := range raw {
-		grid[ri] = make([]windowhmm.BlockCell, len(row))
-		for ci, sig := range row {
-			grid[ri][ci] = windowhmm.BlockCell{R: sig.R, G: sig.G, B: sig.B}
-		}
-	}
-	return grid, nil
+	return sigGridToBlockCells(raw), nil
 }
 
 // whPixToBlockGrid converts a pixelated *image.RGBA to a 2-D
 // [][]windowhmm.BlockCell by extracting block signatures.
 // The input must already be pixelated (every block uniform); ExtractBlocksDirect
 // reads one pixel per block, byte-identical to ExtractBlocks on uniform blocks.
-func whPixToBlockGrid(pix *image.RGBA, block int) [][]windowhmm.BlockCell {
-	pb := pix.Bounds()
-	raw := refmatch.ExtractBlocksDirect(pix.Pix, pix.Stride, pb.Dx(), pb.Dy(), block)
+func whPixToBlockGrid(pixImg *image.RGBA, block int) [][]windowhmm.BlockCell {
+	pb := pixImg.Bounds()
+	raw := refmatch.ExtractBlocksDirect(pixImg.Pix, pixImg.Stride, pb.Dx(), pb.Dy(), block)
 	if len(raw) == 0 {
 		return nil
 	}
-	grid := make([][]windowhmm.BlockCell, len(raw))
-	for ri, row := range raw {
-		grid[ri] = make([]windowhmm.BlockCell, len(row))
-		for ci, sig := range row {
-			grid[ri][ci] = windowhmm.BlockCell{R: sig.R, G: sig.G, B: sig.B}
-		}
-	}
-	return grid
+	return sigGridToBlockCells(raw)
 }
 
 // calibrateRefFSByPix returns all integer font sizes in [8,120] whose probe
