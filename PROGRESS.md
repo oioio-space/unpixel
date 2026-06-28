@@ -272,6 +272,14 @@ guided déjà parallèle, parallélisme des balayages ne bouge pas l'agrégat (m
 le seul grand levier CPU (ApproxBiLinear) casse la récupération réelle. Gains réels livrés
 (parallélisations + wins block-grid byte-identiques), exact-match préservé partout.
 
+**Décomposition du journal (la clé) :** ~67 % du temps (1878 s / 2797 s) = les images
+INDÉCODABLES (sick/real/wild = 0/N) qui épuisent un **budget-temps FIXE du harnais**
+(`journalTimeoutZero=30 s`, `journalTimeoutBest=90 s`, `context.WithTimeout` par image dans
+`journal_test.go`) — par conception, indépendamment de la vitesse de l'app. Le journal est donc un
+**harnais qualité à budget fixe, pas une métrique de vitesse applicative**. On ne peut le réduire de
+20 % qu'en (a) baissant les timeouts (change l'éval, pas l'app) ou (b) cassant l'exact-match. La vraie
+vitesse de décodage (temps-jusqu'au-résultat, les benchmarks) EST améliorée par les parallélisations.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
@@ -1147,3 +1155,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `3ff2f16` 2026-06-26 — feat(journal): auto trend-check gate over the full testdata corpus _(4 fichiers)_
 - `0d5c1f7` 2026-06-26 — fix(mcp,mosaictext): make verify_candidates discriminate (calibrated scoring) _(5 fichiers)_
 - `00c1c11` 2026-06-28 — docs(progress): record perf +20% investigation — measured negative result _(1 fichiers)_
+- `857be4e` 2026-06-29 — docs(progress): final perf verdict — memory not the bottleneck, +20% infeasible _(1 fichiers)_
