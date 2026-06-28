@@ -211,6 +211,31 @@ sur les 7 dirs (le LLM propose, l'outil falsifie). Résultats :
 - Bilan envelope : recouvrable = fixtures/blur/perspective(synthétiques) + redactions courtes via
   la boucle LLM ; mur persistant = phrases longues proportionnelles & images réelles/wild.
 
+### ⚡ Investigation perf « +20 % app » (2026-06-28) — RÉSULTAT NÉGATIF, mesuré
+
+Tentative d'accélérer l'application de 20 %, profilage + benchstat (-count≥10, cagé). **Aucun
+gain net byte-identique n'a survécu à la mesure** — le hot path est déjà très optimisé (passes
+antérieures : caches render/prevStage/crop, slab-pool métrique, AA-skip auto, early-exit borné).
+Candidats profilés puis **REJETÉS par benchstat** (règle : pas de régression) :
+- **GOGC / GC tuning** : contre-productif — `GOGC=off` *plus lent* (1.9 ms vs 1.05 ms), l'allocateur
+  fault de nouvelles pages au lieu de réutiliser la mémoire collectée.
+- **`metric.colorDelta`** (16 % du loop) : **bit-locked** à la référence pixelmatch — arithmétique
+  intouchable sans changer le décodage.
+- **Pooling des images transitoires par candidat** (1.8 MB/op) : overhead `sync.Pool` > gain,
+  **+3.45 %** sur `GuidedSearch_bounded`.
+- **`pixelate` fill-only-pad** : accélère le cas no-pad mais **régresse padded +6.7 % / linear +6.5 %**
+  (p=0.000) ; geomean +0.21 % (neutre).
+- **`windowhmm` flat-trellis** (delta/psi 1-D) : **−99 % allocs** réel + Viterbi non-LM **−7.6 %**,
+  MAIS **régresse le vrai chemin LM `ViterbiLM` +6.7 %** (p=0.004) — le décodage de phrases
+  proportionnelles, le workload réel → rejeté.
+- **KMeans partial-distance pruning** : byte-identique prouvé (test 4×5 seeds) mais sur données
+  uniformes l'early-exit ne se déclenche pas → **+78 %**.
+
+**Conclusion :** un +20 % wall-clock n'est pas atteignable en préservant la qualité (panel 17/17 +
+journal). Les seules voies restantes exigent un arbitrage à valider : (a) optimisations qui
+**changent le décodage** (scoring coarse, pruning de candidats), (b) mémoire/parallélisme accru
+(contre la contrainte caged). Le cœur est à son optimum mesuré.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
