@@ -100,6 +100,39 @@ func ExtractBlocks(pix []byte, stride, w, h, blockSize int) [][]BlockSig {
 	return grid
 }
 
+// ExtractBlocksDirect extracts block signatures from a pre-pixelated RGBA
+// buffer by reading only the top-left pixel of each block instead of averaging
+// all block²  pixels. This is byte-identical to [ExtractBlocks] when every
+// block is already uniform — i.e. when pix is the output of [Pixelate] — because
+// mean(N identical uint8 values) == the value itself, and the uint8→float64
+// conversion is exact.
+//
+// Calling this on a non-pixelated image produces wrong results; callers are
+// responsible for ensuring the precondition. On a pixelated 264×40 image at
+// block=8 (33×5 = 165 blocks) the O(bRows×bCols) read is ~64× cheaper than
+// the O(bRows×bCols×block²) loop in ExtractBlocks.
+func ExtractBlocksDirect(pix []byte, stride, w, h, blockSize int) [][]BlockSig {
+	bCols := w / blockSize
+	bRows := h / blockSize
+	if bCols == 0 || bRows == 0 {
+		return nil
+	}
+	grid := make([][]BlockSig, bRows)
+	for br := range bRows {
+		row := make([]BlockSig, bCols)
+		for bc := range bCols {
+			off := (br*blockSize)*stride + (bc*blockSize)*4
+			row[bc] = BlockSig{
+				R: float64(pix[off]),
+				G: float64(pix[off+1]),
+				B: float64(pix[off+2]),
+			}
+		}
+		grid[br] = row
+	}
+	return grid
+}
+
 // BlockRowDist returns the mean Euclidean RGB distance between two equal-length
 // rows of block signatures. Returns +Inf when the rows have different lengths.
 func BlockRowDist(a, b []BlockSig) float64 {

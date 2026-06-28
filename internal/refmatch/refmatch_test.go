@@ -330,10 +330,94 @@ func TestMatch_CancelledContext(t *testing.T) {
 	_ = text // partial or empty — both are acceptable
 }
 
+// makePixelatedRGBA builds a w×h RGBA image where every block of size bs×bs is
+// filled with a uniform colour derived from its block coordinates. This
+// simulates the output of Pixelate, which fills each block with its mean colour.
+func makePixelatedRGBA(w, h, bs int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for br := range h / bs {
+		for bc := range w / bs {
+			c := color.RGBA{
+				R: uint8((br*13 + bc*7) % 256),
+				G: uint8((br*7 + bc*17) % 256),
+				B: uint8((br*3 + bc*11) % 256),
+				A: 255,
+			}
+			for dy := range bs {
+				for dx := range bs {
+					img.SetRGBA(bc*bs+dx, br*bs+dy, c)
+				}
+			}
+		}
+	}
+	return img
+}
+
+// TestExtractBlocksDirectByteIdentical verifies that ExtractBlocksDirect
+// produces a block grid that is element-wise identical (within float64 exact
+// equality) to ExtractBlocks on a pre-pixelated image. On a pixelated image
+// every block is uniform, so mean(N identical uint8 values) == the value, and
+// both functions must return exactly the same BlockSig for every block.
+func TestExtractBlocksDirectByteIdentical(t *testing.T) {
+	t.Parallel()
+	const bs = 8
+	img := makePixelatedRGBA(264, 40, bs)
+	pb := img.Bounds()
+
+	ref := refmatch.ExtractBlocks(img.Pix, img.Stride, pb.Dx(), pb.Dy(), bs)
+	got := refmatch.ExtractBlocksDirect(img.Pix, img.Stride, pb.Dx(), pb.Dy(), bs)
+
+	if len(ref) != len(got) {
+		t.Fatalf("row count: ExtractBlocks=%d ExtractBlocksDirect=%d", len(ref), len(got))
+	}
+	for r, row := range ref {
+		if len(row) != len(got[r]) {
+			t.Fatalf("row %d col count: ExtractBlocks=%d ExtractBlocksDirect=%d", r, len(row), len(got[r]))
+		}
+		for c, sig := range row {
+			d := got[r][c]
+			if sig.R != d.R || sig.G != d.G || sig.B != d.B {
+				t.Errorf("block[%d][%d]: ExtractBlocks=%+v ExtractBlocksDirect=%+v", r, c, sig, d)
+			}
+		}
+	}
+}
+
 var (
 	sinkText  string
 	sinkDists []float64
 )
+
+// sinkGrid absorbs ExtractBlocks benchmark results.
+var sinkGrid [][]refmatch.BlockSig
+
+// BenchmarkExtractBlocks measures the full block-average extraction on a
+// pre-pixelated 264×40 image at block=8 (33×5 = 165 blocks). This is the
+// baseline for the ExtractBlocksDirect optimisation comparison.
+func BenchmarkExtractBlocks(b *testing.B) {
+	const bs = 8
+	img := makePixelatedRGBA(264, 40, bs)
+	pb := img.Bounds()
+	b.ReportAllocs()
+	b.SetBytes(int64(pb.Dx() * pb.Dy() * 4))
+	for b.Loop() {
+		sinkGrid = refmatch.ExtractBlocks(img.Pix, img.Stride, pb.Dx(), pb.Dy(), bs)
+	}
+}
+
+// BenchmarkExtractBlocksDirect measures the single-pixel-per-block extraction
+// on the same 264×40 pre-pixelated image. On a pixelated image this is
+// byte-identical to BenchmarkExtractBlocks and O(block²) faster per block.
+func BenchmarkExtractBlocksDirect(b *testing.B) {
+	const bs = 8
+	img := makePixelatedRGBA(264, 40, bs)
+	pb := img.Bounds()
+	b.ReportAllocs()
+	b.SetBytes(int64(pb.Dx() * pb.Dy() * 4))
+	for b.Loop() {
+		sinkGrid = refmatch.ExtractBlocksDirect(img.Pix, img.Stride, pb.Dx(), pb.Dy(), bs)
+	}
+}
 
 // BenchmarkMatch measures the reference-matching hot loop on a moderately-sized
 // target (20 block-columns, 3 block rows, 26-glyph reference table). This is
