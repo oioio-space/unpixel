@@ -258,6 +258,20 @@ Tous deux byte-identiques (panel 17/17 fidélité 1.000). **Pas de +20 % whole-a
 réels mais le journal agrégé reste dominé par les décodeurs ; l'unique grand levier (ApproxBiLinear)
 était une régression. Honnêteté : mon commit `83299e5` était sous-gaté — corrigé.
 
+**Parallélisation des balayages sériels + verdict final (2026-06-29).** Découverte : window-hmm
+(`887c96f`) et trained-hmm (`6fd3308`) balayaient leurs polices×colorspaces×fs **en série** sur
+20 cœurs → parallélisés (pool borné, best-pick par ordinal, exact-match préservé, race/goleak-clean).
+Bench single-image lourd : window-hmm ~6×, trained-hmm ~2.5×. **MAIS sur le journal (mesure
+autoritaire de “toute l'application”) : −3 % seulement** (2890→2800 s) — les décodes par-image du
+journal sont légers (≈28 s), pas le single-image lourd du bench. Vérifié que ce n'est PAS un
+plafond mémoire : journal relancé à **GOMEMLIMIT 9 GiB → 20 GiB = 2797 s (identique)**, donc
+non-borné-mémoire. Le décodeur `default`/guided est déjà **multi-niveau parallèle** (offset ×
+intra-node × charset) → aucun gisement. **Verdict mesuré et définitif : +20 % whole-app non
+atteignable sous le gate exact-match** — cœur CPU-maxé, métrique bit-locked, GC contre-productif,
+guided déjà parallèle, parallélisme des balayages ne bouge pas l'agrégat (mesuré 9G *et* 20G), et
+le seul grand levier CPU (ApproxBiLinear) casse la récupération réelle. Gains réels livrés
+(parallélisations + wins block-grid byte-identiques), exact-match préservé partout.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
