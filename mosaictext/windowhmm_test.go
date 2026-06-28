@@ -11,6 +11,132 @@ import (
 	"github.com/oioio-space/unpixel/fonts"
 )
 
+// --- Parallel sweep byte-identity tests ---
+
+// TestDecodeWindowHMM_ParallelByteIdentical verifies that the parallel font
+// sweep (default workers) produces byte-identical decoded text to the serial
+// path (WithWHMMMaxWorkers(1)) for two distinct inputs: a monospace digit
+// string and a proportional-font word string.
+//
+// This is the primary correctness gate for the parallelisation: the winner
+// selection must visit results in original (fe,lin,fs) ordinal order so that
+// tie-breaking on distance is deterministic regardless of goroutine scheduling.
+func TestDecodeWindowHMM_ParallelByteIdentical(t *testing.T) {
+	t.Parallel()
+
+	monoData := findFont(t, "Liberation Mono")
+	sansData := findFont(t, "Liberation Sans")
+
+	monoR, err := defaults.RendererFromFonts(monoData, nil)
+	if err != nil {
+		t.Fatalf("build mono renderer: %v", err)
+	}
+	sansR, err := defaults.RendererFromFonts(sansData, nil)
+	if err != nil {
+		t.Fatalf("build sans renderer: %v", err)
+	}
+
+	cases := []struct {
+		name      string
+		text      string
+		fs        float64
+		block     int
+		linear    bool
+		charset   string
+		fontOpt   WHMMOption
+		windowOpt WHMMOption // nil if not needed
+	}{
+		{
+			name:    "mono-digits",
+			text:    "3141592653",
+			fs:      32.0,
+			block:   4,
+			linear:  false,
+			charset: "0123456789 ",
+			fontOpt: WithWHMMFont("Liberation Mono"),
+		},
+		{
+			name:      "sans-proportional",
+			text:      "hello world",
+			fs:        18.0,
+			block:     4,
+			linear:    false,
+			charset:   "abcdefghijklmnopqrstuvwxyz ",
+			fontOpt:   WithWHMMFont("Liberation Sans"),
+			windowOpt: WithWHMMWindow(3),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			renderer := monoR
+			if tc.name == "sans-proportional" {
+				renderer = sansR
+			}
+
+			mosaicImg := renderMosaic(t, renderer, tc.text, tc.fs, tc.block, tc.linear)
+			path := saveTestPNG(t, mosaicImg)
+			img := loadTestPNG(t, path)
+
+			sharedOpts := []WHMMOption{
+				tc.fontOpt,
+				WithWHMMCharset(tc.charset),
+				WithWHMMLinear(0),
+				WithWHMMBeamWidth(50),
+			}
+			if tc.windowOpt != nil {
+				sharedOpts = append(sharedOpts, tc.windowOpt)
+			}
+
+			// Serial: 1 worker gives the deterministic ordinal-order baseline.
+			serialRes, serErr := DecodeWindowHMM(t.Context(), img,
+				append(sharedOpts, WithWHMMMaxWorkers(1))...,
+			)
+			if serErr != nil {
+				t.Fatalf("serial decode: %v", serErr)
+			}
+
+			// Parallel: default worker count (min(NumCPU, whmmWorkerCap)).
+			parallelRes, parErr := DecodeWindowHMM(t.Context(), img, sharedOpts...)
+			if parErr != nil {
+				t.Fatalf("parallel decode: %v", parErr)
+			}
+
+			t.Logf("%s: serial=%q parallel=%q dist=%.4f",
+				tc.name, serialRes.Text, parallelRes.Text, parallelRes.Distance)
+
+			if parallelRes.Text != serialRes.Text {
+				t.Errorf("byte-identity failure: serial=%q parallel=%q",
+					serialRes.Text, parallelRes.Text)
+			}
+		})
+	}
+}
+
+// TestWithWHMMMaxWorkersOption verifies that WithWHMMMaxWorkers stores the
+// value and that n≤0 is a no-op (existing value unchanged).
+func TestWithWHMMMaxWorkersOption(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultWHMMConfig()
+	WithWHMMMaxWorkers(4)(&cfg)
+	if cfg.maxWorkers != 4 {
+		t.Errorf("maxWorkers after WithWHMMMaxWorkers(4): got %d, want 4", cfg.maxWorkers)
+	}
+
+	// n≤0 must be a no-op.
+	WithWHMMMaxWorkers(0)(&cfg)
+	if cfg.maxWorkers != 4 {
+		t.Errorf("maxWorkers after WithWHMMMaxWorkers(0): got %d, want 4 (no-op)", cfg.maxWorkers)
+	}
+	WithWHMMMaxWorkers(-1)(&cfg)
+	if cfg.maxWorkers != 4 {
+		t.Errorf("maxWorkers after WithWHMMMaxWorkers(-1): got %d, want 4 (no-op)", cfg.maxWorkers)
+	}
+}
+
 // --- WHMMOption wiring tests ---
 
 // TestWHMMOptionDefaults verifies that defaultWHMMConfig produces the expected

@@ -31,7 +31,9 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"runtime"
 	"slices"
+	"sync"
 
 	xdraw "golang.org/x/image/draw"
 
@@ -52,15 +54,21 @@ const DefaultWHMMCharset = "0123456789 "
 
 // whmmConfig holds DecodeWindowHMM option state.
 type whmmConfig struct {
-	charset   string
-	fontName  string // empty → sweep all bundled fonts
-	fontData  []byte // non-nil → use this TTF/OTF exclusively
-	fontBold  []byte // non-nil → bold face alongside fontData
-	linear    int    // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
-	windowW   int    // 0 → auto-select
-	beamWidth int    // top-K beam width; 0 → default (5), capped at 50
-	seed      int64  // PRNG seed (currently unused; reserved for future corpus sampling)
+	charset    string
+	fontName   string // empty → sweep all bundled fonts
+	fontData   []byte // non-nil → use this TTF/OTF exclusively
+	fontBold   []byte // non-nil → bold face alongside fontData
+	linear     int    // -1 = auto/sweep, 0 = sRGB only, 1 = linear only
+	windowW    int    // 0 → auto-select
+	beamWidth  int    // top-K beam width; 0 → default (5), capped at 50
+	seed       int64  // PRNG seed (currently unused; reserved for future corpus sampling)
+	maxWorkers int    // parallel font×linear×fs sweep; 0 → min(NumCPU, whmmWorkerCap)
 }
+
+// whmmWorkerCap is the default ceiling on the parallel font-sweep worker count.
+// Each worker runs a full beam search (memory-heavy); 8 is conservative enough
+// for a 9 GiB cgroup while still saturating a 20-core machine.
+const whmmWorkerCap = 8
 
 func defaultWHMMConfig() whmmConfig {
 	return whmmConfig{
@@ -146,6 +154,18 @@ func WithWHMMBeamWidth(n int) WHMMOption {
 // Fixing the seed makes the decoder future-proof across calls.
 func WithWHMMSeed(seed int64) WHMMOption {
 	return func(c *whmmConfig) { c.seed = seed }
+}
+
+// WithWHMMMaxWorkers caps the number of goroutines used to run the parallel
+// font×linear×fs sweep. The default is min(runtime.NumCPU(), whmmWorkerCap)
+// (currently 8). Each worker runs an independent beam search; lower values
+// reduce peak memory at the cost of wall-clock time. n≤0 restores the default.
+func WithWHMMMaxWorkers(n int) WHMMOption {
+	return func(c *whmmConfig) {
+		if n > 0 {
+			c.maxWorkers = n
+		}
+	}
 }
 
 // DecodeWindowHMM recovers text from a mosaic-pixelated image using a
@@ -272,24 +292,44 @@ func DecodeWindowHMM(ctx context.Context, img image.Image, opts ...WHMMOption) (
 
 	charRunes := []rune(wcfg.charset)
 
-	type candidate struct {
+	// whmmPairData holds the per-(font,linear) shared computation that every fs
+	// candidate in that pair needs. It is computed once per pair before the
+	// parallel sweep so workers only call the cheap per-fs work.
+	type whmmPairData struct {
+		fe      fontEntry
+		lin     bool
+		pix     unpixel.Pixelator
+		tgtGrid [][]windowhmm.BlockCell
+		tgtCols int
+		inkRows int
+		fsCands []float64
+	}
+
+	// whmmTask is one unit of independent work: a (font, linear, fs) triple.
+	// ordinal is its position in the original serial iteration order and is used
+	// to preserve tie-breaking determinism when selecting the winner.
+	type whmmTask struct {
+		pair    *whmmPairData
+		fs      float64
+		ordinal int
+	}
+
+	// whmmTaskResult is the outcome of one whmmTask. An empty text means the
+	// task produced no usable candidate (skip during winner selection).
+	type whmmTaskResult struct {
 		text    string
 		font    string
 		linear  bool
-		block   int
-		phaseX  int
-		charCnt int
 		dist    float64
+		ordinal int
 	}
-	bestDist := -1.0 // negative sentinel → no winner yet
-	var best candidate
 
+	// Build the per-(font,linear) shared data and enumerate all tasks in the
+	// original serial iteration order. Tasks with empty fsCands are dropped.
+	var tasks []whmmTask
+	var pairs []whmmPairData // keep alive for task pointers
 	for _, fe := range entries {
 		for _, lin := range linearModes {
-			if ctx.Err() != nil {
-				return Result{}, ctx.Err()
-			}
-
 			pix := pixelatorFor(block, lin)
 
 			// Build the observation block grid from obsImg (unpadded content crop),
@@ -302,122 +342,183 @@ func DecodeWindowHMM(ctx context.Context, img image.Image, opts ...WHMMOption) (
 			if len(tgtGrid) == 0 {
 				continue
 			}
-			tgtCols := len(tgtGrid[0])
-
-			// inkRows: count from obsImg via pixelate+strip, matching the probe.
 			inkRows := inkRowsFromImg(pix)
-
-			// Calibrate font size: sweep [8,120] probing with the same
-			// pixelate+strip method so both sides count non-white block rows
-			// identically.
 			fsCands := calibrateRefFSByPix(fe.r, pix, inkRows, block)
 			if len(fsCands) == 0 {
 				continue
 			}
-
+			pairs = append(pairs, whmmPairData{
+				fe:      fe,
+				lin:     lin,
+				pix:     pix,
+				tgtGrid: tgtGrid,
+				tgtCols: len(tgtGrid[0]),
+				inkRows: inkRows,
+				fsCands: fsCands,
+			})
+			pd := &pairs[len(pairs)-1]
 			for _, fs := range fsCands {
-				if ctx.Err() != nil {
-					break
-				}
+				tasks = append(tasks, whmmTask{
+					pair:    pd,
+					fs:      fs,
+					ordinal: len(tasks),
+				})
+			}
+		}
+	}
 
-				// Measure per-glyph pixel advances (reused from refmatch.go ~681).
-				advances := measureAdvancesByCumulative(fe.r, charRunes, fs)
-				if len(advances) == 0 {
-					continue
-				}
+	if len(tasks) == 0 {
+		return Result{}, ErrNoContent
+	}
 
-				// Select window width W: smallest W s.t. W·block ≥ widest advance,
-				// clamped to [2, 3].
-				W := wcfg.windowW
-				if W <= 0 {
-					maxAdv := 0
-					for _, a := range advances {
-						if a > maxAdv {
-							maxAdv = a
-						}
-					}
-					W = 2
-					for W*block < maxAdv && W < 3 {
-						W++
-					}
-					W = min(max(W, 2), 3)
-				}
-				if tgtCols < W {
-					continue
-				}
+	// Resolve the worker count: min(NumCPU, whmmWorkerCap) unless overridden.
+	workers := wcfg.maxWorkers
+	if workers <= 0 {
+		workers = min(runtime.NumCPU(), whmmWorkerCap)
+	}
+	workers = min(workers, len(tasks))
 
-				// Compute average advance in pixels.
-				avgAdv := 0.0
+	beamWidth := wcfg.beamWidth
+	if beamWidth <= 0 {
+		beamWidth = 5
+	}
+	beamWidth = min(beamWidth, 50)
+
+	// results is indexed by task ordinal so each goroutine writes its own slot
+	// without synchronisation. Winner selection sweeps in ordinal order, giving
+	// byte-identical tie-breaking to the original serial loop (first minimum wins).
+	results := make([]whmmTaskResult, len(tasks))
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, task := range tasks {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res := whmmTaskResult{ordinal: task.ordinal}
+			if ctx.Err() != nil {
+				results[task.ordinal] = res
+				return
+			}
+
+			pd := task.pair
+			fs := task.fs
+
+			advances := measureAdvancesByCumulative(pd.fe.r, charRunes, fs)
+			if len(advances) == 0 {
+				results[task.ordinal] = res
+				return
+			}
+
+			// Select window width W: smallest W s.t. W·block ≥ widest advance,
+			// clamped to [2, 3].
+			W := wcfg.windowW
+			if W <= 0 {
+				maxAdv := 0
 				for _, a := range advances {
-					avgAdv += float64(a)
+					if a > maxAdv {
+						maxAdv = a
+					}
 				}
-				if len(advances) > 0 {
-					avgAdv /= float64(len(advances))
+				W = 2
+				for W*block < maxAdv && W < 3 {
+					W++
 				}
-				if avgAdv <= 0 {
-					avgAdv = float64(block)
-				}
+				W = min(max(W, 2), 3)
+			}
+			if pd.tgtCols < W {
+				results[task.ordinal] = res
+				return
+			}
 
-				// Estimate N (number of characters). The rendered pixel width
-				// includes font side-bearings (~1 extra character worth), so we
-				// try both floor and floor-1 and pick the better-scoring result.
-				tgtPixWidth := tgtCols * block
-				Nest := max(1, int(float64(tgtPixWidth)/avgAdv))
+			// Compute average advance in pixels.
+			avgAdv := 0.0
+			for _, a := range advances {
+				avgAdv += float64(a)
+			}
+			if len(advances) > 0 {
+				avgAdv /= float64(len(advances))
+			}
+			if avgAdv <= 0 {
+				avgAdv = float64(block)
+			}
 
-				beamWidth := wcfg.beamWidth
-				if beamWidth <= 0 {
-					beamWidth = 5
-				}
-				beamWidth = min(beamWidth, 50) // cap for performance
+			// Estimate N (number of characters). Try N, N-1, N-2 to account for
+			// font side-bearings adding up to ~2 extra characters of pixel width.
+			tgtPixWidth := pd.tgtCols * block
+			Nest := max(1, int(float64(tgtPixWidth)/avgAdv))
 
-				// Try N, N-1, N-2: font side-bearings and right-side-bearing can
-				// add up to ~2 extra characters worth of pixel columns. The beam's
-				// per-character score selects the best N without length bias.
-				var decoded string
-				bestBeamScore := math.Inf(-1)
-				for _, N := range []int{Nest, Nest - 1, Nest - 2} {
-					if N <= 0 {
-						continue
-					}
-					res, err := whBeamSearchDecode(
-						ctx, fe.r, pix, charRunes, tgtGrid, advances,
-						fs, block, N, beamWidth,
-					)
-					if err != nil {
-						if ctx.Err() != nil {
-							return Result{}, ctx.Err()
-						}
-						continue
-					}
-					if res.text == "" {
-						continue
-					}
-					if res.beamScore > bestBeamScore {
-						bestBeamScore = res.beamScore
-						decoded = res.text
-					}
-				}
-				if decoded == "" {
+			var decoded string
+			bestBeamScore := math.Inf(-1)
+			for _, N := range []int{Nest, Nest - 1, Nest - 2} {
+				if N <= 0 {
 					continue
 				}
-
-				// Score by whole-image MSE against the padded target (lower = better).
-				dist := whScoreDecoded(fe.r, decoded, fs, block, lin, target)
-				if bestDist < 0 || dist < bestDist {
-					bestDist = dist
-					best = candidate{
-						text:    decoded,
-						font:    fe.name,
-						linear:  lin,
-						block:   block,
-						phaseX:  grid.PhaseX,
-						charCnt: len([]rune(decoded)),
-						dist:    dist,
-					}
+				bres, berr := whBeamSearchDecode(
+					ctx, pd.fe.r, pd.pix, charRunes, pd.tgtGrid, advances,
+					fs, block, N, beamWidth,
+				)
+				if berr != nil {
+					continue
 				}
-			} // end for _, fs := range fsCands
-		} // end for _, lin := range linearModes
-	} // end for _, fe := range entries
+				if bres.text == "" {
+					continue
+				}
+				if bres.beamScore > bestBeamScore {
+					bestBeamScore = bres.beamScore
+					decoded = bres.text
+				}
+			}
+			if decoded == "" {
+				results[task.ordinal] = res
+				return
+			}
+
+			dist := whScoreDecoded(pd.fe.r, decoded, fs, block, pd.lin, target)
+			res.text = decoded
+			res.font = pd.fe.name
+			res.linear = pd.lin
+			res.dist = dist
+			results[task.ordinal] = res
+		})
+	}
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		return Result{}, ctx.Err()
+	}
+
+	// Select winner in ordinal order: first result with the minimum distance.
+	// This exactly replicates the serial loop's tie-breaking (first best wins).
+	bestDist := -1.0
+	type candidate struct {
+		text    string
+		font    string
+		linear  bool
+		block   int
+		phaseX  int
+		charCnt int
+		dist    float64
+	}
+	var best candidate
+	for _, r := range results {
+		if r.text == "" {
+			continue
+		}
+		if bestDist < 0 || r.dist < bestDist {
+			bestDist = r.dist
+			best = candidate{
+				text:    r.text,
+				font:    r.font,
+				linear:  r.linear,
+				block:   block,
+				phaseX:  grid.PhaseX,
+				charCnt: len([]rune(r.text)),
+				dist:    r.dist,
+			}
+		}
+	}
 
 	if best.text == "" {
 		return Result{}, ErrNoContent
