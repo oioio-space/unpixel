@@ -33,6 +33,8 @@ import (
 	"image/jpeg"
 	"math"
 	"math/rand/v2"
+	"runtime"
+	"sync"
 	"unicode"
 
 	xdraw "golang.org/x/image/draw"
@@ -50,6 +52,12 @@ import (
 // digits only, suited to PINs, credit card numbers, and numeric codes.
 const DefaultTHMMCharset = "0123456789"
 
+// thmmWorkerCap is the default ceiling on the parallel font×linear sweep worker
+// count. Each worker runs a full HMM train+decode (memory-heavy); 8 is
+// conservative enough for a 9 GiB cgroup while still saturating a multi-core
+// machine.
+const thmmWorkerCap = 8
+
 // trainedHMMConfig holds DecodeTrainedHMM option state.
 type trainedHMMConfig struct {
 	charset     string
@@ -64,6 +72,7 @@ type trainedHMMConfig struct {
 	language    *lang.Language // non-nil → draw training strings from word-list corpus
 	jpegQuality int            // > 0 → JPEG-roundtrip rendered training images before pixelation
 	lmBeta      float64        // > 0 → fuse LM into Viterbi with this weight (requires language)
+	maxWorkers  int            // parallel font×linear sweep; 0 → min(NumCPU, thmmWorkerCap)
 }
 
 func defaultTrainedHMMConfig() trainedHMMConfig {
@@ -217,6 +226,19 @@ func WithTHMMLMWeight(beta float64) THMMOption {
 	return func(c *trainedHMMConfig) { c.lmBeta = beta }
 }
 
+// WithTHMMMaxWorkers caps the number of goroutines used to run the parallel
+// font×linear sweep. The default is min(runtime.NumCPU(), thmmWorkerCap)
+// (currently 8). Each worker runs an independent HMM train+decode; lower
+// values reduce peak memory at the cost of wall-clock time. n≤0 restores
+// the default.
+func WithTHMMMaxWorkers(n int) THMMOption {
+	return func(c *trainedHMMConfig) {
+		if n > 0 {
+			c.maxWorkers = n
+		}
+	}
+}
+
 // DecodeTrainedHMM recovers text from a mosaic-pixelated image using a
 // blind, column-anchored trained HMM (Hill-2016, §2.2–2.3).
 //
@@ -337,23 +359,63 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 		corpusSize = 2000
 	}
 
-	type candidate struct {
-		text   string
-		font   string
-		linear bool
-		block  int
-		phaseX int
-		dist   float64
+	// thmmTask is one unit of independent work: a (font, linear) pair.
+	// ordinal is its position in the original serial iteration order and is
+	// used to preserve tie-breaking determinism when selecting the winner.
+	type thmmTask struct {
+		fe      fontEntry
+		lin     bool
+		ordinal int
 	}
-	bestDist := -1.0
-	var best candidate
 
+	// thmmTaskResult is the outcome of one thmmTask. An empty text means the
+	// task produced no usable candidate (skipped during winner selection).
+	type thmmTaskResult struct {
+		text    string
+		font    string
+		linear  bool
+		dist    float64
+		ordinal int
+	}
+
+	// Enumerate all tasks in original serial iteration order.
+	var tasks []thmmTask
 	for _, fe := range entries {
 		for _, lin := range linearModes {
+			tasks = append(tasks, thmmTask{fe: fe, lin: lin, ordinal: len(tasks)})
+		}
+	}
+	if len(tasks) == 0 {
+		return Result{}, ErrNoContent
+	}
+
+	// Resolve worker count: min(NumCPU, thmmWorkerCap) unless overridden.
+	workers := tcfg.maxWorkers
+	if workers <= 0 {
+		workers = min(runtime.NumCPU(), thmmWorkerCap)
+	}
+	workers = min(workers, len(tasks))
+
+	// results is indexed by task ordinal so each goroutine writes its own slot
+	// without synchronisation. Winner selection sweeps in ordinal order, giving
+	// byte-identical tie-breaking to the original serial loop (first minimum wins).
+	results := make([]thmmTaskResult, len(tasks))
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, task := range tasks {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res := thmmTaskResult{ordinal: task.ordinal}
 			if ctx.Err() != nil {
-				return Result{}, ctx.Err()
+				results[task.ordinal] = res
+				return
 			}
 
+			fe := task.fe
+			lin := task.lin
 			pix := pixelatorFor(block, lin)
 
 			// Build the observation block grid from the content crop.
@@ -362,7 +424,8 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 			tgtGrid = whStripBlockRows(tgtGrid)
 			tgtGrid = whStripBlockCols(tgtGrid)
 			if len(tgtGrid) == 0 || len(tgtGrid[0]) == 0 {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 			tgtCols := len(tgtGrid[0])
 			tgtRows := len(tgtGrid)
@@ -371,14 +434,16 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 			inkRows := tgtRows // tgtGrid is already stripped
 			fsCands := calibrateRefFSByPix(fe.r, pix, inkRows, block)
 			if len(fsCands) == 0 {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 			fs := fsCands[0] // use first matching font size
 
 			// Measure per-glyph advances.
 			advances := measureAdvancesByCumulative(fe.r, charRunes, fs)
 			if len(advances) == 0 {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 
 			// Compute W (window width in block columns).
@@ -410,7 +475,8 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 				}
 			}
 			if tgtCols < windowW {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 
 			// Build char-string representations (single rune per entry).
@@ -426,19 +492,19 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 				tcfg.seed, tcfg.language, tcfg.jpegQuality,
 			)
 			if err != nil {
-				if ctx.Err() != nil {
-					return Result{}, ctx.Err()
-				}
-				continue
+				results[task.ordinal] = res
+				return
 			}
 			if model == nil {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 
 			// Decode: slide windowW-column window over target → obs sequence → Viterbi → text.
 			nWindows := tgtCols - windowW + 1
 			if nWindows <= 0 {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 			obs := make([]int, nWindows)
 			for t := range nWindows {
@@ -476,26 +542,56 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 
 			path := model.ViterbiLM(obs, tcfg.lmBeta, lmScore)
 			if len(path) == 0 {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 
 			decoded := windowhmm.Concatenate(model.States, path)
 			if decoded == "" {
-				continue
+				results[task.ordinal] = res
+				return
 			}
 
 			// Score by whole-image MSE against the padded target.
 			dist := whScoreDecoded(fe.r, decoded, fs, block, lin, target)
-			if bestDist < 0 || dist < bestDist {
-				bestDist = dist
-				best = candidate{
-					text:   decoded,
-					font:   fe.name,
-					linear: lin,
-					block:  block,
-					phaseX: grid.PhaseX,
-					dist:   dist,
-				}
+			res.text = decoded
+			res.font = fe.name
+			res.linear = lin
+			res.dist = dist
+			results[task.ordinal] = res
+		})
+	}
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		return Result{}, ctx.Err()
+	}
+
+	// Select winner in ordinal order: first result with the minimum distance.
+	// This exactly replicates the serial loop's tie-breaking (first best wins).
+	type candidate struct {
+		text   string
+		font   string
+		linear bool
+		block  int
+		phaseX int
+		dist   float64
+	}
+	bestDist := -1.0
+	var best candidate
+	for _, r := range results {
+		if r.text == "" {
+			continue
+		}
+		if bestDist < 0 || r.dist < bestDist {
+			bestDist = r.dist
+			best = candidate{
+				text:   r.text,
+				font:   r.font,
+				linear: r.linear,
+				block:  block,
+				phaseX: grid.PhaseX,
+				dist:   r.dist,
 			}
 		}
 	}
