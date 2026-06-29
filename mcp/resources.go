@@ -167,7 +167,7 @@ func handleMethodsResource(_ context.Context, _ *mcpsdk.ReadResourceRequest) (*m
 		{"perspective", "Mosaic photographed at an angle. Supply quad corners (quad field) OR set auto_quad=true for automatic corner detection. Accepts font_path/font_base64, font_size, block_size, beam_width, rect_size_w/h, workers.", "15–60 s"},
 		{"reference", "Depix-style per-phase reference matching; strong for short codes. Accepts known_visible_text (recorded for future font calibration), font_path/font_base64.", "5–30 s"},
 		{"blind", "Fully zero-config (auto font, auto block, auto gamma); slowest but needs nothing.", "30–120 s"},
-		{"ensemble", "Runs mosaic+mono-hmm and keeps the best; safer but 2× slower.", "30–120 s"},
+		{"ensemble", "Combines the complementary engine (charset-aware best-config) and zero-config mosaic decoders: returns the engine result when its fidelity is high, else falls back to mosaic. Pass charset_preset for the engine member. Recovers fixtures neither alone gets.", "30–120 s"},
 		{"multi-frame", "IBP fusion of multiple mosaics of the same content at different phases.", "30–120 s"},
 	}
 	b, err := json.Marshal(entries)

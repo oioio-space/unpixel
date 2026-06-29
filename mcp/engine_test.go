@@ -222,3 +222,38 @@ func TestCharsetDigits_didDecoder(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeEnsemble_combinesEngineAndMosaic proves the ensemble bridges the two
+// complementary paths via the common ScoreCandidates arbiter: alnum_Go2 is only
+// recoverable by the charset-aware engine, while bold_go is recovered by the
+// zero-config mosaic (engine returns a single char there). The ensemble must pick
+// the right member's text for each.
+func TestDecodeEnsemble_combinesEngineAndMosaic(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		charset string
+		want    string
+	}{
+		{"engine_member_wins", "alnum_Go2.png", "alnum", "Go2"},
+		{"mosaic_member_wins", "bold_go.png", "lower", "go"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img, err := loadFixture(tt.fixture)
+			if err != nil {
+				t.Fatalf("load %s: %v", tt.fixture, err)
+			}
+			got, err := mcpserver.Decode(t.Context(), img, "ensemble", mcpserver.DecodeOptions{
+				CharsetPreset: tt.charset,
+				MaxLength:     6,
+			})
+			if err != nil {
+				t.Fatalf("Decode(ensemble): %v", err)
+			}
+			if got.Text != tt.want {
+				t.Errorf("ensemble Text = %q, want %q (method=%s)", got.Text, tt.want, got.MethodUsed)
+			}
+		})
+	}
+}

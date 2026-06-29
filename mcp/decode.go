@@ -798,27 +798,52 @@ func decodeBlind(ctx context.Context, img image.Image, in decodeInput) (DecodeRe
 	}, nil
 }
 
-func decodeEnsemble(ctx context.Context, img image.Image, _ decodeInput) (DecodeResult, error) {
-	decoders := []mosaictext.EnsembleDecoder{
-		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
-			return mosaictext.Decode(ctx, img)
-		}),
-		mosaictext.EnsembleDecoder(func(ctx context.Context, img image.Image) (mosaictext.Result, error) {
-			return mosaictext.DecodeHMM(ctx, img)
-		}),
+// ensembleEngineConfidence is the engine fidelity (1−BestTotal) above which the
+// charset-aware engine result is trusted outright. The engine's fidelity is a
+// reliable self-confidence signal — empirically ~1.0 on an exact recovery and
+// ~0.0 when it collapses to a single garbage char — so this threshold cleanly
+// separates "engine nailed it" from "engine abstained".
+const ensembleEngineConfidence = 0.85
+
+// decodeEnsemble combines the two complementary mosaic decoders — the charset-
+// aware engine ([unpixel.Recover]) and the zero-config mosaic ([mosaictext.Decode]).
+// Each recovers fixtures the other misses (engine needs an explicit charset for
+// e.g. "Go2"/"x=1"; mosaic auto-calibrates better on plain words like "go"), and
+// their distances live on incomparable scales (engine BestTotal in [0,1] vs
+// block-MSE), so a lowest-distance merge is unsound and re-scoring via a single
+// metric is unreliable (its calibration is looser than the decoders' own).
+//
+// Instead it uses the engine's trustworthy [0,1] fidelity as the arbiter: take
+// the engine result when it is confident, otherwise fall back to the zero-config
+// mosaic. When the engine abstains AND mosaic yields nothing, the low-confidence
+// engine text (if any) is returned as a last resort.
+func decodeEnsemble(ctx context.Context, img image.Image, in decodeInput) (DecodeResult, error) {
+	eng, engErr := decodeEngine(ctx, img, in)
+	if engErr == nil && eng.Text != "" && eng.Fidelity >= ensembleEngineConfidence {
+		eng.MethodUsed = "ensemble(engine)"
+		return eng, nil
 	}
-	res, err := mosaictext.DecodeEnsemble(ctx, img, decoders)
-	if err != nil {
-		return DecodeResult{}, err
+
+	mos, mosErr := decodeMosaic(ctx, img, in)
+	if mosErr == nil && mos.Text != "" {
+		mos.MethodUsed = "ensemble(mosaic)"
+		mos.Notes = append(mos.Notes, fmt.Sprintf("engine abstained (fidelity %.2f); used zero-config mosaic", eng.Fidelity))
+		return mos, nil
 	}
-	return DecodeResult{
-		Text:       res.Text,
-		Distance:   res.Distance,
-		Fidelity:   clampFidelity(res.Distance),
-		Font:       res.Font,
-		BlockSize:  res.BlockSize,
-		MethodUsed: "ensemble",
-	}, nil
+
+	// Neither was confident: return the engine's best-effort text if it produced
+	// one, else surface the most informative error.
+	if engErr == nil && eng.Text != "" {
+		eng.MethodUsed = "ensemble(engine,low-confidence)"
+		return eng, nil
+	}
+	if engErr != nil {
+		return DecodeResult{}, engErr
+	}
+	if mosErr != nil {
+		return DecodeResult{}, mosErr
+	}
+	return DecodeResult{}, mosaictext.ErrNoContent
 }
 
 func decodeMultiFrame(ctx context.Context, img image.Image, in decodeInput) (DecodeResult, error) {
