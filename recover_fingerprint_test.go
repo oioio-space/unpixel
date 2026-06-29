@@ -132,28 +132,39 @@ func TestRecover_autoFingerprintInstallsLinear(t *testing.T) {
 //
 //   - Guard 1 (exact grid veto): InferBlockGrid detects a regular axis-aligned
 //     lattice in clean mosaics; Gaussian blur never produces one. When it fires,
-//     delegation to RecoverBlurred is skipped unconditionally.
+//     delegation to RecoverBlurred is skipped in BOTH the confident branch and the
+//     ambiguous meta band — so hello-world.png (gridOK=true, Conf.Kind=0.587)
+//     never enters σ-sweep trials regardless of which band its Conf.Kind falls in.
 //   - Guard 2 (high-confidence threshold): Conf.Kind must reach ≥ 0.95 before
 //     delegating. The sharp surround in a raw screenshot depresses Conf.Kind;
 //     true Gaussian-blur fixtures consistently hit 1.00.
 //
-// The test exercises Guard 1 (hello-world.png has a clean block grid) directly
-// via InferBlockGrid — cheaper and more precise than a full decode.
-// The marx.png fixture exercises Guard 2 (JPEG-compressed, Conf.Kind=0.87).
+// The test has two layers:
+//
+//  1. Predicate checks (both fixtures): InferBlockGrid and Fingerprint assertions
+//     verify the raw detector state that underpins the guards.
+//  2. Live Recover assertion (hello-world only): calls Recover(WithAuto()) on the
+//     actual fixture and asserts BlurSigma==0 — the mosaic/default path leaves
+//     BlurSigma at its zero value; only RecoverBlurred sets it non-zero. This
+//     exercises the live control flow, not just the detector predicates.
+//     marx.png is kept as a predicate check only (full Recover is slow on JPEG).
 func TestRecover_autoDoesNotMisrouteMosaicScreenshot(t *testing.T) {
 	cases := []struct {
 		path        string
 		wantGridOK  bool // InferBlockGrid must find a grid (Guard 1 active)
+		liveRecover bool // run a full Recover and assert BlurSigma==0
 		description string
 	}{
 		{
 			path:        "testdata/real/hello-world.png",
 			wantGridOK:  true,
-			description: "clean GIMP pixelate — Guard 1 (exact grid) must veto blur delegation",
+			liveRecover: true,
+			description: "clean GIMP pixelate — Guard 1 (exact grid) must veto blur delegation in both confident and ambiguous branches",
 		},
 		{
 			path:        "testdata/real/marx.png",
 			wantGridOK:  false,
+			liveRecover: false,
 			description: "JPEG-compressed mosaic — Guard 2 (Conf < 0.95) must veto blur delegation",
 		},
 	}
@@ -170,28 +181,49 @@ func TestRecover_autoDoesNotMisrouteMosaicScreenshot(t *testing.T) {
 				t.Fatalf("decode fixture %s: %v", tc.path, decErr)
 			}
 
-			// Guard 1: verify InferBlockGrid behaves as expected for this fixture.
+			// Layer 1a — Guard 1 predicate: verify InferBlockGrid behaves as expected.
 			_, gridOK := InferBlockGrid(img)
 			if gridOK != tc.wantGridOK {
 				t.Errorf("InferBlockGrid ok=%v, want %v on %s (%s)",
 					gridOK, tc.wantGridOK, tc.path, tc.description)
 			}
 
-			// Simulate the delegation condition Recover evaluates.
-			// If Guard 1 fires (gridOK), delegation is skipped — good.
-			// If Guard 1 does not fire, Guard 2 requires Conf.Kind ≥ 0.95.
-			// For a mosaic screenshot, Conf.Kind < 0.95 (sharp surround depresses it),
-			// so delegation must NOT occur.
-			// Mirror the exact predicate Recover uses to decide blur delegation
-			// (unpixel.go): delegate only when no exact grid is found (Guard 1)
-			// AND DetectBlur is highly confident it is blur (Guard 2, ≥ 0.95).
-			// Asserting the composed predicate is false catches a regression in
-			// EITHER guard — e.g. lowering the 0.95 threshold below marx's 0.87.
+			// Layer 1b — Guard 2 predicate: mirror the exact delegation predicate
+			// Recover evaluates (unpixel.go): delegate only when no exact grid is
+			// found (Guard 1) AND DetectBlur is highly confident it is blur (Guard 2,
+			// ≥ 0.95). Asserting the composed predicate is false catches a regression
+			// in either guard — e.g. lowering the 0.95 threshold below marx's 0.87.
 			op := forensics.Fingerprint(imutil.ToRGBA(img), forensics.Hint{Block: 0})
 			wouldDelegate := !gridOK && op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.95
 			if wouldDelegate {
 				t.Errorf("%s would misroute to blur: gridOK=%v, Kind=%v, Conf.Kind=%.2f — %s",
 					tc.path, gridOK, op.Kind, op.Conf.Kind, tc.description)
+			}
+
+			if !tc.liveRecover {
+				return
+			}
+
+			// Layer 2 — live Recover assertion: call the real Recover+WithAuto() and
+			// verify BlurSigma==0. The mosaic/default path never sets BlurSigma;
+			// only RecoverBlurred sets it non-zero. A non-zero value here means the
+			// image was misrouted to the blur pipeline — a Guard 1 regression.
+			//
+			// WithCharset and WithMaxLength are kept minimal so the test is fast;
+			// correctness of the recovered text is not the assertion here.
+			res, recErr := Recover(t.Context(), img,
+				WithAuto(),
+				WithCharset("Hello World !"),
+				WithMaxLength(15),
+			)
+			if recErr != nil {
+				t.Fatalf("Recover+WithAuto on %s: %v", tc.path, recErr)
+			}
+			t.Logf("Recover+WithAuto: BestGuess=%q BestTotal=%.4f BlurSigma=%.2f",
+				res.BestGuess, res.BestTotal, res.BlurSigma)
+			if res.BlurSigma != 0 {
+				t.Errorf("BlurSigma=%.2f on %s, want 0 — image was misrouted to the blur pipeline (Guard 1 regression)",
+					res.BlurSigma, tc.path)
 			}
 		})
 	}

@@ -1970,56 +1970,42 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 
 	// When autoBlur is requested and the caller has not pinned a Pixelator,
 	// fingerprint the image to detect blur and delegate to RecoverBlurred when
-	// confident. Two signals guard against misrouting mosaic screenshots:
+	// confident. Two guards prevent misrouting mosaic screenshots to the blur path:
 	//
-	// Guard 1 — exact grid veto: InferBlockGrid finds a regular axis-aligned
-	// block lattice only in clean mosaics; Gaussian blur never produces one.
-	// When the exact detector fires, delegation is skipped unconditionally.
-	// (For hello-world.png — a clean GIMP pixelate — InferBlockGrid returns
-	// Confidence=1.0 on the raw screenshot, so this guard is sufficient.)
+	// Guard 1 — exact grid veto (gridOK): InferBlockGrid finds a regular axis-
+	// aligned block lattice only in clean mosaics; Gaussian blur never produces one.
+	// When gridOK is true the blur delegation is skipped in BOTH the confident
+	// branch (Conf.Kind ≥ 0.95) and the ambiguous band [0.30, 0.95) — ensuring
+	// hello-world.png (gridOK=true, Conf.Kind=0.587) never enters σ-sweep trials.
 	//
-	// Guard 2 — high-confidence threshold: Fingerprint measures intra-block
-	// variance over the whole frame. A raw screenshot's sharp surround inflates
-	// the variance estimate, depressing Conf.Kind (hello-world: 0.59, marx: 0.87).
-	// True Gaussian-blur fixtures consistently score Conf.Kind=1.00. Requiring
-	// Conf.Kind ≥ 0.95 before delegating catches the mosaic screenshots whose
-	// exact grid is undetectable (JPEG compression, noise, non-integer blocks)
-	// without excluding any of the committed blur fixtures.
+	// Guard 2 — high-confidence threshold: Conf.Kind must reach metaBandHigh (0.95)
+	// before confident delegation. The sharp surround of a raw screenshot depresses
+	// Conf.Kind (hello-world: 0.587, marx: 0.867). True Gaussian-blur fixtures
+	// consistently score 1.00, well above the gate. This guard catches JPEG-
+	// compressed mosaics whose grid is undetectable by Guard 1 alone.
 	//
 	// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
-	// enters Recover with cfg.Pixelator != nil, so this branch is skipped and
-	// the mosaic engine handles those inner calls normally.
-	//
-	// Double-work note: when Guard 1 fires we never call Fingerprint here;
-	// applyAutoFingerprint inside New handles the single Fingerprint pass on
-	// the cropped image. When Guard 1 does not fire, Fingerprint runs once here
-	// and RecoverBlurred takes over — no redundant call on the mosaic path.
+	// enters Recover with cfg.Pixelator != nil, so this block is skipped and the
+	// mosaic engine handles inner calls normally. runWithPixelator likewise sets
+	// cfg.Pixelator before calling New, preventing applyAutoFingerprint re-entry.
 	if cfg.autoBlur && cfg.Pixelator == nil {
 		// Banded meta-strategy: rank all zoo operators search-free, then branch on
 		// confidence. The band gate (metaBandLow … metaBandHigh) determines whether
 		// the top-1 operator is used directly (confident), the default is kept (floor),
 		// or the top-2 are trialled and forensics.Select picks the winner (ambiguous).
-		//
-		// Blur delegation: KindBlur with Conf.Kind ≥ metaBandHigh → RecoverBlurred,
-		// gated by Guard 1 (exact mosaic grid vetoes misrouting) and Guard 2 (the
-		// 0.95 threshold excludes screenshots whose sharp surround inflates DetectBlur).
-		//
-		// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
-		// enters Recover with cfg.Pixelator != nil, so this block is skipped and the
-		// mosaic engine handles those inner calls normally. Similarly, runWithPixelator
-		// sets cfg.Pixelator before calling New, preventing applyAutoFingerprint from
-		// re-entering the detection pass.
 		ranked := forensics.FingerprintN(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
 		top := ranked[0]
+		// Guard 1: compute the exact-grid veto once; reused in both the confident
+		// and ambiguous branches below. An exact mosaic grid never appears in
+		// Gaussian-blur output, so gridOK==true means the image is definitely mosaic.
+		_, gridOK := InferBlockGrid(redacted)
 		switch {
 		case top.Conf.Kind >= metaBandHigh:
 			// Confident: use the single top-ranked operator.
 			// For blur, apply Guard 1 (exact grid vetoes delegation) before
 			// delegating to the blur pipeline.
-			if top.Kind == forensics.KindBlur {
-				if _, gridOK := InferBlockGrid(redacted); !gridOK {
-					return RecoverBlurred(ctx, redacted, opts...)
-				}
+			if top.Kind == forensics.KindBlur && !gridOK {
+				return RecoverBlurred(ctx, redacted, opts...)
 			}
 			// For mosaic (or blur blocked by Guard 1): fall through to New.
 			// applyAutoFingerprint inside New re-runs Fingerprint on the cropped
@@ -2039,7 +2025,16 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 			// (confident-wrong). Only include ranked[1] when it shares the same Kind
 			// as ranked[0] — a genuine alternative (e.g. linear vs sRGB mosaic, or a
 			// different blur kernel) rather than a cross-family false contender.
-			if len(ranked) >= 2 && ranked[1].Kind == top.Kind {
+			//
+			// Blur veto: when top.Kind==KindBlur and an exact mosaic grid is present
+			// (gridOK), do not enter blur meta-trials — fall through to the normal
+			// mosaic/default path. Only mosaic-vs-mosaic ambiguity (top.Kind==KindMosaic)
+			// is unaffected by gridOK and still uses the meta band legitimately.
+			if len(ranked) >= 2 && ranked[1].Kind == top.Kind && (top.Kind != forensics.KindBlur || !gridOK) {
+				// trialResults maps text → lowest-Dist Result for that text, so when
+				// both trials yield the same BestGuess the lower-Dist run is kept —
+				// preventing a degenerate overwrite that would mismatch meta.Select's
+				// agreement path (which picks the lowest-Dist candidate).
 				trialResults := make(map[string]Result, 2)
 				var cands []forensics.Candidate
 				for _, op := range ranked[:2] {
@@ -2055,14 +2050,16 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 						Text: res.BestGuess,
 						Dist: res.BestTotal,
 					})
-					trialResults[res.BestGuess] = res
+					if prev, seen := trialResults[res.BestGuess]; !seen || res.BestTotal < prev.BestTotal {
+						trialResults[res.BestGuess] = res
+					}
 				}
 				if sel, ok := forensics.Select(cands, metaDistThreshold, metaCoherenceMargin); ok {
 					return trialResults[sel.Text], nil
 				}
 			}
-			// Abstain (or no genuine top-2): fall through to New where
-			// applyAutoFingerprint applies the single-best operator.
+			// Abstain (or no genuine top-2, or blur vetoed by Guard 1): fall through
+			// to New where applyAutoFingerprint applies the single-best operator.
 		}
 	}
 
