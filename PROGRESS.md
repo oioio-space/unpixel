@@ -313,10 +313,14 @@ Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
       exposé en MCP `analyze` (`DetectedOperator`). Panel 17/17, CI verte. Reportés (→ #1B/calibration) :
       `hello-world-noisy` misroute (bruit casse `InferBlockGrid`), bande Conf 0.95–1.00 non couverte,
       double `DetectColorspace` dans `analyze`. Mur : réel + flou.
-- [ ] **#1B Operator-zoo + méta-stratégie top-2 *sécurisée*** — opérateurs par-outil (GEGL/
-      Photoshop/CSS/ffmpeg) enfichables ; quand le fingerprint est ambigu, essayer le top-2 et
-      départager par **cohérence du fingerprint** (pas `argmin(distance)` brut — évite le mur
-      « faux avec assurance »). Suite directe de #2 (le `Operator` est la couture). Mur : réel + flou.
+- [x] **#1B Operator-zoo + méta-stratégie top-2 *sécurisée*** ✅ *(spec/plan :
+      `docs/superpowers/{specs,plans}/2026-06-29-operator-zoo-meta-strategy*.md`)* — zoo de profils
+      par-outil nommés (GEGL/Photoshop/GIMP/CSS/ffmpeg/OpenCV) dédupliqués par config + opérateurs
+      de bord `NewGaussianBlurEdge` ; `FingerprintN` classe le zoo sans recherche (`Fingerprint`
+      délègue à `[0]`) ; bande ambiguë dans `Recover`/`WithAuto()` → essaie le top-2 et
+      `meta.Select` départage par **seuil de distance + accord croisé + marge de cohérence
+      (Conf.Kind+Conf.Gamma) + abstention** (jamais `argmin(distance)` ; veto grille préserve l'I1
+      de #2 ; coût borné 2×). CI verte, cover 85.4 %, panel 17/17. Mur : réel + flou.
 - [ ] **#1 Leak pre-pass** — `internal/leak` : miniature EXIF, PDF rectangle-sur-texte-non-aplati
       (`rsc.io/pdf`), Office zip+XML, caviardage partiel (OCR région visible → match). Court-circuite
       tous les murs *quand applicable*. Pur-Go. Mur : tous (opportuniste).
