@@ -43,3 +43,22 @@ func TestPartial_abstainsWithoutHint(t *testing.T) {
 		t.Errorf("found=true without VisibleText, want false (needs OCR — out of scope)")
 	}
 }
+
+// TestPartial_abstainsWithNoBlock proves the honest guarantee: even with a
+// visible-text hint, a plain image with no solid redaction block must abstain
+// (the detector only confirms+surfaces; it never fabricates on clean content).
+func TestPartial_abstainsWithNoBlock(t *testing.T) {
+	im := image.NewRGBA(image.Rect(0, 0, 80, 40))
+	for y := range 40 {
+		for x := range 80 {
+			im.Set(x, y, color.RGBA{255, 255, 255, 255})
+		}
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, im); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := partial(b.Bytes(), "some-hint"); found {
+		t.Error("found=true on plain white image, want false (no redaction block)")
+	}
+}
