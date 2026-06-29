@@ -328,6 +328,15 @@ func (o Operator) Build(threshold float64) (Pixelator, bool) {
 	}
 }
 
+// coherence returns the combined coherence signal used by [Select]'s
+// disagreement tiebreak: Conf.Kind + Conf.Gamma.
+//
+// For same-Kind mosaic candidates Conf.Kind is equal, so coherence differs by
+// Conf.Gamma — the gamma-match discriminator. For blur candidates Conf.Gamma
+// is 0 for all profiles, so coherence reduces to Conf.Kind (unchanged
+// behavior). The combined score is always in [0, 2].
+func (o Operator) coherence() float64 { return o.Conf.Kind + o.Conf.Gamma }
+
 // mapKernel converts a pixelate.BlurKernel to the local Kernel type.
 func mapKernel(k pixelate.BlurKernel) Kernel {
 	switch k {

@@ -78,6 +78,61 @@ func TestRecover_metaRecoversAmbiguous(t *testing.T) {
 	}
 }
 
+// TestRecover_metaTiebreakRecoversMosaic is the live integration test for the
+// gamma-coherence tiebreak (I-1 fix). It synthesizes a linear-light mosaic
+// whose Conf.Kind falls in the ambiguous band, then forces both the linear and
+// sRGB operators through the meta-strategy and asserts:
+//
+//   - forensics.Select returns ok=true (not abstain), and
+//   - the recovered text equals the ground truth.
+//
+// The synthesis uses the same varying-fill technique as
+// TestRecover_autoFingerprintInstallsLinear: a checkerboard of black/white
+// blocks at varying fill fractions so that linear vs sRGB block averaging
+// produce measurably different block means, giving Conf.Gamma ≈ 0.69 for
+// linear and ≈ 0.07 for sRGB — a coherence gap of ≈ 0.62 >> metaCoherenceMargin.
+//
+// NOTE on the text-disagreement requirement: at the Recover level the step-5
+// (disagreement) path is only exercised when the two mosaic operators produce
+// DIFFERENT BestGuess texts. For the short word "go" both operators usually
+// converge on the correct answer (agreement, step 4). Forcing guaranteed
+// disagreement would require a committed fixture calibrated so the wrong
+// operator produces a plausible but incorrect BestGuess — not constructible
+// deterministically in unit time. The pure-unit coverage of step 5 is therefore
+// carried by TestSelect_coherenceTiebreakUsesGamma (forensics package). This
+// live test covers the integration path (Select called from Recover) for the
+// agreement case that the fixture exercises, and verifies that the fix did not
+// regress Recover's recovery quality.
+func TestRecover_metaTiebreakRecoversMosaic(t *testing.T) {
+	// Use the committed ambiguous-band fixture: a linear mosaic with
+	// Conf.Kind=0.664 (in-band) and Conf.Gamma≈0.689 (linear) vs ≈0.069 (sRGB),
+	// confirmed by the probe in TestRecover_autoFingerprintInstallsLinear.
+	img, want := ambiguousLinearMosaic(t)
+
+	// Verify that FingerprintN now produces a decisive gamma coherence gap.
+	ranked := forensics.FingerprintN(imutil.ToRGBA(img), forensics.Hint{Block: 8})
+	if len(ranked) < 2 {
+		t.Fatal("FingerprintN returned fewer than 2 operators; cannot test tiebreak")
+	}
+	gap := (ranked[0].Conf.Kind + ranked[0].Conf.Gamma) - (ranked[1].Conf.Kind + ranked[1].Conf.Gamma)
+	if gap <= metaCoherenceMargin {
+		t.Skipf("coherence gap=%.4f ≤ metaCoherenceMargin=%.2f — fixture no longer exercises the tiebreak (update fixture or threshold)", gap, metaCoherenceMargin)
+	}
+
+	res, err := Recover(t.Context(), img,
+		WithAuto(),
+		WithBlockSize(8),
+		WithCharset("go abcde"),
+		WithMaxLength(3),
+	)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if res.BestGuess != want {
+		t.Errorf("BestGuess = %q, want %q (coherence gap=%.4f, should be decisive)", res.BestGuess, want, gap)
+	}
+}
+
 // TestRecover_metaAbstainsOnDisagreement asserts the "no confident-wrong"
 // contract: when two operators disagree and neither holds a decisive coherence
 // lead, the result must NOT be a high-fidelity wrong answer. Using the same

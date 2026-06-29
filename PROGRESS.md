@@ -1248,3 +1248,7 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `561b286` 2026-06-29 — fix(forensics): separate structural match score from Conf in FingerprintN _(3 fichiers)_
 - `8bfe538` 2026-06-29 — docs/test(forensics): fix stale Fingerprint Tool doc + assert structural ranking _(2 fichiers)_
 - `1b3c885` 2026-06-29 — feat(forensics): meta.Select — secured top-2 selection (agreement + coherence + abstain) _(3 fichiers)_
+- `55cbe56` 2026-06-29 — feat(unpixel): banded top-2 meta-strategy in Recover under WithAuto() _(3 fichiers)_
+- `decf597` 2026-06-29 — fix(unpixel): extend Guard 1 grid veto to ambiguous meta band + lowest-Dist trialResults _(2 fichiers)_
+- `bfaea35` 2026-06-29 — test(forensics): calibrate meta band + cover zoo/meta paths _(3 fichiers)_
+- `ad7f9c7` 2026-06-29 — docs(unpixel): abstract meta-band const narrative (final-review Important) _(1 fichiers)_

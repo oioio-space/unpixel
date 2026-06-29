@@ -26,8 +26,10 @@ type Selection struct {
 //  3. Exactly one eligible → it wins.
 //  4. ≥2 eligible and all share the same Text → that text wins; Op is taken
 //     from the eligible candidate with the lowest Dist.
-//  5. Eligible disagree on Text → winner is the highest-Conf.Kind eligible
-//     IFF its lead over the runner-up exceeds coherenceMargin; else abstain.
+//  5. Eligible disagree on Text → winner is the highest-coherence eligible
+//     (coherence = Conf.Kind + Conf.Gamma) IFF its lead over the runner-up
+//     exceeds coherenceMargin; else abstain. The secondary sort key is Text
+//     (ascending) for determinism when coherence values are equal.
 //
 // ok=false means the caller must fall back (no confident answer).
 func Select(cands []Candidate, distThreshold, coherenceMargin float64) (Selection, bool) {
@@ -66,11 +68,15 @@ func Select(cands []Candidate, distThreshold, coherenceMargin float64) (Selectio
 	}
 
 	// Step 5: disagreement — coherence-margin tiebreak.
-	// Sort by Conf.Kind descending.
+	// Sort by combined coherence (Kind+Gamma) descending; Text as deterministic
+	// secondary key so equal-coherence order is stable across runs.
 	slices.SortFunc(eligible, func(a, b Candidate) int {
-		return cmp.Compare(b.Op.Conf.Kind, a.Op.Conf.Kind)
+		return cmp.Or(
+			cmp.Compare(b.Op.coherence(), a.Op.coherence()),
+			cmp.Compare(a.Text, b.Text),
+		)
 	})
-	if eligible[0].Op.Conf.Kind-eligible[1].Op.Conf.Kind > coherenceMargin {
+	if eligible[0].Op.coherence()-eligible[1].Op.coherence() > coherenceMargin {
 		return Selection{Op: eligible[0].Op, Text: eligible[0].Text}, true
 	}
 	return Selection{}, false
