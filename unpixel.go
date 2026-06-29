@@ -46,8 +46,8 @@ import (
 	"time"
 
 	"github.com/oioio-space/unpixel/internal/deblur"
+	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
-	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
 // Renderer renders candidate text to an RGBA image, placing a blue sentinel
@@ -207,11 +207,17 @@ type Config struct {
 	// WithAutoCrop; never set directly.
 	autoCrop bool
 
-	// autoColorspace, when true, calls pixelate.DetectColorspace on the
+	// autoColorspace, when true, runs forensics.Fingerprint on the
 	// located/cropped target and selects the linear or sRGB pixelator
 	// accordingly. Falls back to the default (sRGB) when confidence < 0.5.
 	// Set via WithAutoColorspace; never set directly.
 	autoColorspace bool
+
+	// autoBlur, when true, runs forensics.Fingerprint on the target and
+	// installs a Gaussian or box-blur pixelator when confident. Falls back
+	// to the default (BlockAverage) when confidence < 0.5.
+	// Set via WithAutoBlur; never set directly.
+	autoBlur bool
 
 	// autoCalibrate, when true, calls InferGridPhase and InferXStretch on the
 	// mosaic and seeds the search accordingly (grid phase → reported diagnostic;
@@ -532,20 +538,12 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	}
 	cfg = applyDefaults(cfg)
 
-	// Auto-colorspace: detect whether the mosaic was averaged in linear light or
-	// sRGB and select the matching pixelator. Runs after applyDefaults so
-	// cfg.BlockSize is resolved. Has no effect when a Pixelator is already set
-	// by the caller (WithPixelator) — DefaultComponents will fill it later in
-	// Run, so we only apply it when the field is still nil here, meaning the
-	// caller has left it for auto-wiring.
-	if cfg.autoColorspace && cfg.Pixelator == nil && cfg.BlockSize >= 2 {
-		linear, confidence := pixelate.DetectColorspace(rgba, cfg.BlockSize)
-		if confidence >= 0.5 && linear {
-			cfg.Pixelator = pixelate.NewLinearBlockAverage(cfg.BlockSize)
-		}
-		// confidence < 0.5 or sRGB: leave Pixelator nil so DefaultComponents
-		// wires the standard BlockAverage — byte-identical to the default path.
-	}
+	// Auto-fingerprint: when any auto-flag is set, run a single forensics pass
+	// to detect the forward operator (mosaic colorspace and/or blur family) and
+	// install the matching pixelator. Runs after applyDefaults so cfg.BlockSize
+	// is resolved. Has no effect when a Pixelator is already set by the caller
+	// (WithPixelator) — DefaultComponents fills it later in Run.
+	applyAutoFingerprint(&cfg, rgba)
 
 	// Auto-calibrate: seed LetterSpacing from the inferred x-stretch when the
 	// caller has not set it explicitly (zero value). InferGridPhase and
@@ -574,6 +572,24 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	}
 
 	return &Engine{redacted: rgba, cfg: cfg, skewInfo: skewInfo}, nil
+}
+
+// applyAutoFingerprint runs forensics.Fingerprint on rgba and, when any
+// auto-detection flag is set and confidence meets the 0.5 threshold, installs
+// the detected pixelator on cfg. It is called from New after applyDefaults so
+// cfg.BlockSize is already resolved. When confidence is below threshold it
+// leaves cfg.Pixelator nil, letting DefaultComponents wire the standard
+// BlockAverage — byte-identical to the pre-fingerprint default path.
+func applyAutoFingerprint(cfg *Config, rgba *image.RGBA) {
+	if (!cfg.autoColorspace && !cfg.autoBlur) || cfg.Pixelator != nil || cfg.BlockSize < 2 {
+		return
+	}
+	op := forensics.Fingerprint(rgba, forensics.Hint{Block: cfg.BlockSize})
+	if px, ok := op.Build(0.5); ok {
+		cfg.Pixelator = px
+	}
+	// ok == false → leave Pixelator nil → DefaultComponents wires the standard
+	// BlockAverage, byte-identical to today's default.
 }
 
 // InferDarkBackground reports whether img looks like dark text/content on a dark
@@ -1756,6 +1772,14 @@ func WithAutoColorspace() Option { return func(c *Config) { c.autoColorspace = t
 // Default off — without this option behaviour is byte-identical to before.
 func WithAutoCalibrate() Option { return func(c *Config) { c.autoCalibrate = true } }
 
+// WithAutoBlur enables automatic mosaic-vs-blur detection via
+// [internal/forensics.Fingerprint]. When set, [New] fingerprints the target
+// image and, when confident (≥ 0.5), installs the matching blur or block
+// pixelator. Below the confidence threshold the default [pixelate.BlockAverage]
+// is left untouched — byte-identical to the pre-fingerprint path.
+// Default off.
+func WithAutoBlur() Option { return func(c *Config) { c.autoBlur = true } }
+
 // WithPrefix locks the first len(prefix) characters of every search candidate
 // to the corresponding characters of prefix, constraining the search without
 // altering scoring or thresholds. Characters beyond the prefix are still
@@ -1772,15 +1796,17 @@ func WithAutoCalibrate() Option { return func(c *Config) { c.autoCalibrate = tru
 func WithPrefix(prefix string) Option { return func(c *Config) { c.prefix = prefix } }
 
 // WithAuto enables the full zero-config real-world recovery path in one call:
-// it combines [WithAutoCrop], [WithAutoColorspace], and [WithAutoCalibrate].
-// Use it as a convenience when the target image is a screenshot of unknown
-// provenance — UnPixel will detect and crop the mosaic band, auto-select the
-// pixelator colorspace, and seed typographic calibration automatically.
+// it combines [WithAutoCrop], [WithAutoColorspace], [WithAutoBlur], and
+// [WithAutoCalibrate]. Use it as a convenience when the target image is a
+// screenshot of unknown provenance — UnPixel will detect and crop the mosaic
+// band, fingerprint the forward operator (mosaic colorspace and/or blur),
+// and seed typographic calibration automatically.
 // Default off.
 func WithAuto() Option {
 	return func(c *Config) {
 		c.autoCrop = true
 		c.autoColorspace = true
+		c.autoBlur = true
 		c.autoCalibrate = true
 	}
 }
