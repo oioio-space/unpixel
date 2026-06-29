@@ -219,8 +219,11 @@ func structuralScore(p Profile, observed Operator) int {
 //   - [pixelate.DetectBlur] classifies mosaic vs. blur, estimates sigma/kernel.
 //   - For mosaic with hint.Block ≥ 2, [pixelate.DetectColorspace] distinguishes
 //     sRGB from linear-light averaging.
-//   - Tool is set heuristically: "GEGL/CSS" for linear+box3, "Photoshop/GIMP"
-//     for sRGB mosaic; empty when unrecognised.
+//   - Tool is the name of the first matching zoo profile for the detected
+//     signature ("GEGL", "Photoshop", etc. — see [Zoo]); empty when unrecognised.
+//
+// Fingerprint is the singular form of [FingerprintN]: it returns the top-ranked
+// (best-matching) operator, i.e. FingerprintN(img, hint)[0].
 func Fingerprint(img image.Image, hint Hint) Operator {
 	return FingerprintN(img, hint)[0]
 }

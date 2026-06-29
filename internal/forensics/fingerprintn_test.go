@@ -41,11 +41,11 @@ func TestFingerprintN_ranksAndDelegates(t *testing.T) {
 		t.Errorf("FingerprintN[0].Conf = %+v, Fingerprint.Conf = %+v; want identical (no inflation)",
 			got.Conf, want.Conf)
 	}
-	// Confidence is monotonic non-increasing.
-	for i := 1; i < len(ranked); i++ {
-		if ranked[i].Conf.Kind > ranked[i-1].Conf.Kind {
-			t.Errorf("ranking not sorted by Conf.Kind at %d: %.3f > %.3f", i, ranked[i].Conf.Kind, ranked[i-1].Conf.Kind)
-		}
+	// The sort primary is structuralScore, not Conf — so assert the meaningful
+	// invariant directly: ranked[0] matches the detected signature (this srgb
+	// mosaic must rank a mosaic operator first, not a blur one).
+	if ranked[0].Kind != KindMosaic {
+		t.Errorf("ranked[0].Kind = %v, want KindMosaic (signature-matching operator must rank first)", ranked[0].Kind)
 	}
 }
 
