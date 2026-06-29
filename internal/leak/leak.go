@@ -126,12 +126,6 @@ func Scan(path string, opts Options) (Result, bool, error) {
 	}
 }
 
-// exifThumbnail attempts to recover an EXIF IFD1 embedded JPEG thumbnail.
-// It is a stub; the real implementation lands in Task 2.
-func exifThumbnail(data []byte) (Result, bool) {
-	return Result{}, false
-}
-
 // pdfText attempts to recover text hidden beneath filled rectangles in a PDF.
 // It is a stub; the real implementation lands in Task 3.
 func pdfText(data []byte) (Result, bool) {
