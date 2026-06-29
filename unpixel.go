@@ -1902,6 +1902,21 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 		return Result{}, ErrNoComponents
 	}
 
+	// When autoBlur is requested and the caller has not pinned a Pixelator,
+	// fingerprint the image first. A confident blur detection (Conf.Kind ≥ 0.5)
+	// delegates entirely to RecoverBlurred — which runs the dedicated beam-search
+	// + σ-sweep pipeline — and returns its Result directly.
+	//
+	// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
+	// enters Recover with cfg.Pixelator != nil, so this branch is skipped and
+	// the mosaic engine handles those inner calls normally.
+	if cfg.autoBlur && cfg.Pixelator == nil {
+		op := forensics.Fingerprint(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
+		if op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.5 {
+			return RecoverBlurred(ctx, redacted, opts...)
+		}
+	}
+
 	eng, err := New(redacted, cfg)
 	if err != nil {
 		return Result{}, err
