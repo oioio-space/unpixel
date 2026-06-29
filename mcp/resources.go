@@ -133,6 +133,11 @@ func handleCharsetsResource(_ context.Context, _ *mcpsdk.ReadResourceRequest) (*
 			Runes:  unpixel.CharsetASCII,
 			Note:   "All printable ASCII (0x20–0x7E). Use for passwords or code with symbols.",
 		},
+		{
+			Preset: "digits",
+			Runes:  "0123456789",
+			Note:   "Digits 0–9 only. Use for PINs, numeric IDs, or known-digit redactions. Fastest search for numeric content.",
+		},
 	}
 	b, err := json.Marshal(entries)
 	if err != nil {
@@ -150,16 +155,17 @@ type methodEntry struct {
 
 func handleMethodsResource(_ context.Context, _ *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 	entries := []methodEntry{
-		{"auto", "Default: picks the decoder recommended by unpixel_analyze.", "varies"},
-		{"mosaic", "Zero-config monospace text; best first choice for GIMP/GEGL pixel-blur. Accepts font_path/font_base64.", "5–30 s"},
-		{"blurred", "Gaussian-blurred redaction (not mosaic pixelation).", "10–60 s"},
+		{"auto", "Recommended default: routes to engine for axis-aligned mosaics, blurred for blur. Use this when unsure.", "varies"},
+		{"engine", "Best-config path: unpixel.Recover with explicit charset, block size, font size, and max-length. Recovers hard fixtures (alnum, symbols, secrets) that zero-config decoders miss. charset_preset is the key parameter — set it to alnum, ascii, or digits as appropriate. Accepts charset_preset (incl. digits), block_size, font_size, max_length, denoise, font_path/font_base64.", "10–60 s"},
+		{"mosaic", "Zero-config monospace text; basic first choice for GIMP/GEGL pixel-blur. Accepts font_path/font_base64.", "5–30 s"},
+		{"blurred", "Gaussian-blurred redaction (not mosaic pixelation). Accepts denoise for noisy captures.", "10–60 s"},
 		{"mono-hmm", "LM-guided beam search; better than mosaic for long monospace strings. Accepts font_path/font_base64.", "10–60 s"},
 		{"window-hmm", "Proportional-font beam; use when glyphs have variable width. Accepts font_path/font_base64.", "10–60 s"},
 		{"trained-hmm", "Hill-2016 column-anchored HMM; strong for digits and short codes. Accepts font_path/font_base64.", "30–120 s"},
-		{"did", "Kopec-Chou trellis (proportional text, no char-boundary assumption). Best for mixed-width fonts. Accepts font_path/font_base64.", "15–60 s"},
+		{"did", "Kopec-Chou trellis (proportional text, no char-boundary assumption). Best for mixed-width fonts. Accepts charset_preset (incl. digits), font_path/font_base64.", "15–60 s"},
 		{"varfont", "Variable-font axis fitting; use when font weight/width is unknown.", "30–120 s"},
 		{"perspective", "Mosaic photographed at an angle. Supply quad corners (quad field) OR set auto_quad=true for automatic corner detection. Accepts font_path/font_base64, font_size, block_size, beam_width, rect_size_w/h, workers.", "15–60 s"},
-		{"reference", "Depix-style per-phase reference matching; strong for short codes. Accepts font_path/font_base64.", "5–30 s"},
+		{"reference", "Depix-style per-phase reference matching; strong for short codes. Accepts known_visible_text (recorded for future font calibration), font_path/font_base64.", "5–30 s"},
 		{"blind", "Fully zero-config (auto font, auto block, auto gamma); slowest but needs nothing.", "30–120 s"},
 		{"ensemble", "Runs mosaic+mono-hmm and keeps the best; safer but 2× slower.", "30–120 s"},
 		{"multi-frame", "IBP fusion of multiple mosaics of the same content at different phases.", "30–120 s"},

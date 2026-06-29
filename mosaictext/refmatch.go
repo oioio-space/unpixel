@@ -131,6 +131,7 @@ type refConfig struct {
 	lmLang       *lang.Language // non-nil → use LM beam with this language
 	lmLambda     float64        // emission temperature (0 → use defaultRefLambda)
 	blockSize    int            // 0 → auto-detect via InferBlockGrid; >0 → use this value directly
+	visibleText  string         // non-empty → stored for future font-calibration use
 }
 
 func defaultRefConfig() refConfig {
@@ -232,6 +233,20 @@ func WithRefEmissionTemperature(lambda float64) RefOption {
 	return func(c *refConfig) {
 		if lambda > 0 {
 			c.lmLambda = lambda
+		}
+	}
+}
+
+// WithRefVisibleText provides cleartext known to appear in or adjacent to the
+// redacted region. When set, DecodeReference stores it for font-calibration
+// use: in a future pass it will rank bundled fonts by matching a rendering of
+// visibleText against the corresponding visible crop, so the best-fit font is
+// tried first (and exclusively) for the redacted part. For now the text is
+// recorded in the result notes. An empty value is a no-op.
+func WithRefVisibleText(visibleText string) RefOption {
+	return func(c *refConfig) {
+		if visibleText != "" {
+			c.visibleText = visibleText
 		}
 	}
 }

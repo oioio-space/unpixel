@@ -32,8 +32,8 @@ func TestResources_fonts(t *testing.T) {
 	}
 }
 
-// TestResources_charsets verifies that the charsets resource returns exactly
-// three preset entries with non-empty rune strings.
+// TestResources_charsets verifies that the charsets resource returns the
+// expected preset entries (lower, alnum, ascii, digits) with non-empty rune strings.
 func TestResources_charsets(t *testing.T) {
 	payload, err := mcpserver.ResourcePayload("unpixel://charsets")
 	if err != nil {
@@ -43,13 +43,25 @@ func TestResources_charsets(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &entries); err != nil {
 		t.Fatalf("charsets resource: invalid JSON: %v", err)
 	}
-	if len(entries) != 3 {
-		t.Errorf("charsets resource: got %d entries, want 3", len(entries))
+	// Expect lower, alnum, ascii, digits.
+	if len(entries) != 4 {
+		t.Errorf("charsets resource: got %d entries, want 4", len(entries))
 	}
 	for i, e := range entries {
 		if e["runes"] == "" || e["runes"] == nil {
 			t.Errorf("charsets entry %d: missing runes", i)
 		}
+	}
+	// Verify the "digits" preset is present.
+	found := false
+	for _, e := range entries {
+		if e["preset"] == "digits" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("charsets resource: missing 'digits' preset")
 	}
 }
 

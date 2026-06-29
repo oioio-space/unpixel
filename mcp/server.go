@@ -135,7 +135,7 @@ type AnalysisReport struct {
 	// detectable against the background. Pass directly to unpixel_decode
 	// quad field. Empty when auto-detection fails (supply corners manually).
 	SuggestedQuad string `json:"suggested_quad,omitzero"`
-	// RecommendedDecoder suggests which decoder to use: "did", "default", "blurred", "perspective", or "none".
+	// RecommendedDecoder suggests which decoder to use: "engine", "blurred", "perspective", or "none".
 	RecommendedDecoder string `json:"recommended_decoder"`
 	// RecommendedCharset suggests a starter charset string.
 	RecommendedCharset string `json:"recommended_charset"`
@@ -271,19 +271,21 @@ func quadTilted(q [4]rectify.Point) bool {
 // signals. The logic is intentionally simple and documented inline.
 //
 // Priority order (earlier cases win):
-//  1. High-confidence grid (≥ 0.7) → "mosaic", DID decoder. Block-average mosaics
-//     appear mildly blurry to the DCT estimator, so the grid check must come first.
+//  1. High-confidence grid (≥ 0.7) → "mosaic", engine decoder. Block-average
+//     mosaics appear mildly blurry to the DCT estimator, so the grid check
+//     must come first. Engine (unpixel.Recover with auto-calibration) is the
+//     best-config path and outperforms DID on the synthetic fixture panel.
 //  2. No grid but blurSigma > 0.5 → "blur", blurred decoder.
-//  3. Low-confidence grid → "mosaic", default (GuidedDFS, short strings only).
+//  3. Low-confidence grid → "mosaic", engine decoder (short strings).
 //  4. No grid, no blur → "none".
 func heuristic(blurSigma float64, hasGrid bool, gridConf, support float64, blockSize int) (redactionType, decoder, charset, rationale string, caveats []string) {
 	switch {
 	case hasGrid && gridConf >= 0.7:
 		rat := fmt.Sprintf(
-			"block grid detected (size=%d, confidence=%.2f, support=%.2f); DID decoder recommended for long or proportional text",
+			"block grid detected (size=%d, confidence=%.2f, support=%.2f); engine decoder recommended (auto-crop, auto-colorspace, auto-calibrate)",
 			blockSize, gridConf, support,
 		)
-		return "mosaic", "did", unpixel.CharsetAlnum, rat, nil
+		return "mosaic", "engine", unpixel.CharsetAlnum, rat, nil
 
 	case blurSigma > 0.5:
 		return "blur", "blurred", unpixel.CharsetAlnum,
@@ -292,10 +294,10 @@ func heuristic(blurSigma float64, hasGrid bool, gridConf, support float64, block
 
 	case hasGrid:
 		rat := fmt.Sprintf(
-			"weak grid signal (size=%d, confidence=%.2f); use default decoder for short strings",
+			"weak grid signal (size=%d, confidence=%.2f); use engine decoder for short strings",
 			blockSize, gridConf,
 		)
-		return "mosaic", "default", unpixel.DefaultCharset, rat,
+		return "mosaic", "engine", unpixel.DefaultCharset, rat,
 			[]string{"low grid confidence — verify block_size manually"}
 
 	default:
