@@ -1903,17 +1903,40 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 	}
 
 	// When autoBlur is requested and the caller has not pinned a Pixelator,
-	// fingerprint the image first. A confident blur detection (Conf.Kind ≥ 0.5)
-	// delegates entirely to RecoverBlurred — which runs the dedicated beam-search
-	// + σ-sweep pipeline — and returns its Result directly.
+	// fingerprint the image to detect blur and delegate to RecoverBlurred when
+	// confident. Two signals guard against misrouting mosaic screenshots:
+	//
+	// Guard 1 — exact grid veto: InferBlockGrid finds a regular axis-aligned
+	// block lattice only in clean mosaics; Gaussian blur never produces one.
+	// When the exact detector fires, delegation is skipped unconditionally.
+	// (For hello-world.png — a clean GIMP pixelate — InferBlockGrid returns
+	// Confidence=1.0 on the raw screenshot, so this guard is sufficient.)
+	//
+	// Guard 2 — high-confidence threshold: Fingerprint measures intra-block
+	// variance over the whole frame. A raw screenshot's sharp surround inflates
+	// the variance estimate, depressing Conf.Kind (hello-world: 0.59, marx: 0.87).
+	// True Gaussian-blur fixtures consistently score Conf.Kind=1.00. Requiring
+	// Conf.Kind ≥ 0.95 before delegating catches the mosaic screenshots whose
+	// exact grid is undetectable (JPEG compression, noise, non-integer blocks)
+	// without excluding any of the committed blur fixtures.
 	//
 	// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
 	// enters Recover with cfg.Pixelator != nil, so this branch is skipped and
 	// the mosaic engine handles those inner calls normally.
+	//
+	// Double-work note: when Guard 1 fires we never call Fingerprint here;
+	// applyAutoFingerprint inside New handles the single Fingerprint pass on
+	// the cropped image. When Guard 1 does not fire, Fingerprint runs once here
+	// and RecoverBlurred takes over — no redundant call on the mosaic path.
 	if cfg.autoBlur && cfg.Pixelator == nil {
-		op := forensics.Fingerprint(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
-		if op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.5 {
-			return RecoverBlurred(ctx, redacted, opts...)
+		// Guard 1: an exact mosaic grid is definitive — skip blur delegation.
+		if _, gridOK := InferBlockGrid(redacted); !gridOK {
+			// Guard 2: require high confidence to avoid misrouting mosaics whose
+			// sharp surround depresses DetectBlur below the 1.00 ceiling.
+			op := forensics.Fingerprint(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
+			if op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.95 {
+				return RecoverBlurred(ctx, redacted, opts...)
+			}
 		}
 	}
 
