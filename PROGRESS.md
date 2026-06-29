@@ -1265,3 +1265,8 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `b010e8b` 2026-06-29 — fix(ci): make perspective-gating test self-contained (no gitignored wild fixture) _(1 fichiers)_
 - `065b724` 2026-06-29 — docs(spec): #1 leak pre-pass design _(1 fichiers)_
 - `174517d` 2026-06-29 — docs(plan): implementation plan for #1 leak pre-pass _(1 fichiers)_
+- `05e2120` 2026-06-29 — docs(roadmap): mark #1 leak pre-pass complete _(1 fichiers)_
+- `5ad173c` 2026-06-29 — docs(spec): #3 LLM-propose -> physics-verify design _(1 fichiers)_
+- `86c80b3` 2026-06-29 — docs(plan): implementation plan for #3 LLM-propose -> physics-verify _(1 fichiers)_
+- `95bdfae` 2026-06-29 — feat(unpixel): Verify — decisive candidate scoring via the faithful forward model _(4 fichiers)_
+- `2abb559` 2026-06-29 — docs(unpixel): note Verify's blur limitation + group consts (Task 1 review) _(1 fichiers)_
