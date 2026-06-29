@@ -140,13 +140,22 @@ type Pixelator interface {
 // observed Block/Sigma and a per-operator Conf reflecting agreement with the
 // detected signature. Profiles that resolve to the same operator config are
 // deduplicated. FingerprintN(img, hint)[0] equals Fingerprint(img, hint).
+//
+// Ranking uses a two-key sort: first by structural match score (2 = full
+// Kind+Gamma/Kernel match, 1 = Kind-only, 0 = mismatch), then by real
+// detection confidence (Conf.Kind desc, Conf.Gamma desc). Conf values are
+// never inflated — the matched profile carries the exact observed Conf.
 func FingerprintN(img image.Image, hint Hint) []Operator {
 	rgba := imutil.ToRGBA(img)
 	observed := detectSignature(rgba, hint)
 
 	// Dedup: first profile per configKey wins (Zoo() order is stable).
 	seen := map[string]bool{}
-	var ops []Operator
+	type ranked struct {
+		op    Operator
+		score int // structural match score: 2 full, 1 kind-only, 0 mismatch
+	}
+	var entries []ranked
 	for _, p := range Zoo() {
 		key := p.configKey(observed.Block, observed.Sigma)
 		if seen[key] {
@@ -163,18 +172,44 @@ func FingerprintN(img image.Image, hint Hint) []Operator {
 			Sigma:  observed.Sigma,
 		}
 		op.Conf = scoreConf(p, observed)
-		ops = append(ops, op)
+		entries = append(entries, ranked{op: op, score: structuralScore(p, observed)})
 	}
 
-	// Sort by Conf.Kind desc; tiebreak by Conf.Gamma desc.
-	slices.SortFunc(ops, func(a, b Operator) int {
-		if c := cmp.Compare(b.Conf.Kind, a.Conf.Kind); c != 0 {
-			return c
-		}
-		return cmp.Compare(b.Conf.Gamma, a.Conf.Gamma)
+	// Sort: structural match score desc, then Conf.Kind desc, then Conf.Gamma desc.
+	slices.SortFunc(entries, func(a, b ranked) int {
+		return cmp.Or(
+			cmp.Compare(b.score, a.score),
+			cmp.Compare(b.op.Conf.Kind, a.op.Conf.Kind),
+			cmp.Compare(b.op.Conf.Gamma, a.op.Conf.Gamma),
+		)
 	})
 
+	ops := make([]Operator, len(entries))
+	for i, e := range entries {
+		ops[i] = e.op
+	}
 	return ops
+}
+
+// structuralScore returns how closely profile p matches the observed signature:
+// 2 = Kind AND (Gamma for mosaic / Kernel for blur) both match;
+// 1 = Kind matches only;
+// 0 = Kind mismatch.
+func structuralScore(p Profile, observed Operator) int {
+	if p.Kind != observed.Kind {
+		return 0
+	}
+	switch p.Kind {
+	case KindMosaic:
+		if p.Gamma == observed.Gamma {
+			return 2
+		}
+	case KindBlur:
+		if p.Kernel == observed.Kernel {
+			return 2
+		}
+	}
+	return 1
 }
 
 // Fingerprint analyses img and returns the best-effort detected operator.
@@ -228,17 +263,15 @@ func detectSignature(rgba *image.RGBA, hint Hint) Operator {
 
 // kindMatchPenalty is the Conf.Kind multiplier when a profile's Kind differs
 // from the observed Kind. A mismatch is strongly penalised so mismatched
-// operators sort below the observed one, but remain in the ranked list for
-// meta-strategy use.
+// operators sort below the observed one via structuralScore, but remain in the
+// ranked list for meta-strategy use.
 const kindMatchPenalty = 0.1
 
 // scoreConf returns the Conf for a zoo profile against the observed signature.
-// Matching attributes inherit the observed confidence; mismatches are penalised.
-//
-// Gamma tiebreaking: when the observed Conf.Gamma is low or zero (detector
-// inconclusive), an exact Gamma match still receives a structural bonus of 1.0
-// so the correct-gamma profile sorts above mismatches. A mismatch is penalised
-// by kindMatchPenalty even when observed.Conf.Gamma is zero.
+// Matching attributes inherit the real observed confidence unchanged; mismatches
+// are penalised. Ranking precedence for identical-Kind profiles is handled by
+// structuralScore (a separate sort key), not by inflating Conf — so Build's
+// threshold gate always sees the true detector confidence.
 func scoreConf(p Profile, observed Operator) Conf {
 	c := Conf{Sigma: observed.Conf.Sigma}
 
@@ -252,11 +285,10 @@ func scoreConf(p Profile, observed Operator) Conf {
 		return c
 	}
 
+	// Gamma: exact match inherits real confidence; mismatch is penalised.
+	// No floor/inflation — structuralScore handles sort priority instead.
 	if p.Gamma == observed.Gamma {
-		// Structural match: use max of observed confidence and a bonus floor so
-		// the matching profile always outranks a mismatch, even when the detector
-		// returned low confidence.
-		c.Gamma = max(observed.Conf.Gamma, 1.0)
+		c.Gamma = observed.Conf.Gamma
 	} else {
 		c.Gamma = observed.Conf.Gamma * kindMatchPenalty
 	}

@@ -1244,3 +1244,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `ebc5de8` 2026-06-29 — docs(plan): implementation plan for #1B operator-zoo + meta-strategy _(1 fichiers)_
 - `7bb53e4` 2026-06-29 — feat(pixelate): NewGaussianBlurEdge — selectable border handling (clamp/reflect/wrap) _(3 fichiers)_
 - `42e77ee` 2026-06-29 — feat(forensics): named tool-profile zoo with config dedup key _(3 fichiers)_
+- `7f3ef70` 2026-06-29 — feat(forensics): FingerprintN ranks the tool zoo; Fingerprint delegates to [0] _(3 fichiers)_

@@ -29,12 +29,17 @@ func TestFingerprintN_ranksAndDelegates(t *testing.T) {
 	if len(ranked) == 0 {
 		t.Fatalf("FingerprintN returned no operators")
 	}
-	// Top operator must equal the singular Fingerprint (delegation contract).
+	// Top operator must equal the singular Fingerprint (delegation contract):
+	// same structural fields AND same Conf (no inflation of observed confidence).
 	got := ranked[0]
 	want := Fingerprint(img, Hint{Block: 8})
 	if got.Kind != want.Kind || got.Gamma != want.Gamma || got.Block != want.Block {
 		t.Errorf("FingerprintN[0] = {%v,%v,%d}, Fingerprint = {%v,%v,%d}; want equal",
 			got.Kind, got.Gamma, got.Block, want.Kind, want.Gamma, want.Block)
+	}
+	if got.Conf != want.Conf {
+		t.Errorf("FingerprintN[0].Conf = %+v, Fingerprint.Conf = %+v; want identical (no inflation)",
+			got.Conf, want.Conf)
 	}
 	// Confidence is monotonic non-increasing.
 	for i := 1; i < len(ranked); i++ {
