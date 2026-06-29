@@ -73,6 +73,7 @@ func NewServer(version string) *mcpsdk.Server {
 	mcpsdk.AddTool(srv, toolRankFonts, handleRankFonts)
 	mcpsdk.AddTool(srv, toolCalibrate, handleCalibrate)
 	mcpsdk.AddTool(srv, toolLeakScan, handleLeakScan)
+	mcpsdk.AddTool(srv, toolProposeHints, handleProposeHints)
 
 	// Resources.
 	registerResources(srv)
