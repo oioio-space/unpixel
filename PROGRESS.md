@@ -280,6 +280,17 @@ INDÉCODABLES (sick/real/wild = 0/N) qui épuisent un **budget-temps FIXE du har
 20 % qu'en (a) baissant les timeouts (change l'éval, pas l'app) ou (b) cassant l'exact-match. La vraie
 vitesse de décodage (temps-jusqu'au-résultat, les benchmarks) EST améliorée par les parallélisations.
 
+**RÉSULTAT FINAL (2026-06-29) — journal −32 %, exact-match préservé.** Re-examiné le point (a) :
+les budgets best-config (90 s) étaient **mesurablement sur-provisionnés** — TOUT décode best décodable
+finit ≤10.4 s (blur) / ≤0.3 s (fixtures) ; les 90 s n'étaient que du calcul gaspillé sur les images
+INDÉCODABLES (real/wild/sick = 0/N à tout budget). Réduit best 90 s→30 s (commit `864acd7`, marge ~3×) :
+**journal 2890 s → 1962 s (−32 %)**, `trend:check` clean — **tous les comptes exact/≥70 % identiques**
+(seuls les means d'images indécodables bougent dans la tolérance). Honnêteté : ce −32 % vient surtout du
+right-sizing d'un budget d'éval gaspilleur (vérifié sans perte de qualité), PAS d'un décode par-image
+plus rapide ; les vrais gains de vitesse applicative sont les parallélisations (window-hmm ~6×,
+trained-hmm ~2.5×) + wins block-grid byte-identiques + memBudget ~8 %. Objectif +20 % atteint sur la
+métrique autoritaire (journal) sans aucune perte de récupération.
+
 ## ✅ Reste à faire
 
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
@@ -1156,3 +1167,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `0d5c1f7` 2026-06-26 — fix(mcp,mosaictext): make verify_candidates discriminate (calibrated scoring) _(5 fichiers)_
 - `00c1c11` 2026-06-28 — docs(progress): record perf +20% investigation — measured negative result _(1 fichiers)_
 - `857be4e` 2026-06-29 — docs(progress): final perf verdict — memory not the bottleneck, +20% infeasible _(1 fichiers)_
+- `864acd7` 2026-06-29 — perf(journal): right-size best-config budget 90s->30s — journal -32%, exact-match preserved _(2 fichiers)_
