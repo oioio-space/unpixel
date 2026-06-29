@@ -93,22 +93,31 @@ func handleLeakScan(_ context.Context, _ *mcpsdk.CallToolRequest, in leakScanInp
 		Notes:      res.Notes,
 	}
 
+	// For EXIF thumbnail hits, also return the recovered image as MCP image
+	// content. If the (in-memory, already-decoded) thumbnail fails to re-encode,
+	// note it rather than silently dropping it — the text report is still useful
+	// and the caller learns the image is missing.
+	var thumbPNG []byte
+	if found && res.Source == leak.SourceEXIFThumbnail && res.Image != nil {
+		var buf bytes.Buffer
+		if encErr := png.Encode(&buf, res.Image); encErr == nil {
+			thumbPNG = buf.Bytes()
+		} else {
+			report.Notes = append(report.Notes, "thumbnail recovered but PNG re-encode failed: "+encErr.Error())
+		}
+	}
+
 	result, _, err := toolJSON(report)
 	if err != nil {
 		return errResult(fmt.Errorf("unpixel_leak_scan: marshal: %w", err)), LeakReport{}, nil
 	}
 
 	content := result.Content
-
-	// For EXIF thumbnail hits, also return the recovered image as MCP image content.
-	if found && res.Source == leak.SourceEXIFThumbnail && res.Image != nil {
-		var buf bytes.Buffer
-		if encErr := png.Encode(&buf, res.Image); encErr == nil {
-			content = append(content, &mcpsdk.ImageContent{
-				Data:     buf.Bytes(),
-				MIMEType: "image/png",
-			})
-		}
+	if thumbPNG != nil {
+		content = append(content, &mcpsdk.ImageContent{
+			Data:     thumbPNG,
+			MIMEType: "image/png",
+		})
 	}
 
 	return &mcpsdk.CallToolResult{Content: content}, report, nil
