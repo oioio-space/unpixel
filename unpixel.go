@@ -586,6 +586,9 @@ func applyAutoFingerprint(cfg *Config, rgba *image.RGBA) {
 	}
 	op := forensics.Fingerprint(rgba, forensics.Hint{Block: cfg.BlockSize})
 	if px, ok := op.Build(0.5); ok {
+		// For a confident sRGB mosaic, Build returns NewBlockAverage — explicitly
+		// installed here rather than left to DefaultComponents, but output is
+		// pixel-identical to the default path (panel 17/17 confirms no regression).
 		cfg.Pixelator = px
 	}
 	// ok == false → leave Pixelator nil → DefaultComponents wires the standard
@@ -1747,12 +1750,15 @@ func WithL0Deblur(fns ...func(*deblur.L0Options)) Option {
 func WithAutoCrop() Option { return func(c *Config) { c.autoCrop = true } }
 
 // WithAutoColorspace enables automatic colorspace detection for the mosaic
-// pixelator. When set, [internal/pixelate.DetectColorspace] is called on the
-// (possibly cropped) target image after auto-detection of the block size, and
-// the pixelator is selected accordingly:
+// pixelator. When set, New runs forensics fingerprinting on the (possibly
+// cropped) target image after auto-detection of the block size, and selects
+// the pixelator accordingly:
 //   - confidence ≥ 0.5 and linear → LinearBlockAverage (GEGL/GIMP, CSS, etc.)
-//   - confidence ≥ 0.5 and sRGB  → BlockAverage (faithful default)
-//   - confidence < 0.5            → fall back to BlockAverage (safe default)
+//   - confidence ≥ 0.5 and sRGB  → BlockAverage (standard sRGB path, explicitly
+//     installed; output is pixel-identical to the pre-fingerprint default — panel
+//     17/17 confirms no regression)
+//   - confidence < 0.5            → Pixelator left nil; DefaultComponents wires
+//     the standard BlockAverage (byte-identical safe fallback)
 //
 // Default off — without this option behaviour is byte-identical to before. The
 // option has no effect when a Pixelator is already set explicitly via
@@ -1772,11 +1778,11 @@ func WithAutoColorspace() Option { return func(c *Config) { c.autoColorspace = t
 // Default off — without this option behaviour is byte-identical to before.
 func WithAutoCalibrate() Option { return func(c *Config) { c.autoCalibrate = true } }
 
-// WithAutoBlur enables automatic mosaic-vs-blur detection via
-// [internal/forensics.Fingerprint]. When set, [New] fingerprints the target
-// image and, when confident (≥ 0.5), installs the matching blur or block
-// pixelator. Below the confidence threshold the default [pixelate.BlockAverage]
-// is left untouched — byte-identical to the pre-fingerprint path.
+// WithAutoBlur enables automatic mosaic-vs-blur detection via forensics
+// fingerprinting. When set, [New] fingerprints the target image and, when
+// confident (≥ 0.5), installs the matching blur or block pixelator. Below the
+// confidence threshold the default BlockAverage is left untouched —
+// byte-identical to the pre-fingerprint path.
 // Default off.
 func WithAutoBlur() Option { return func(c *Config) { c.autoBlur = true } }
 

@@ -29,40 +29,92 @@ func TestRecover_autoBlurSafeFallback(t *testing.T) {
 }
 
 // TestRecover_autoFingerprintInstallsLinear verifies that a high-variance
-// linear-light mosaic causes applyAutoFingerprint to install a
-// *pixelate.BlockAverage (the linear variant) when DetectColorspace is
+// linear-light mosaic causes applyAutoFingerprint to install the LINEAR
+// *pixelate.BlockAverage variant (not the sRGB one) when DetectColorspace is
 // confident enough.
 //
-// The fixture tiles alternating block-sized (8×8) columns of 64 and 192.
-// Each block therefore contains a mix of mid-tone pixels so the Jensen gap
-// between linear and sRGB averaging is large. Pure 0/255 or sub-block-period
-// patterns yield zero gap and cannot trigger the detector.
+// The fixture uses varying ink-fill fractions (black pixels on a white
+// background) within each 8×8 block — the same approach as the detect_test
+// fixtures — so that linear vs sRGB block averaging produce detectably different
+// block means. DetectColorspace identifies the mode from the ratio of per-block
+// delta_from_linear vs delta_to_linear, which is ≈1.44 for linear averaging
+// and ≈1.04 for sRGB averaging (threshold 1.4).
+//
+// The assertion is BEHAVIORAL: after applyAutoFingerprint installs the
+// pixelator, run BOTH installed and reference pixelators on a fresh half-0 /
+// half-255 probe block. Linear and sRGB averaging of {0, 255} produce
+// measurably different grey levels (~188 vs 127), so the output pin-points
+// which variant was installed.
 func TestRecover_autoFingerprintInstallsLinear(t *testing.T) {
-	// Fill with alternating 8-wide columns of grey 64 and grey 192.
-	// Each 8×8 block then contains 4 columns of 64 and 4 of 192 (or the reverse),
-	// giving a mixed-luminance block that maximises the Jensen gap.
 	const (
-		w, h  = 64, 32
+		w, h  = 64, 64
 		block = 8
 	)
+	// Build a "varying fill" source: each block column has a different ink fill
+	// fraction (1/(n+1) … n/(n+1)) with black ink on white, identical to the
+	// makeVaryingFillSrc fixture used by the internal detect_test suite. This
+	// guarantees blocks span the full luminance range so DetectColorspace is
+	// confident and the ratio discriminator (≥1.4 → linear) fires.
 	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	nBlockCols := w / block
 	for y := range h {
 		for x := range w {
-			c := byte(192)
-			if (x/block)%2 == 0 {
-				c = 64
-			}
+			bx := x / block
+			fill := float64(bx+1) / float64(nBlockCols+1) // ink fraction: 1/9 … 8/9
+			inInk := float64(x%block)/float64(block) < fill
 			i := src.PixOffset(x, y)
-			src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = c, c, c, 255
+			if inInk {
+				src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = 0, 0, 0, 255
+			} else {
+				src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = 255, 255, 255, 255
+			}
 		}
 	}
-	img := pixelate.NewLinearBlockAverage(block).Pixelate(src, 0, 0)
+	fixture := pixelate.NewLinearBlockAverage(block).Pixelate(src, 0, 0)
 
 	cfg := Config{BlockSize: block}
 	WithAuto()(&cfg)
-	applyAutoFingerprint(&cfg, img)
+	applyAutoFingerprint(&cfg, fixture)
 
+	// Type-check: must be *pixelate.BlockAverage.
 	if _, ok := cfg.Pixelator.(*pixelate.BlockAverage); !ok {
-		t.Errorf("Pixelator = %T, want *pixelate.BlockAverage (linear variant)", cfg.Pixelator)
+		t.Errorf("Pixelator = %T, want *pixelate.BlockAverage", cfg.Pixelator)
+		return
+	}
+
+	// Behavioral check: construct a single 8×8 probe block whose left half is
+	// pure black (0) and right half is pure white (255). Linear and sRGB
+	// averaging of {0, 255} give different grey levels:
+	//   linear: linearToSrgb8(mean(0, 1))  ≈ 188
+	//   sRGB:   avg8(0+255, 2)             = 127
+	// So the installed pixelator's output reveals which variant was selected.
+	probe := image.NewRGBA(image.Rect(0, 0, block, block))
+	for y := range block {
+		for x := range block {
+			i := probe.PixOffset(x, y)
+			c := byte(0)
+			if x >= block/2 {
+				c = 255
+			}
+			probe.Pix[i], probe.Pix[i+1], probe.Pix[i+2], probe.Pix[i+3] = c, c, c, 255
+		}
+	}
+
+	gotPix := cfg.Pixelator.(*pixelate.BlockAverage).Pixelate(probe, 0, 0)
+	linearPix := pixelate.NewLinearBlockAverage(block).Pixelate(probe, 0, 0)
+	srgbPix := pixelate.NewBlockAverage(block).Pixelate(probe, 0, 0)
+
+	// Sample the centre of the single block to read the averaged colour.
+	cx, cy := block/2-1, block/2-1
+	got := gotPix.RGBAAt(cx, cy).R
+	wantLinear := linearPix.RGBAAt(cx, cy).R
+	wantSRGB := srgbPix.RGBAAt(cx, cy).R
+
+	if wantLinear == wantSRGB {
+		// Probe cannot distinguish the two variants — update probe values.
+		t.Errorf("probe indistinguishable: linear R=%d == sRGB R=%d (update probe)", wantLinear, wantSRGB)
+	}
+	if got != wantLinear {
+		t.Errorf("installed pixelator output R=%d, want linear R=%d (sRGB would be R=%d): linear variant not installed", got, wantLinear, wantSRGB)
 	}
 }
