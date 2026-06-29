@@ -132,3 +132,19 @@ func TestVerify_maxCandidatesCap(t *testing.T) {
 		t.Errorf("Verify(300 cands) = %d verdicts, want ≤ 256", len(vs))
 	}
 }
+
+// TestVerify_autoPath exercises Verify's auto-detection prologue (no explicit
+// block/charset): it must run dark/invert + deskew + autocrop + fingerprint +
+// calibrate through Verify without error or panic and return one verdict per
+// candidate. (Auto block-size inference is weak on tiny crops, so this does not
+// assert a match — only that the auto path is wired and safe.)
+func TestVerify_autoPath(t *testing.T) {
+	img := loadFixtureImage(t, "block08_go.png")
+	vs, err := unpixel.Verify(t.Context(), img, []string{"go", "xy"})
+	if err != nil {
+		t.Fatalf("Verify(auto): %v", err)
+	}
+	if len(vs) != 2 {
+		t.Errorf("Verify(auto) = %d verdicts, want 2", len(vs))
+	}
+}

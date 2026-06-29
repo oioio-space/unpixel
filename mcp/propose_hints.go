@@ -114,7 +114,8 @@ func ProposeHintsImage(img image.Image) (HintsReport, error) {
 		CharsetHint:   analysis.RecommendedCharset,
 	}
 
-	// Obtain a default renderer so capacity.Analyze can render glyphs.
+	// Obtain a default renderer so we can render a sample glyph for the
+	// character-width estimate below.
 	cfg := unpixel.Config{}
 	if unpixel.DefaultComponents != nil {
 		if err := unpixel.DefaultComponents(&cfg); err != nil {
