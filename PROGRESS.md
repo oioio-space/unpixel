@@ -1239,3 +1239,7 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `3ea6663` 2026-06-29 — fix(unpixel): guard Recover blur-delegation against mosaic screenshots (I1) _(3 fichiers)_
 - `2d70927` 2026-06-29 — test(fingerprint): assert real no-misroute predicate (final-review M1) _(2 fichiers)_
 - `2b4f48f` 2026-06-29 — test(forensics): raise package coverage to 96% to clear the 85% CI gate _(2 fichiers)_
+- `39aa848` 2026-06-29 — docs(spec): #1B operator-zoo + secured top-2 meta-strategy _(1 fichiers)_
+- `57cf0b8` 2026-06-29 — docs(spec): refine #1B securing — cross-operator agreement, not re-fingerprint _(1 fichiers)_
+- `ebc5de8` 2026-06-29 — docs(plan): implementation plan for #1B operator-zoo + meta-strategy _(1 fichiers)_
+- `7bb53e4` 2026-06-29 — feat(pixelate): NewGaussianBlurEdge — selectable border handling (clamp/reflect/wrap) _(3 fichiers)_
