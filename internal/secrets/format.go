@@ -272,7 +272,7 @@ var dateMasks = []string{
 // dateRunesAt returns the union of feasible runes at pos across the date layouts
 // still consistent with prefix.
 func dateRunesAt(pos int, prefix string) []rune {
-	var set []rune
+	set := []rune{}
 	digitsAdded := false
 	for _, mask := range dateMasks {
 		if pos >= len(mask) || !datePrefixOK(mask, prefix) {

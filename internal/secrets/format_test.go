@@ -147,6 +147,49 @@ func TestAllowedRunesAt_dateSeparators(t *testing.T) {
 	}
 }
 
+func TestAllowedRunesAt_dateDeadBranch(t *testing.T) {
+	// A prefix using '/' at pos 2 rules out the ISO layout ("DDDD-DD-DD")
+	// because ISO requires a digit at pos 2. The DMY layout ("DD/DD/DDDD")
+	// requires '/' at pos 2, but the digit '4' at pos 3 in "20/4" is
+	// consistent with DMY so far — we need a prefix that violates BOTH.
+	//
+	// Use prefix "20-4": ISO mask requires '-' at pos 4 (separator), but
+	// "20-4" has a digit at pos 3 which is consistent with ISO up to pos 3.
+	// Actually the cleanest dead-branch is pos >= 10 (beyond both 10-char masks):
+	// no layout covers pos 10, so both masks drop out → dead branch.
+	got := AllowedRunesAt(FormatDate, 10, "2024-01-01", 0)
+	if got == nil {
+		t.Errorf("date pos>=10: got nil (no constraint); want non-nil empty slice (dead branch prune)")
+	}
+	if len(got) != 0 {
+		t.Errorf("date pos>=10: got %q; want empty slice", string(got))
+	}
+
+	// A prefix with wrong separator violating both layouts: "20/01-" has '/'
+	// at pos 2 (consistent with DMY) but '-' at pos 5 which DMY requires '/'
+	// → DMY fails at pos 5; ISO failed at pos 2 (digit required, got '/').
+	// Both layouts are dead → pos 6 should prune.
+	got2 := AllowedRunesAt(FormatDate, 6, "20/01-", 0)
+	if got2 == nil {
+		t.Errorf("date dead-prefix pos6: got nil (no constraint); want non-nil empty slice (dead branch prune)")
+	}
+	if len(got2) != 0 {
+		t.Errorf("date dead-prefix pos6: got %q; want empty slice", string(got2))
+	}
+
+	// Positive case: a valid mid-date position still returns the expected runes.
+	// ISO prefix "2024" at pos 4 → only '-' allowed.
+	pos4 := AllowedRunesAt(FormatDate, 4, "2024", 0)
+	if len(pos4) != 1 || pos4[0] != '-' {
+		t.Errorf("date pos4 ISO prefix: got %q; want ['-']", string(pos4))
+	}
+
+	// FormatNone must still return nil regardless.
+	if AllowedRunesAt(FormatNone, 10, "2024-01-01", 0) != nil {
+		t.Errorf("FormatNone must return nil (no constraint), even beyond date length")
+	}
+}
+
 func TestTerminalLen(t *testing.T) {
 	if !TerminalLen(FormatCreditCard, 16) {
 		t.Errorf("16 is a valid card length")

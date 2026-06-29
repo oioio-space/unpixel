@@ -109,12 +109,12 @@ type decodeInput struct {
 	// but that engine is not reached from this tool. Setting this field has no
 	// effect — omit it.
 	Prefix string `json:"prefix,omitzero" jsonschema:"Reserved: not currently forwarded to any decoder; has no effect."`
-	// ExpectedFormat constrains the engine search to a structured-secret format
-	// (digits|credit_card|iban|date|phone_fr|phone_us|phone_e164). Forwarded only
-	// to the engine method via unpixel.WithExpectedFormat; ignored by all other
-	// decoders. Declaring the wrong format will reject the true answer. Omit for
-	// free text.
-	ExpectedFormat string `json:"expected_format,omitzero" jsonschema:"Engine-only structured-secret format: digits|credit_card|iban|date|phone_fr|phone_us|phone_e164 (omit for free text)"`
+	// ExpectedFormat constrains the search to a structured-secret format
+	// (digits|credit_card|iban|date|phone_fr|phone_us|phone_e164). Applied on
+	// the engine path (including the engine sub-call inside ensemble) via
+	// unpixel.WithExpectedFormat; ignored by all other decoders. Declaring the
+	// wrong format will reject the true answer. Omit for free text.
+	ExpectedFormat string `json:"expected_format,omitzero" jsonschema:"Structured-secret format applied on engine path (incl. ensemble engine sub-call): digits|credit_card|iban|date|phone_fr|phone_us|phone_e164 (omit for free text)"`
 	// KnownVisibleText is cleartext known to appear in (or adjacent to) the redaction.
 	KnownVisibleText string `json:"known_visible_text,omitzero" jsonschema:"Cleartext known to appear in or adjacent to the redaction (used by reference and varfont decoders)"`
 	// Frames lists additional mosaic frames for multi-frame IBP fusion. Each
