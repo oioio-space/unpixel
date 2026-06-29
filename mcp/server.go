@@ -48,6 +48,7 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	_ "github.com/oioio-space/unpixel/defaults" // wire standard components
+	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/rectify"
@@ -143,6 +144,26 @@ type AnalysisReport struct {
 	Rationale string `json:"rationale"`
 	// Caveats lists optional warnings about the analysis.
 	Caveats []string `json:"caveats,omitzero"`
+	// ForwardOperator is the detected redaction operator (mosaic vs. blur,
+	// colorspace, kernel family, estimated sigma, and tool heuristic).
+	ForwardOperator DetectedOperator `json:"forward_operator,omitzero"`
+}
+
+// DetectedOperator carries the forensics.Fingerprint result in a flat,
+// JSON-serializable form suitable for MCP tool output.
+type DetectedOperator struct {
+	// Kind is the operator family: "mosaic", "blur", or "unknown".
+	Kind string `json:"kind"`
+	// Gamma is the colorspace of mosaic averaging: "sRGB", "linear", or "unknown".
+	Gamma string `json:"gamma,omitzero"`
+	// Kernel is the blur kernel family: "true-gauss", "box3", or "unknown".
+	Kernel string `json:"kernel,omitzero"`
+	// Sigma is the estimated Gaussian blur standard deviation (blur only; 0 otherwise).
+	Sigma float64 `json:"sigma,omitzero"`
+	// Tool is a best-effort informative label for the likely redaction tool (e.g. "Photoshop/GIMP").
+	Tool string `json:"tool,omitzero"`
+	// Confidence is the detection confidence for Kind in [0, 1].
+	Confidence float64 `json:"confidence,omitzero"`
 }
 
 // handleAnalyze is the tool handler for unpixel_analyze.
@@ -183,6 +204,18 @@ func Analyze(img image.Image) (AnalysisReport, error) {
 		r.Colorspace = "linear"
 	} else {
 		r.Colorspace = "srgb"
+	}
+
+	// Forward-operator fingerprint: classify mosaic vs. blur, colorspace, kernel,
+	// and estimated sigma. Block hint uses the inferred block size (0 = unknown).
+	op := forensics.Fingerprint(rgba, forensics.Hint{Block: r.BlockSize})
+	r.ForwardOperator = DetectedOperator{
+		Kind:       op.Kind.String(),
+		Gamma:      op.Gamma.String(),
+		Kernel:     op.Kernel.String(),
+		Sigma:      op.Sigma,
+		Tool:       op.Tool,
+		Confidence: op.Conf.Kind,
 	}
 
 	// Dark background.

@@ -305,10 +305,14 @@ hors-processus, jamais dans le cœur ni la boucle interne. Détail + sources : m
 gagné par prior de police + OSINT + déconvolution, pas par de meilleurs pixels.
 
 Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
-- [ ] **#2 Fingerprint-operator** *(spec : `docs/superpowers/specs/2026-06-29-fingerprint-operator-design.md`)* —
+- [x] **#2 Fingerprint-operator** ✅ *(spec : `docs/superpowers/specs/2026-06-29-fingerprint-operator-design.md`,
+      plan : `docs/superpowers/plans/2026-06-29-fingerprint-operator.md`)* —
       `internal/forensics.Fingerprint(img) → Operator` qui absorbe gamma/grille existants +
-      ajoute mosaïque-vs-flou / σ / famille-de-noyau ; auto-câblé via `WithAuto()` avec **repli
-      sûr** (sous-seuil ⇒ défaut actuel, zéro régression). Mur : réel + flou. **← 1er sous-projet.**
+      ajoute mosaïque-vs-flou / σ / famille-de-noyau ; auto-câblé via `WithAuto()`/`WithAutoBlur()` avec **repli
+      sûr** (sous-seuil ⇒ défaut actuel, zéro régression) ; flou confiant délégué à `RecoverBlurred` ;
+      exposé en MCP `analyze` (`DetectedOperator`). Panel 17/17, CI verte. Reportés (→ #1B/calibration) :
+      `hello-world-noisy` misroute (bruit casse `InferBlockGrid`), bande Conf 0.95–1.00 non couverte,
+      double `DetectColorspace` dans `analyze`. Mur : réel + flou.
 - [ ] **#1B Operator-zoo + méta-stratégie top-2 *sécurisée*** — opérateurs par-outil (GEGL/
       Photoshop/CSS/ffmpeg) enfichables ; quand le fingerprint est ambigu, essayer le top-2 et
       départager par **cohérence du fingerprint** (pas `argmin(distance)` brut — évite le mur
@@ -1220,3 +1224,18 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `864acd7` 2026-06-29 — perf(journal): right-size best-config budget 90s->30s — journal -32%, exact-match preserved _(2 fichiers)_
 - `8826a26` 2026-06-29 — feat(mcp): ensemble combines engine + zero-config mosaic via fidelity gate _(3 fichiers)_
 - `468550f` 2026-06-29 — docs(journal): refresh trend analysis through v0.17.0+dev (6ecdcbd) _(1 fichiers)_
+- `7e8f8f5` 2026-06-29 — docs(roadmap): program to unblock decoding + spec for #2 fingerprint-operator _(2 fichiers)_
+- `21358c0` 2026-06-29 — docs(plan): implementation plan for #2 fingerprint-operator _(1 fichiers)_
+- `b4cdfc2` 2026-06-29 — feat(pixelate): DetectBlur — classify mosaic vs Gaussian, estimate sigma+kernel _(4 fichiers)_
+- `9a2fddd` 2026-06-29 — feat(forensics): Operator descriptor + Fingerprint with threshold-gated Build _(3 fichiers)_
+- `0d21e18` 2026-06-29 — fix(forensics): apply four review findings from commit 9a2fddd _(4 fichiers)_
+- `cc73698` 2026-06-29 — feat(unpixel): route auto-flags through forensics + WithAutoBlur, safe fallback _(3 fichiers)_
+- `5df4560` 2026-06-29 — fix(fingerprint): strengthen linear-colorspace assertion + update stale docs _(2 fichiers)_
+- `9da5971` 2026-06-29 — feat(mcp): analyze reports the detected forward operator (forensics) _(3 fichiers)_
+- `0bc79d4` 2026-06-29 — fix(mcp): omitzero on DetectedOperator.Confidence + spelling _(2 fichiers)_
+- `a4dd18f` 2026-06-29 — test(fingerprint): add §2.3 auto-vs-manual blur recovery test _(2 fichiers)_
+- `191e501` 2026-06-29 — fix(unpixel): delegate Recover+WithAuto() to RecoverBlurred on blur detection _(3 fichiers)_
+- `1a23bc6` 2026-06-29 — docs(test): drop stale NOTE in §2.3 blur-equivalence test _(2 fichiers)_
+- `3ea6663` 2026-06-29 — fix(unpixel): guard Recover blur-delegation against mosaic screenshots (I1) _(3 fichiers)_
+- `2d70927` 2026-06-29 — test(fingerprint): assert real no-misroute predicate (final-review M1) _(2 fichiers)_
+- `2b4f48f` 2026-06-29 — test(forensics): raise package coverage to 96% to clear the 85% CI gate _(2 fichiers)_
