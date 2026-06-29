@@ -62,3 +62,19 @@ func TestPartial_abstainsWithNoBlock(t *testing.T) {
 		t.Error("found=true on plain white image, want false (no redaction block)")
 	}
 }
+
+// TestPartial_abstainsOnBadPNG verifies that partial abstains gracefully when
+// the data is not a valid PNG, rather than panicking or returning found=true.
+func TestPartial_abstainsOnBadPNG(t *testing.T) {
+	if _, found := partial([]byte("not a PNG"), "some-hint"); found {
+		t.Error("partial found=true on malformed PNG data, want false (abstain)")
+	}
+}
+
+// TestAbsDiff_bGreaterThanA exercises the b > a branch of absDiff, which
+// returns b - a. The a >= b branch is covered by the solid-block scanner path.
+func TestAbsDiff_bGreaterThanA(t *testing.T) {
+	if got := absDiff(10, 200); got != 190 {
+		t.Errorf("absDiff(10, 200) = %d, want 190", got)
+	}
+}

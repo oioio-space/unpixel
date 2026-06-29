@@ -3,6 +3,8 @@ package leak
 import (
 	"strings"
 	"testing"
+
+	pdflib "rsc.io/pdf"
 )
 
 // pdfFixtureBytes is a verified 1-page PDF whose content stream draws a filled
@@ -126,5 +128,33 @@ func TestPdfText_malformedAbstains(t *testing.T) {
 func TestPdfText_emptyAbstains(t *testing.T) {
 	if _, found := pdfText(nil); found {
 		t.Errorf("found=true on nil input, want false")
+	}
+}
+
+// TestInsideAny_falseWhenOutside exercises the false return of insideAny when
+// a glyph falls outside all provided rectangles.
+func TestInsideAny_falseWhenOutside(t *testing.T) {
+	boxes := []pdflib.Rect{
+		{Min: pdflib.Point{X: 100, Y: 100}, Max: pdflib.Point{X: 200, Y: 120}},
+		{Min: pdflib.Point{X: 300, Y: 300}, Max: pdflib.Point{X: 400, Y: 320}},
+	}
+	// Glyph at (50, 50) is outside both rectangles.
+	glyph := pdflib.Text{X: 50, Y: 50}
+	if insideAny(glyph, boxes) {
+		t.Error("insideAny = true for glyph outside all boxes, want false")
+	}
+}
+
+// TestInsideAny_trueWhenInside confirms insideAny returns true for a glyph
+// inside the second box (exercises the loop's non-first iteration).
+func TestInsideAny_trueWhenInside(t *testing.T) {
+	boxes := []pdflib.Rect{
+		{Min: pdflib.Point{X: 100, Y: 100}, Max: pdflib.Point{X: 200, Y: 120}},
+		{Min: pdflib.Point{X: 300, Y: 300}, Max: pdflib.Point{X: 400, Y: 320}},
+	}
+	// Glyph at (350, 310) is inside the second rectangle.
+	glyph := pdflib.Text{X: 350, Y: 310}
+	if !insideAny(glyph, boxes) {
+		t.Error("insideAny = false for glyph inside second box, want true")
 	}
 }
