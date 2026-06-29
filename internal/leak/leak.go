@@ -125,10 +125,3 @@ func Scan(path string, opts Options) (Result, bool, error) {
 		return Result{}, false, nil
 	}
 }
-
-// partial surfaces caller-supplied visible text when the image contains a
-// plausible solid redaction block.
-// It is a stub; the real implementation lands in Task 5.
-func partial(data []byte, visibleText string) (Result, bool) {
-	return Result{}, false
-}
