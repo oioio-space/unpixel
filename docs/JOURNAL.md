@@ -27,15 +27,33 @@ section, and C1a/C1b are also in the `## Évolution — décodeurs` table.
 | 2026-06-25 | v0.15.0     | 1f1b3a4 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3%  | 0/3/0/4%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 0/9/0/3% | 54    | 3102    |
 | 2026-06-26 | v0.16.0     | 92442f7 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/22% | 0/9/0/3% | 54    | 2934    |
 | 2026-06-26 | v0.17.0     | 330de57 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/22% | 0/9/0/3% | 54    | 2881    |
-| 2026-06-28 | v0.17.0+dev | 83299e5 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/20% | 0/9/0/3% | 54 | 2870 |
-| 2026-06-28 | v0.17.0+dev | 7dd2d77 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54 | 2893 |
-| 2026-06-28 | v0.17.0+dev | 6fd3308 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54 | 2800 |
-| 2026-06-28 | v0.17.0+dev | 6ecdcbd | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/8% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/0/23% | 0/9/0/3% | 54 | 1962 |
+| 2026-06-28 | v0.17.0+dev | 83299e5 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/20% | 0/9/0/3% | 54    | 2870    |
+| 2026-06-28 | v0.17.0+dev | 7dd2d77 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54    | 2893    |
+| 2026-06-28 | v0.17.0+dev | 6fd3308 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/11% | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/21% | 0/9/0/3% | 54    | 2800    |
+| 2026-06-28 | v0.17.0+dev | 6ecdcbd | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/8%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/23% | 0/9/0/3% | 54    | 1962    |
 
 
 ## Analyse de tendance
 
 _À rafraîchir à chaque run du journal — la table évolue, ce texte doit suivre._
+
+**Verdict v0.15.0 → v0.17.0+dev (1f1b3a4 → 6ecdcbd) : le tableau cœur est STRICTEMENT
+PLAT sur 8 runs — et c'est ATTENDU. Tout le travail depuis v0.14.0 porte sur la surface
+d'attaque MCP et la perf du harnais, PAS sur l'algorithme du chemin cœur (`RecoverFile`).
+fixtures best 17/17/100 % · blur 13/14/99 % · real 0/3 · wild 0/5 · sick 0/10 · ctx·C1a 0/9 —
+identiques de v0.14.0 à 6ecdcbd (Total 54 partout). Le signal NOTABLE est la durée :
+**−32 % de runtime journal (≈2870 s → 1962 s à 6ecdcbd)** après right-sizing du timeout
+best-config (90 s→30 s), SANS aucune perte de qualité (le décodage reste exact là où il
+l'était). Les murs de fond restent les mêmes : fidélité de police (real/wild, « faux avec
+assurance » conf 1.000/fidélité 0.000) et frontières de phrases proportionnelles
+(sick, wrong-length ×9).**
+
+_Travail v0.15.0→v0.17.0+dev (hors tableau cœur, donc invisible ici) : serveur MCP complet
+(decode/analyze/verify_candidates/render/rank_fonts/calibrate), méthode `engine` best-config
+exposée en MCP + presets `digits`/denoise/visible-text, puis ensemble `engine`+`mosaic`
+(arbitrage par fidélité). Ces gains se mesurent par la campagne MCP sur le corpus
+(cf. [[mcp-decode-campaign-gaps]]), pas par le tableau `RecoverFile`. Durée 1962 s à 6ecdcbd
+(NumCPU=20)._
 
 **Verdict v0.14.0 (e853697) : nouvelle CAPACITÉ — le décodage sous perspective — sans
 aucune régression du cœur. Le tableau principal est identique à v0.13.0 (fixtures best
