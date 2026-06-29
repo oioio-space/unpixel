@@ -2,6 +2,8 @@ package unpixel
 
 import (
 	"image"
+	"image/png"
+	"os"
 	"testing"
 
 	"github.com/oioio-space/unpixel/internal/imutil"
@@ -116,5 +118,78 @@ func TestRecover_autoFingerprintInstallsLinear(t *testing.T) {
 	}
 	if got != wantLinear {
 		t.Errorf("installed pixelator output R=%d, want linear R=%d (sRGB would be R=%d): linear variant not installed", got, wantLinear, wantSRGB)
+	}
+}
+
+// TestRecover_autoEqualsManualBlur is the §2.3 success criterion: it asserts
+// that Recover(ctx, img, WithAuto(), …) produces the same BestGuess as the
+// manual RecoverBlurred(ctx, img, …) path on the same Gaussian-blur fixture.
+//
+// Fixture: testdata/blur/blur_go_s2.png — the smallest committed blur sample
+// (text "go", true σ=2, charset "go abcde"). It is chosen because DetectBlur
+// has high confidence on it, so WithAuto() should reliably route to the blur
+// path, and it completes in < 5 s on any CI box.
+//
+// NOTE (2026-06): This test currently FAILS. When WithAuto() is set, Recover
+// detects the blur operator via applyAutoFingerprint and installs a
+// GaussianBlur pixelator, but then continues through the standard mosaic search
+// engine (no beam search, no σ-sweep). RecoverBlurred, by contrast, uses a
+// beam-search strategy and a coarse+fine σ-sweep. The two paths produce
+// different BestGuess values ("a" vs "go"). The failure surfaces a real
+// architectural gap: Recover+WithAuto does not yet delegate to RecoverBlurred
+// when a blur operator is detected. This requires a follow-up fix (route
+// autoBlur-detected images through RecoverBlurred inside Recover).
+func TestRecover_autoEqualsManualBlur(t *testing.T) {
+	const (
+		fixturePath = "testdata/blur/blur_go_s2.png"
+		charset     = "go abcde"
+		maxLen      = 3
+	)
+	style := Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+
+	f, err := os.Open(fixturePath) // #nosec G304 -- compile-time constant test path
+	if err != nil {
+		t.Fatalf("open fixture %s: %v", fixturePath, err)
+	}
+	img, err := png.Decode(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("decode fixture %s: %v", fixturePath, err)
+	}
+
+	ctx := t.Context()
+
+	// Manual path: RecoverBlurred with σ-sweep + beam search.
+	resManual, err := RecoverBlurred(ctx, img,
+		WithCharset(charset),
+		WithMaxLength(maxLen),
+		WithStyle(style),
+	)
+	if err != nil {
+		t.Fatalf("RecoverBlurred: %v", err)
+	}
+	t.Logf("RecoverBlurred: BestGuess=%q BestTotal=%.4f BlurSigma=%.2f",
+		resManual.BestGuess, resManual.BestTotal, resManual.BlurSigma)
+
+	// Auto path: Recover + WithAuto() — should detect blur and produce the same
+	// BestGuess as the manual path.
+	resAuto, err := Recover(ctx, img,
+		WithAuto(),
+		WithCharset(charset),
+		WithMaxLength(maxLen),
+		WithStyle(style),
+	)
+	if err != nil {
+		t.Fatalf("Recover+WithAuto: %v", err)
+	}
+	t.Logf("Recover+WithAuto: BestGuess=%q BestTotal=%.4f",
+		resAuto.BestGuess, resAuto.BestTotal)
+
+	// §2.3 criterion: the auto path must recover the same text as the manual
+	// blur path. A mismatch means WithAuto() does not fully delegate to the blur
+	// recovery pipeline (see NOTE above).
+	if resAuto.BestGuess != resManual.BestGuess {
+		t.Errorf("§2.3 gap: Recover+WithAuto BestGuess=%q, RecoverBlurred BestGuess=%q — auto path does not delegate to the blur pipeline",
+			resAuto.BestGuess, resManual.BestGuess)
 	}
 }
