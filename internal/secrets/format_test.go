@@ -128,7 +128,7 @@ func TestValid(t *testing.T) {
 	}
 }
 
-func TestAllowedRunesAt_dateSeperators(t *testing.T) {
+func TestAllowedRunesAt_dateSeparators(t *testing.T) {
 	// pos 4 with an ISO prefix should yield only '-' (separator path).
 	got := AllowedRunesAt(FormatDate, 4, "2024", 0)
 	if len(got) != 1 || got[0] != '-' {

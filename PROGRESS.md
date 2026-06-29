@@ -1276,3 +1276,12 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `86c80b3` 2026-06-29 — docs(plan): implementation plan for #3 LLM-propose -> physics-verify _(1 fichiers)_
 - `95bdfae` 2026-06-29 — feat(unpixel): Verify — decisive candidate scoring via the faithful forward model _(4 fichiers)_
 - `2abb559` 2026-06-29 — docs(unpixel): note Verify's blur limitation + group consts (Task 1 review) _(1 fichiers)_
+- `e92494d` 2026-06-29 — docs(roadmap): mark #3 LLM-propose -> physics-verify complete _(1 fichiers)_
+- `95adb55` 2026-06-29 — docs(spec): #6 checksum pruning in the trellis design _(1 fichiers)_
+- `0d8176e` 2026-06-29 — docs(plan): #6 checksum-trellis pruning implementation plan _(1 fichiers)_
+- `86591bd` 2026-06-29 — feat(secrets): add Format model — per-position feasibility + checksum validation _(2 fichiers)_
+- `f2e94b2` 2026-06-29 — feat(search): add FormatConstraint adapter over secrets.Format _(2 fichiers)_
+- `35238dc` 2026-06-29 — feat(unpixel): WithExpectedFormat — checksum pruning in the guided search _(2 fichiers)_
+- `f76ba9e` 2026-06-29 — feat(mcp): forward expected_format to the engine decode path _(1 fichiers)_
+- `d853453` 2026-06-29 — test(format): integration recovery + node-count + no-format regression _(2 fichiers)_
+- `b378bce` 2026-06-29 — test(format): t.Context + coverage buffer for secrets validators _(2 fichiers)_
