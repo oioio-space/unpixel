@@ -293,6 +293,56 @@ métrique autoritaire (journal) sans aucune perte de récupération.
 
 ## ✅ Reste à faire
 
+### 🗺️ Programme « débloquer le décodage » (recherche 4-agents, 2026-06-29)
+
+Issu d'une revue de l'état de l'art (académique + repos GitHub + faisabilité Go/CGO +
+out-of-the-box). **CGO et entraînement Python sont autorisés pour ces pistes, mais le build
+par défaut reste pur-Go `CGO_ENABLED=0`** : tout ML vit derrière `//go:build ml`
+(`internal/ml`, binding purego, fallback CGO `yalue/onnxruntime_go`) ou en sidecar
+hors-processus, jamais dans le cœur ni la boucle interne. Détail + sources : mémoire
+`decode-techniques-research-2026` ; constat clé : le 0/N sur images réelles est surtout un
+**mismatch du modèle direct**, pas un échec de recherche, et le concours Unredacter a été
+gagné par prior de police + OSINT + déconvolution, pas par de meilleurs pixels.
+
+Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
+- [ ] **#2 Fingerprint-operator** *(spec : `docs/superpowers/specs/2026-06-29-fingerprint-operator-design.md`)* —
+      `internal/forensics.Fingerprint(img) → Operator` qui absorbe gamma/grille existants +
+      ajoute mosaïque-vs-flou / σ / famille-de-noyau ; auto-câblé via `WithAuto()` avec **repli
+      sûr** (sous-seuil ⇒ défaut actuel, zéro régression). Mur : réel + flou. **← 1er sous-projet.**
+- [ ] **#1B Operator-zoo + méta-stratégie top-2 *sécurisée*** — opérateurs par-outil (GEGL/
+      Photoshop/CSS/ffmpeg) enfichables ; quand le fingerprint est ambigu, essayer le top-2 et
+      départager par **cohérence du fingerprint** (pas `argmin(distance)` brut — évite le mur
+      « faux avec assurance »). Suite directe de #2 (le `Operator` est la couture). Mur : réel + flou.
+- [ ] **#1 Leak pre-pass** — `internal/leak` : miniature EXIF, PDF rectangle-sur-texte-non-aplati
+      (`rsc.io/pdf`), Office zip+XML, caviardage partiel (OCR région visible → match). Court-circuite
+      tous les murs *quand applicable*. Pur-Go. Mur : tous (opportuniste).
+- [ ] **#3 LLM-propose → vérif-physique** (via MCP) — `verify_candidate` *décisif* + orchestration
+      `propose_then_verify` : le LLM propose des phrases entières, on rend → opérateur fingerprinté
+      → pixelmatch tranche (dist≈0 = réponse). Dépend de #2. Mur : phrases longues, contenu inconnu.
+- [ ] **#6 Pruning par checksum dans le trellis** — Luhn/IBAN/date pendant le beam DID/HMM
+      (~10× d'élagage), pas en post-hoc. Pur-Go. Mur : secrets structurés.
+
+Tier 2 — ML opt-in (build tag ONNX OU sidecar), défaut reste pur-Go :
+- [ ] **#4 Prior de police** — `Storia-AI/font-classify` (MIT, ONNX, ~3k Google Fonts) ou
+      DINOv2-PEFT → top-k polices classées qui amorcent le moteur. ⚠️ jamais de VLM générique
+      (effet Stroop). Mur : police inconnue (réel).
+- [ ] **#5 Re-ranker CTC-logprob** — tête CRNN-CTC PP-OCRv4/v5 ou OnnxTR (Apache/MIT) → log-proba
+      CTC de toute chaîne candidate sur le top-K. Mur : police, digits.
+
+Tier 3 — moonshots (haut plafond, coût élevé) :
+- [ ] **#7 Restaurateur diffusion fine-tuné sur la dégradation de caviardage** (sidecar Python) —
+      DiffTSR/UDiffText(MIT)/AnyText2(Apache) conditionnés glyphes, en dernière étape sur le top-K
+      seulement, vérifié par la physique (anti-hallucination). Retraining sur dégradation mosaïque/
+      flou = inexploré dans la littérature. Mur : tous.
+- [ ] **#8 Inverse-renderer neuronal amorti + idées novatrices** — entraîné sur la pipeline
+      synthétique render→re-pixelate (le renderer est le labelleur), amorce CMA-ES/Viterbi ;
+      + offset-comme-multiframe, moiré JPEG⊗mosaïque, fuite sub-pixel d'anti-aliasing. Mur : tous.
+
+Garde-fou commun : `internal/ml` derrière `//go:build ml` ; HMM/Viterbi, petit CNN forward-pass,
+RL/Wiener/homographie écrits **à la main en pur-Go sur gonum** ; ne pas adopter gotch/libtorch ni
+gocv ; ML seulement en prior pré-recherche + re-ranker post-recherche sur top-K, **jamais** dans la
+boucle interne (0,3–1 ms/appel = pénalité 10–100× sur le hot path).
+
 - [x] Étudier l'algo d'unredacter (brute-force des combinaisons de caractères,
       re-pixelisation, comparaison de distance d'image).
 - [x] Choisir les libs Go (rendu de police/texte, manipulation d'image).
@@ -1168,3 +1218,5 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `00c1c11` 2026-06-28 — docs(progress): record perf +20% investigation — measured negative result _(1 fichiers)_
 - `857be4e` 2026-06-29 — docs(progress): final perf verdict — memory not the bottleneck, +20% infeasible _(1 fichiers)_
 - `864acd7` 2026-06-29 — perf(journal): right-size best-config budget 90s->30s — journal -32%, exact-match preserved _(2 fichiers)_
+- `8826a26` 2026-06-29 — feat(mcp): ensemble combines engine + zero-config mosaic via fidelity gate _(3 fichiers)_
+- `468550f` 2026-06-29 — docs(journal): refresh trend analysis through v0.17.0+dev (6ecdcbd) _(1 fichiers)_
