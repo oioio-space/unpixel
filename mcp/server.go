@@ -150,7 +150,7 @@ type AnalysisReport struct {
 }
 
 // DetectedOperator carries the forensics.Fingerprint result in a flat,
-// JSON-serialisable form suitable for MCP tool output.
+// JSON-serializable form suitable for MCP tool output.
 type DetectedOperator struct {
 	// Kind is the operator family: "mosaic", "blur", or "unknown".
 	Kind string `json:"kind"`
@@ -163,7 +163,7 @@ type DetectedOperator struct {
 	// Tool is a best-effort informative label for the likely redaction tool (e.g. "Photoshop/GIMP").
 	Tool string `json:"tool,omitzero"`
 	// Confidence is the detection confidence for Kind in [0, 1].
-	Confidence float64 `json:"confidence"`
+	Confidence float64 `json:"confidence,omitzero"`
 }
 
 // handleAnalyze is the tool handler for unpixel_analyze.

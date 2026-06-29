@@ -1227,3 +1227,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `0d21e18` 2026-06-29 — fix(forensics): apply four review findings from commit 9a2fddd _(4 fichiers)_
 - `cc73698` 2026-06-29 — feat(unpixel): route auto-flags through forensics + WithAutoBlur, safe fallback _(3 fichiers)_
 - `5df4560` 2026-06-29 — fix(fingerprint): strengthen linear-colorspace assertion + update stale docs _(2 fichiers)_
+- `9da5971` 2026-06-29 — feat(mcp): analyze reports the detected forward operator (forensics) _(3 fichiers)_
