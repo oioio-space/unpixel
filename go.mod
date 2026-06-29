@@ -10,6 +10,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/image v0.43.0
 	golang.org/x/term v0.44.0
+	rsc.io/pdf v0.1.1
 )
 
 require (

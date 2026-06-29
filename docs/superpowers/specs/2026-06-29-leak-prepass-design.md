@@ -131,4 +131,15 @@ Fichiers : `internal/leak/leak.go` (types + `Scan` + sniff/dispatch), `exifthumb
 - **PDF chiffré / exotique** → best-effort ; erreur de parsing = `found=false`, pas d'échec dur.
 - **Sécurité (entrée hostile)** → parseurs sur fichiers fournis par l'utilisateur ; bornes de
   lecture (taille max miniature/zip-bomb) ; `#nosec` justifié sur l'ouverture de chemin
-  utilisateur, comme l'existant.
+  utilisateur, comme l'existant. Anti-panique validé par fuzz (370 k entrées forgées, 0 panic ;
+  revue finale) ; `rsc.io/pdf` ne lance aucune goroutine donc le `recover()` de `pdfText` capture
+  toute panique de la lib.
+- **Risque résiduel — bombe de décompression PDF** (suivi) : `rsc.io/pdf Content()` construit le
+  `[]Text` complet d'une page (flux FlateDecode déflaté) AVANT que nos plafonds
+  (`maxGlyphsPerPage`/`maxLeakedBytes`) ne s'appliquent. Borné par `maxReadBytes` (64 MiB entrée) +
+  `maxPDFPages`, mais l'amplification mémoire par page reste une propriété de la lib tierce → à
+  cadrer plus tard (budget mémoire/temps par page).
+- **Pré-passe vs modes explicites** (suivi, CLI) : `--leak-scan` (défaut on) court-circuite avant
+  `--rectify`/`--frame`/`--blind` ; si l'utilisateur demande explicitement un mode ET que le fichier
+  fuite, la fuite l'emporte silencieusement → ignorer la pré-passe quand un mode explicite est posé,
+  ou émettre un avis.

@@ -51,6 +51,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
 	"github.com/oioio-space/unpixel/internal/imutil"  // image helpers (ToRGBA etc.)
 	"github.com/oioio-space/unpixel/internal/lang"    // dictionary prior (P3.2)
+	"github.com/oioio-space/unpixel/internal/leak"    // file-level leak pre-pass
 	"github.com/oioio-space/unpixel/internal/rectify" // planar-homography primitives for perspective decode
 	"github.com/oioio-space/unpixel/internal/secrets" // structured-secret prior (P3.7)
 	"github.com/oioio-space/unpixel/internal/varfont" // variable-font renderer + axis fitter (B1)
@@ -134,6 +135,7 @@ type flagParams struct {
 	prefix              string   // --prefix: known prefix string to constrain the search
 	framePaths          []string // --frame: repeated image paths for multi-frame IBP fusion
 	didContext          bool     // --did-context: context-aware emission for --decoder did
+	leakScan            bool     // --leak-scan: run file-level leak pre-pass before pixel solving
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -2323,6 +2325,11 @@ Examples:
 					"Empty string (default) disables the constraint — byte-identical to unconstrained search.",
 				Value: "",
 			},
+			&cli.BoolFlag{
+				Name:  "leak-scan",
+				Usage: "run a file-level leak pre-pass before pixel solving: checks EXIF thumbnail, PDF text-under-rect, Office body text, and visible-text-assisted partial redaction; exits early when a leak is found (default true)",
+				Value: true,
+			},
 		},
 		Action: run,
 	}
@@ -2405,10 +2412,29 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		prefix:              cmd.String("prefix"),
 		framePaths:          cmd.StringSlice("frame"),
 		didContext:          cmd.Bool("did-context"),
+		leakScan:            cmd.Bool("leak-scan"),
 	}
 
 	if err := validateParams(p); err != nil {
 		return err
+	}
+
+	// Leak pre-pass: when the input is a real file (not stdin) and --leak-scan
+	// is enabled (default true), check for metadata/format leaks before pixel
+	// solving. A confident hit prints the recovered content and exits cleanly.
+	if p.leakScan && imgPath != "-" {
+		res, found, scanErr := leak.Scan(imgPath, leak.Options{VisibleText: p.visibleText})
+		if scanErr != nil {
+			return fmt.Errorf("leak scan: %w", scanErr)
+		}
+		if found {
+			if res.Source == leak.SourceEXIFThumbnail {
+				fmt.Printf("recovered via %s: [image thumbnail recovered]\n", res.Source)
+			} else {
+				fmt.Printf("recovered via %s: %s\n", res.Source, res.Text)
+			}
+			return nil
+		}
 	}
 
 	if p.rectify != "" {
