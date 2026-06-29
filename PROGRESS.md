@@ -329,9 +329,15 @@ Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
       n'importe jamais `leak` (panel 17/17 par construction). Anti-panique fuzzé (370 k entrées, 0 panic),
       lectures bornées (DoS). Suivis non-bloquants notés dans la spec §8 (bombe-décompression PDF par page ;
       pré-passe vs modes explicites CLI). Mur : tous (opportuniste, quand une fuite existe).
-- [ ] **#3 LLM-propose → vérif-physique** (via MCP) — `verify_candidate` *décisif* + orchestration
-      `propose_then_verify` : le LLM propose des phrases entières, on rend → opérateur fingerprinté
-      → pixelmatch tranche (dist≈0 = réponse). Dépend de #2. Mur : phrases longues, contenu inconnu.
+- [x] **#3 LLM-propose → vérif-physique** ✅ *(spec/plan : `docs/superpowers/{specs,plans}/2026-06-29-llm-propose-verify*.md`)* —
+      `unpixel.Verify` public : score les candidats avec le modèle direct FIDÈLE du moteur (rendu →
+      opérateur fingerprinté #2 → pixelmatch [0,1]) + seuil de match absolu (τ=0.10 ; vrai≈0 vs faux
+      0.44–0.49, écart >0.34). MCP `verify_candidates` rebranché (par-candidat `match` + `pick` décisif,
+      remplace `mosaictext.ScoreCandidates`) ; nouvel outil `unpixel_propose_hints` (estimation nb de
+      caractères + bloc/police/bbox + contexte fuité PDF/Office via #1). La boucle propose→vérifie est
+      pilotée par le LLM client. Additif (cœur intouché via hook `DefaultVerifyCore`, pas de cycle).
+      CI verte, cover 89.3 %, panel 17/17. Mur : phrases longues (le verify décisif débloque le
+      top-down), contenu inconnu.
 - [ ] **#6 Pruning par checksum dans le trellis** — Luhn/IBAN/date pendant le beam DID/HMM
       (~10× d'élagage), pas en post-hoc. Pur-Go. Mur : secrets structurés.
 
