@@ -48,6 +48,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/deblur"
 	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/secrets"
 )
 
 // Renderer renders candidate text to an RGBA image, placing a blue sentinel
@@ -229,6 +230,11 @@ type Config struct {
 	// characters of every candidate. Set via WithPrefix; empty means no
 	// constraint (the default, byte-identical to unconstrained search).
 	prefix string
+
+	// expectedFormat, when not FormatNone, constrains the guided search to runes
+	// feasible for the declared structured-secret format and drops complete-but-
+	// invalid candidates. Set via WithExpectedFormat. Ignored when a prefix is set.
+	expectedFormat secrets.Format
 }
 
 // Candidate-alphabet presets for Config.Charset (or WithCharset). A wider
@@ -1552,6 +1558,14 @@ var DefaultLocateMosaicBand func(img *image.RGBA) (image.Rectangle, bool)
 // defaults.
 var DefaultConstrainedStrategy func(prefix string) Strategy
 
+// DefaultFormatStrategy is a hook populated by importing the defaults package
+// for its side-effect. It returns a Strategy that runs GuidedDFS constrained to
+// the given structured-secret format (per-position feasibility plus a leaf
+// validity filter). A nil hook means WithExpectedFormat is a no-op, so callers
+// that wire all components explicitly and do not use WithExpectedFormat need not
+// import defaults.
+var DefaultFormatStrategy func(format secrets.Format) Strategy
+
 // DefaultVerifyCore is a hook populated by importing the defaults package for
 // its side-effect. It scores each candidate string against the already-prepped
 // rgba image using the faithful forward model (PipelineScorer + DiscoverOffsets)
@@ -1596,6 +1610,15 @@ func (e *Engine) Run(ctx context.Context) (<-chan Progress, <-chan Result) {
 	// search is byte-identical to unconstrained.
 	if e.cfg.prefix != "" && DefaultConstrainedStrategy != nil {
 		e.cfg.Strategy = DefaultConstrainedStrategy(e.cfg.prefix)
+	}
+
+	// Format constraint: when no prefix is set, a non-None format is declared,
+	// and the hook is wired, replace the strategy with the format-constrained
+	// variant. Prefix wins when both are set (format is silently ignored).
+	// When the hook is nil or the format is FormatNone, behaviour is byte-identical
+	// to the unconstrained search.
+	if e.cfg.prefix == "" && e.cfg.expectedFormat != secrets.FormatNone && DefaultFormatStrategy != nil {
+		e.cfg.Strategy = DefaultFormatStrategy(e.cfg.expectedFormat)
 	}
 
 	progCh := make(chan Progress, 64)
@@ -1887,6 +1910,20 @@ func WithAutoBlur() Option { return func(c *Config) { c.autoBlur = true } }
 //
 // Default: empty (no constraint).
 func WithPrefix(prefix string) Option { return func(c *Config) { c.prefix = prefix } }
+
+// WithExpectedFormat constrains the guided search to candidates feasible for a
+// structured-secret format (credit card, IBAN, date, phone, numeric ID): each
+// position is limited to the runes the format allows, the Luhn check digit is
+// fixed at the last position of a fixed-length card, and complete candidates
+// that fail the format's checksum/range rules are dropped before ranking.
+//
+// It is strictly opt-in: WithExpectedFormat(secrets.FormatNone) or omitting the
+// option leaves decoding byte-identical to the unconstrained search. Declaring
+// the wrong format will wrongly reject the true answer, so use it only when the
+// redaction's format is known. Ignored when WithPrefix is also set (prefix wins).
+func WithExpectedFormat(f secrets.Format) Option {
+	return func(c *Config) { c.expectedFormat = f }
+}
 
 // WithAuto enables the full zero-config real-world recovery path in one call:
 // it combines [WithAutoCrop], [WithAutoColorspace], [WithAutoBlur], and

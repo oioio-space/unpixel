@@ -43,6 +43,7 @@ import (
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/render"
 	"github.com/oioio-space/unpixel/internal/search"
+	"github.com/oioio-space/unpixel/internal/secrets"
 )
 
 // blurDefaultBeamWidth is the beam width RecoverBlurred uses when the caller
@@ -59,6 +60,9 @@ func init() {
 	unpixel.DefaultLocateMosaicBand = locate.LocateMosaicBand
 	unpixel.DefaultConstrainedStrategy = func(prefix string) unpixel.Strategy {
 		return constrainedGuidedStrategy{prefix: prefix}
+	}
+	unpixel.DefaultFormatStrategy = func(f secrets.Format) unpixel.Strategy {
+		return formatConstrainedStrategy{format: f}
 	}
 	unpixel.DefaultVerifyCore = verifyCore
 }
@@ -302,6 +306,41 @@ func (s constrainedGuidedStrategy) Search(
 	c := search.NewPrefixConstraint(s.prefix)
 	dfs := func(ctx context.Context, sc search.Scorer, cfg unpixel.Config, offset unpixel.Offset, emit func(unpixel.Eval)) {
 		search.GuidedDFSConstrained(ctx, sc, cfg, offset, c, emit)
+	}
+	search.Offsets(ctx, scorer, cfg, out, results, dfs)
+}
+
+// formatConstrainedStrategy implements unpixel.Strategy using
+// GuidedDFSConstrained with a secrets.Format constraint, plus a leaf filter that
+// drops complete-but-invalid candidates (failing Luhn/mod-97/date/phone rules)
+// from the results competition. It is wired by the DefaultFormatStrategy hook
+// when WithExpectedFormat is active.
+type formatConstrainedStrategy struct {
+	format secrets.Format
+}
+
+// Search runs offset discovery then, per surviving offset, GuidedDFSConstrained
+// with the format constraint and a validity leaf filter. Dropping an emit only
+// removes a candidate from the results race; child exploration is unaffected, so
+// shorter invalid prefixes (e.g. a non-Luhn 16-digit card) do not prevent longer
+// valid candidates (a 19-digit card) from being found.
+func (s formatConstrainedStrategy) Search(
+	ctx context.Context,
+	redacted *image.RGBA,
+	cfg unpixel.Config,
+	out chan<- unpixel.Progress,
+	results chan<- unpixel.Result,
+) {
+	scorer := search.NewCachingScorer(search.NewPipelineScorer(redacted, cfg), cfg.CacheSize)
+	dfs := func(ctx context.Context, sc search.Scorer, cfg unpixel.Config, offset unpixel.Offset, emit func(unpixel.Eval)) {
+		c := search.NewFormatConstraint(s.format, cfg.MaxLength)
+		filtered := func(ev unpixel.Eval) {
+			if secrets.TerminalLen(s.format, len([]rune(ev.Guess))) && !secrets.Valid(s.format, ev.Guess) {
+				return
+			}
+			emit(ev)
+		}
+		search.GuidedDFSConstrained(ctx, sc, cfg, offset, c, filtered)
 	}
 	search.Offsets(ctx, scorer, cfg, out, results, dfs)
 }
