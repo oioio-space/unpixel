@@ -1225,3 +1225,5 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `b4cdfc2` 2026-06-29 — feat(pixelate): DetectBlur — classify mosaic vs Gaussian, estimate sigma+kernel _(4 fichiers)_
 - `9a2fddd` 2026-06-29 — feat(forensics): Operator descriptor + Fingerprint with threshold-gated Build _(3 fichiers)_
 - `0d21e18` 2026-06-29 — fix(forensics): apply four review findings from commit 9a2fddd _(4 fichiers)_
+- `cc73698` 2026-06-29 — feat(unpixel): route auto-flags through forensics + WithAutoBlur, safe fallback _(3 fichiers)_
+- `5df4560` 2026-06-29 — fix(fingerprint): strengthen linear-colorspace assertion + update stale docs _(2 fichiers)_
