@@ -321,9 +321,14 @@ Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
       `meta.Select` départage par **seuil de distance + accord croisé + marge de cohérence
       (Conf.Kind+Conf.Gamma) + abstention** (jamais `argmin(distance)` ; veto grille préserve l'I1
       de #2 ; coût borné 2×). CI verte, cover 85.4 %, panel 17/17. Mur : réel + flou.
-- [ ] **#1 Leak pre-pass** — `internal/leak` : miniature EXIF, PDF rectangle-sur-texte-non-aplati
-      (`rsc.io/pdf`), Office zip+XML, caviardage partiel (OCR région visible → match). Court-circuite
-      tous les murs *quand applicable*. Pur-Go. Mur : tous (opportuniste).
+- [x] **#1 Leak pre-pass** ✅ *(spec/plan : `docs/superpowers/{specs,plans}/2026-06-29-leak-prepass*.md`)* —
+      `internal/leak.Scan(path,Options)` renifle le fichier et dispatche vers 4 détecteurs pur-Go :
+      miniature EXIF (APP1/IFD1 main-levée), PDF texte-sous-rectangle (`rsc.io/pdf`, pur-Go/BSD),
+      Office zip+XML (`w:t`/`a:t`), caviardage partiel **assisté par texte-visible** (abstient sans
+      indice — OCR auto = Tier-2 #5). Câblé CLI `--leak-scan` + MCP `unpixel_leak_scan` ; le cœur
+      n'importe jamais `leak` (panel 17/17 par construction). Anti-panique fuzzé (370 k entrées, 0 panic),
+      lectures bornées (DoS). Suivis non-bloquants notés dans la spec §8 (bombe-décompression PDF par page ;
+      pré-passe vs modes explicites CLI). Mur : tous (opportuniste, quand une fuite existe).
 - [ ] **#3 LLM-propose → vérif-physique** (via MCP) — `verify_candidate` *décisif* + orchestration
       `propose_then_verify` : le LLM propose des phrases entières, on rend → opérateur fingerprinté
       → pixelmatch tranche (dist≈0 = réponse). Dépend de #2. Mur : phrases longues, contenu inconnu.
