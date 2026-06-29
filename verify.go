@@ -18,14 +18,16 @@ type Verdict struct {
 	Match bool
 }
 
-// VerifyMatchThreshold is the absolute distance below which a candidate is
-// considered a confident physical match. Calibrated so that exact recoveries
-// (distance ≈ 0) match and clearly-wrong candidates do not. Tuned in Task 4.
-const VerifyMatchThreshold = 0.10
+const (
+	// VerifyMatchThreshold is the absolute distance below which a candidate is
+	// considered a confident physical match. Calibrated so that exact recoveries
+	// (distance ≈ 0) match and clearly-wrong candidates do not.
+	VerifyMatchThreshold = 0.10
 
-// maxVerifyCandidates is the maximum number of candidates Verify will score.
-// Candidates beyond this cap are silently ignored.
-const maxVerifyCandidates = 256
+	// maxVerifyCandidates is the maximum number of candidates Verify will score.
+	// Candidates beyond this cap are silently ignored.
+	maxVerifyCandidates = 256
+)
 
 // Verify scores each candidate against img using the engine's faithful forward
 // model (same render→operator→metric pipeline as Recover), evaluated at the
@@ -37,6 +39,12 @@ const maxVerifyCandidates = 256
 //
 // Verify returns ErrNilImage for a nil image and ErrNoComponents when a
 // required component is missing and no defaults are wired.
+//
+// Verify uses the mosaic forward model; it does NOT perform the blur sigma-sweep
+// that RecoverBlurred does. For Gaussian-blurred redactions, pass an explicit
+// blur operator via WithPixelator (e.g. defaults.GaussianBlur(sigma)) to get a
+// single-sigma faithful score — otherwise distances may be high for every
+// candidate and nothing will Match.
 func Verify(ctx context.Context, img image.Image, candidates []string, opts ...Option) ([]Verdict, error) {
 	if img == nil {
 		return nil, ErrNilImage
