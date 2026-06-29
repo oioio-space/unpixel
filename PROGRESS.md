@@ -1256,3 +1256,7 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `decf597` 2026-06-29 — fix(unpixel): extend Guard 1 grid veto to ambiguous meta band + lowest-Dist trialResults _(2 fichiers)_
 - `bfaea35` 2026-06-29 — test(forensics): calibrate meta band + cover zoo/meta paths _(3 fichiers)_
 - `ad7f9c7` 2026-06-29 — docs(unpixel): abstract meta-band const narrative (final-review Important) _(1 fichiers)_
+- `6c21a81` 2026-06-29 — docs(roadmap): mark #1B operator-zoo + meta-strategy complete _(1 fichiers)_
+- `b010e8b` 2026-06-29 — fix(ci): make perspective-gating test self-contained (no gitignored wild fixture) _(1 fichiers)_
+- `065b724` 2026-06-29 — docs(spec): #1 leak pre-pass design _(1 fichiers)_
+- `174517d` 2026-06-29 — docs(plan): implementation plan for #1 leak pre-pass _(1 fichiers)_
