@@ -126,12 +126,6 @@ func Scan(path string, opts Options) (Result, bool, error) {
 	}
 }
 
-// officeText attempts to extract body text from an OOXML document (docx/pptx).
-// It is a stub; the real implementation lands in Task 4.
-func officeText(data []byte) (Result, bool) {
-	return Result{}, false
-}
-
 // partial surfaces caller-supplied visible text when the image contains a
 // plausible solid redaction block.
 // It is a stub; the real implementation lands in Task 5.
