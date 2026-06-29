@@ -1230,3 +1230,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `9da5971` 2026-06-29 — feat(mcp): analyze reports the detected forward operator (forensics) _(3 fichiers)_
 - `0bc79d4` 2026-06-29 — fix(mcp): omitzero on DetectedOperator.Confidence + spelling _(2 fichiers)_
 - `a4dd18f` 2026-06-29 — test(fingerprint): add §2.3 auto-vs-manual blur recovery test _(2 fichiers)_
+- `191e501` 2026-06-29 — fix(unpixel): delegate Recover+WithAuto() to RecoverBlurred on blur detection _(3 fichiers)_

@@ -130,15 +130,11 @@ func TestRecover_autoFingerprintInstallsLinear(t *testing.T) {
 // has high confidence on it, so WithAuto() should reliably route to the blur
 // path, and it completes in < 5 s on any CI box.
 //
-// NOTE (2026-06): This test currently FAILS. When WithAuto() is set, Recover
-// detects the blur operator via applyAutoFingerprint and installs a
-// GaussianBlur pixelator, but then continues through the standard mosaic search
-// engine (no beam search, no σ-sweep). RecoverBlurred, by contrast, uses a
-// beam-search strategy and a coarse+fine σ-sweep. The two paths produce
-// different BestGuess values ("a" vs "go"). The failure surfaces a real
-// architectural gap: Recover+WithAuto does not yet delegate to RecoverBlurred
-// when a blur operator is detected. This requires a follow-up fix (route
-// autoBlur-detected images through RecoverBlurred inside Recover).
+// Success criterion §2.3: when WithAuto() detects a Gaussian-blur redaction,
+// Recover must delegate to the dedicated blur pipeline (beam search + σ-sweep)
+// rather than run the mosaic engine — so it yields the same BestGuess as a
+// manual RecoverBlurred call. Recover routes confident KindBlur inputs through
+// RecoverBlurred for exactly this reason.
 func TestRecover_autoEqualsManualBlur(t *testing.T) {
 	const (
 		fixturePath = "testdata/blur/blur_go_s2.png"
@@ -187,7 +183,7 @@ func TestRecover_autoEqualsManualBlur(t *testing.T) {
 
 	// §2.3 criterion: the auto path must recover the same text as the manual
 	// blur path. A mismatch means WithAuto() does not fully delegate to the blur
-	// recovery pipeline (see NOTE above).
+	// recovery pipeline.
 	if resAuto.BestGuess != resManual.BestGuess {
 		t.Errorf("§2.3 gap: Recover+WithAuto BestGuess=%q, RecoverBlurred BestGuess=%q — auto path does not delegate to the blur pipeline",
 			resAuto.BestGuess, resManual.BestGuess)
