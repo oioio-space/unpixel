@@ -1220,3 +1220,5 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `864acd7` 2026-06-29 — perf(journal): right-size best-config budget 90s->30s — journal -32%, exact-match preserved _(2 fichiers)_
 - `8826a26` 2026-06-29 — feat(mcp): ensemble combines engine + zero-config mosaic via fidelity gate _(3 fichiers)_
 - `468550f` 2026-06-29 — docs(journal): refresh trend analysis through v0.17.0+dev (6ecdcbd) _(1 fichiers)_
+- `7e8f8f5` 2026-06-29 — docs(roadmap): program to unblock decoding + spec for #2 fingerprint-operator _(2 fichiers)_
+- `21358c0` 2026-06-29 — docs(plan): implementation plan for #2 fingerprint-operator _(1 fichiers)_
