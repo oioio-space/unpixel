@@ -350,8 +350,10 @@ type verifyInput struct {
 	Candidates []string `json:"candidates" jsonschema:"Candidate strings to verify against the mosaic"`
 	// BlockSize overrides auto-detected block size (0 = auto).
 	BlockSize int `json:"block_size,omitzero" jsonschema:"Override block size in pixels (0 = auto-detect)"`
-	// Charset is recorded for context but not used for scoring.
-	Charset string `json:"charset,omitzero" jsonschema:"Charset hint (informational only for this tool)"`
+	// Charset restricts the rendering alphabet of the faithful scoring model
+	// (forwarded as WithCharset). Empty = engine default. Supplying the charset
+	// from analyze/propose_hints sharpens the decisive match.
+	Charset string `json:"charset,omitzero" jsonschema:"Charset forwarded to the scoring model to restrict the rendering alphabet (empty = default)"`
 }
 
 // RankedCandidate is one scored entry in VerifyReport.Ranked.
