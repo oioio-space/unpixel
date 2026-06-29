@@ -320,6 +320,17 @@ func TestMosaicBuild_smallBlock(t *testing.T) {
 	}
 }
 
+// TestDetectSignature_unknownKind verifies that a zero-size image produces
+// KindUnknown. DetectBlur returns BlurKindUnknown (zero-value BlurInfo) for
+// degenerate inputs, exercising the detectSignature default branch.
+func TestDetectSignature_unknownKind(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 0, 0)) // zero-size → BlurKindUnknown
+	op := detectSignature(img, Hint{Block: 8})
+	if op.Kind != KindUnknown {
+		t.Errorf("detectSignature on zero-size image: Kind = %v, want KindUnknown", op.Kind)
+	}
+}
+
 var sinkOp Operator
 
 func BenchmarkFingerprint(b *testing.B) {

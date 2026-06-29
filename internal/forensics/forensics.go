@@ -13,7 +13,9 @@
 package forensics
 
 import (
+	"cmp"
 	"image"
+	"slices"
 
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
@@ -133,6 +135,83 @@ type Pixelator interface {
 	Pixelate(img *image.RGBA, originX, originY int) *image.RGBA
 }
 
+// FingerprintN ranks the whole tool zoo against img, most-likely first.
+// It is search-free (no candidate render). The returned Operators carry the
+// observed Block/Sigma and a per-operator Conf reflecting agreement with the
+// detected signature. Profiles that resolve to the same operator config are
+// deduplicated. FingerprintN(img, hint)[0] equals Fingerprint(img, hint).
+//
+// Ranking uses a two-key sort: first by structural match score (2 = full
+// Kind+Gamma/Kernel match, 1 = Kind-only, 0 = mismatch), then by real
+// detection confidence (Conf.Kind desc, Conf.Gamma desc). Conf values are
+// never inflated — the matched profile carries the exact observed Conf.
+func FingerprintN(img image.Image, hint Hint) []Operator {
+	rgba := imutil.ToRGBA(img)
+	observed := detectSignature(rgba, hint)
+
+	// Dedup: first profile per configKey wins (Zoo() order is stable).
+	seen := map[string]bool{}
+	type ranked struct {
+		op    Operator
+		score int // structural match score: 2 full, 1 kind-only, 0 mismatch
+	}
+	var entries []ranked
+	for _, p := range Zoo() {
+		key := p.configKey(observed.Block, observed.Sigma)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		op := Operator{
+			Kind:   p.Kind,
+			Gamma:  p.Gamma,
+			Kernel: p.Kernel,
+			Tool:   p.Tool,
+			Block:  observed.Block,
+			Sigma:  observed.Sigma,
+		}
+		op.Conf = scoreConf(p, observed)
+		entries = append(entries, ranked{op: op, score: structuralScore(p, observed)})
+	}
+
+	// Sort: structural match score desc, then Conf.Kind desc, then Conf.Gamma desc.
+	slices.SortFunc(entries, func(a, b ranked) int {
+		return cmp.Or(
+			cmp.Compare(b.score, a.score),
+			cmp.Compare(b.op.Conf.Kind, a.op.Conf.Kind),
+			cmp.Compare(b.op.Conf.Gamma, a.op.Conf.Gamma),
+		)
+	})
+
+	ops := make([]Operator, len(entries))
+	for i, e := range entries {
+		ops[i] = e.op
+	}
+	return ops
+}
+
+// structuralScore returns how closely profile p matches the observed signature:
+// 2 = Kind AND (Gamma for mosaic / Kernel for blur) both match;
+// 1 = Kind matches only;
+// 0 = Kind mismatch.
+func structuralScore(p Profile, observed Operator) int {
+	if p.Kind != observed.Kind {
+		return 0
+	}
+	switch p.Kind {
+	case KindMosaic:
+		if p.Gamma == observed.Gamma {
+			return 2
+		}
+	case KindBlur:
+		if p.Kernel == observed.Kernel {
+			return 2
+		}
+	}
+	return 1
+}
+
 // Fingerprint analyses img and returns the best-effort detected operator.
 // hint.Block is taken as-is (caller-inferred, e.g. via unpixel.InferBlockSize).
 //
@@ -140,10 +219,18 @@ type Pixelator interface {
 //   - [pixelate.DetectBlur] classifies mosaic vs. blur, estimates sigma/kernel.
 //   - For mosaic with hint.Block ≥ 2, [pixelate.DetectColorspace] distinguishes
 //     sRGB from linear-light averaging.
-//   - Tool is set heuristically: "GEGL/CSS" for linear+box3, "Photoshop/GIMP"
-//     for sRGB mosaic; empty when unrecognised.
+//   - Tool is the name of the first matching zoo profile for the detected
+//     signature ("GEGL", "Photoshop", etc. — see [Zoo]); empty when unrecognised.
+//
+// Fingerprint is the singular form of [FingerprintN]: it returns the top-ranked
+// (best-matching) operator, i.e. FingerprintN(img, hint)[0].
 func Fingerprint(img image.Image, hint Hint) Operator {
-	rgba := imutil.ToRGBA(img)
+	return FingerprintN(img, hint)[0]
+}
+
+// detectSignature runs the detectors and returns the observed operator. This is
+// the single detection pass shared by Fingerprint and FingerprintN.
+func detectSignature(rgba *image.RGBA, hint Hint) Operator {
 	bi := pixelate.DetectBlur(rgba, hint.Block)
 
 	op := Operator{
@@ -155,7 +242,7 @@ func Fingerprint(img image.Image, hint Hint) Operator {
 	switch bi.Kind {
 	case pixelate.BlurKindMosaic:
 		op.Kind = KindMosaic
-		op.Kernel = KernelUnknown // kernel not meaningful for mosaic
+		op.Kernel = KernelUnknown
 		if hint.Block >= 2 {
 			linear, gconf := pixelate.DetectColorspace(rgba, hint.Block)
 			op.Conf.Gamma = gconf
@@ -175,6 +262,41 @@ func Fingerprint(img image.Image, hint Hint) Operator {
 	}
 
 	return op
+}
+
+// kindMatchPenalty is the Conf.Kind multiplier when a profile's Kind differs
+// from the observed Kind. A mismatch is strongly penalised so mismatched
+// operators sort below the observed one via structuralScore, but remain in the
+// ranked list for meta-strategy use.
+const kindMatchPenalty = 0.1
+
+// scoreConf returns the Conf for a zoo profile against the observed signature.
+// Matching attributes inherit the real observed confidence unchanged; mismatches
+// are penalised. Ranking precedence for identical-Kind profiles is handled by
+// structuralScore (a separate sort key), not by inflating Conf — so Build's
+// threshold gate always sees the true detector confidence.
+func scoreConf(p Profile, observed Operator) Conf {
+	c := Conf{Sigma: observed.Conf.Sigma}
+
+	if p.Kind != observed.Kind {
+		c.Kind = observed.Conf.Kind * kindMatchPenalty
+		return c
+	}
+
+	c.Kind = observed.Conf.Kind
+	if p.Kind != KindMosaic {
+		return c
+	}
+
+	// Gamma: exact match inherits real confidence; mismatch is penalised.
+	// No floor/inflation — structuralScore handles sort priority instead.
+	if p.Gamma == observed.Gamma {
+		c.Gamma = observed.Conf.Gamma
+	} else {
+		c.Gamma = observed.Conf.Gamma * kindMatchPenalty
+	}
+
+	return c
 }
 
 // Build constructs the forward pixelator for o when detection was confident
@@ -205,6 +327,15 @@ func (o Operator) Build(threshold float64) (Pixelator, bool) {
 		return nil, false
 	}
 }
+
+// coherence returns the combined coherence signal used by [Select]'s
+// disagreement tiebreak: Conf.Kind + Conf.Gamma.
+//
+// For same-Kind mosaic candidates Conf.Kind is equal, so coherence differs by
+// Conf.Gamma — the gamma-match discriminator. For blur candidates Conf.Gamma
+// is 0 for all profiles, so coherence reduces to Conf.Kind (unchanged
+// behavior). The combined score is always in [0, 2].
+func (o Operator) coherence() float64 { return o.Conf.Kind + o.Conf.Gamma }
 
 // mapKernel converts a pixelate.BlurKernel to the local Kernel type.
 func mapKernel(k pixelate.BlurKernel) Kernel {
