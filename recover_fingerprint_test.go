@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
@@ -181,19 +182,16 @@ func TestRecover_autoDoesNotMisrouteMosaicScreenshot(t *testing.T) {
 			// If Guard 1 does not fire, Guard 2 requires Conf.Kind ≥ 0.95.
 			// For a mosaic screenshot, Conf.Kind < 0.95 (sharp surround depresses it),
 			// so delegation must NOT occur.
-			cfg := Config{}
-			WithAuto()(&cfg)
-			if cfg.autoBlur && cfg.Pixelator == nil && !gridOK {
-				// Guard 1 did not fire; Guard 2 must prevent delegation.
-				// We cannot call forensics.Fingerprint directly (internal package),
-				// but we can assert the observable outcome: blur delegation would
-				// only fire if Conf.Kind were ≥ 0.95. For a mosaic screenshot, the
-				// sharp-text surround depresses Conf.Kind below that ceiling.
-				// This assertion documents the contract; it will fail if the fixture
-				// is ever re-generated as a tight crop (which would be a fixture bug).
-				t.Logf("Guard 1 did not fire for %s — Guard 2 (Conf<0.95) is the active veto", tc.path)
-			} else if gridOK {
-				t.Logf("Guard 1 (exact grid) fired correctly for %s — delegation vetoed", tc.path)
+			// Mirror the exact predicate Recover uses to decide blur delegation
+			// (unpixel.go): delegate only when no exact grid is found (Guard 1)
+			// AND DetectBlur is highly confident it is blur (Guard 2, ≥ 0.95).
+			// Asserting the composed predicate is false catches a regression in
+			// EITHER guard — e.g. lowering the 0.95 threshold below marx's 0.87.
+			op := forensics.Fingerprint(imutil.ToRGBA(img), forensics.Hint{Block: 0})
+			wouldDelegate := !gridOK && op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.95
+			if wouldDelegate {
+				t.Errorf("%s would misroute to blur: gridOK=%v, Kind=%v, Conf.Kind=%.2f — %s",
+					tc.path, gridOK, op.Kind, op.Conf.Kind, tc.description)
 			}
 		})
 	}
