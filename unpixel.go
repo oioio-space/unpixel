@@ -1552,6 +1552,15 @@ var DefaultLocateMosaicBand func(img *image.RGBA) (image.Rectangle, bool)
 // defaults.
 var DefaultConstrainedStrategy func(prefix string) Strategy
 
+// DefaultVerifyCore is a hook populated by importing the defaults package for
+// its side-effect. It scores each candidate string against the already-prepped
+// rgba image using the faithful forward model (PipelineScorer + DiscoverOffsets)
+// and returns one Verdict per candidate, in input order. Verify delegates the
+// search-package work to this hook to avoid an import cycle between the root
+// package and internal/search (which imports the root package itself).
+// A nil hook causes Verify to return ErrNoComponents.
+var DefaultVerifyCore func(ctx context.Context, rgba *image.RGBA, cfg Config, candidates []string) ([]Verdict, error)
+
 // Run starts the search and returns a progress channel and a results channel.
 // The progress channel carries Progress events and is closed after EventDone is
 // delivered. The results channel receives one Result per surviving grid offset

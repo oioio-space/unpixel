@@ -5,7 +5,16 @@
 //     detection, colorspace, blur estimation, font size, redaction bounding box, and
 //     a heuristic recommended decoder.
 //   - unpixel_verify_candidates — scores a list of known candidate strings against
-//     an observed mosaic and returns them ranked by image distance (lowest = best).
+//     an observed mosaic using the faithful forward model (render→re-pixelate→metric,
+//     calibrated like Recover) and returns them ranked by image distance. The result
+//     is now decisive: each candidate carries a Match flag (distance <
+//     [unpixel.VerifyMatchThreshold]) and Pick is set to the lowest-distance
+//     confident match, or empty when no candidate meets the threshold.
+//   - unpixel_propose_hints — aggregates hints for the LLM propose→physics-verify
+//     loop: estimated character count, detected block size and font size, optional
+//     redaction bounding box, a coarse charset suggestion, and any plaintext leaked
+//     from file metadata (PDF text streams, Office body text). Call this before
+//     unpixel_verify_candidates to guide candidate generation.
 //   - unpixel_decode — recovers hidden text from a pixelated or blurred redaction
 //     using one of thirteen decoder methods (auto, mosaic, blurred, mono-hmm,
 //     window-hmm, trained-hmm, did, varfont, perspective, reference, blind,
@@ -52,7 +61,6 @@ import (
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/rectify"
-	"github.com/oioio-space/unpixel/mosaictext"
 )
 
 // NewServer builds an MCP server with all UnPixel tools and resources
@@ -74,6 +82,7 @@ func NewServer(version string) *mcpsdk.Server {
 	mcpsdk.AddTool(srv, toolRankFonts, handleRankFonts)
 	mcpsdk.AddTool(srv, toolCalibrate, handleCalibrate)
 	mcpsdk.AddTool(srv, toolLeakScan, handleLeakScan)
+	mcpsdk.AddTool(srv, toolProposeHints, handleProposeHints)
 
 	// Resources.
 	registerResources(srv)
@@ -97,8 +106,12 @@ var toolAnalyze = &mcpsdk.Tool{
 var toolVerify = &mcpsdk.Tool{
 	Name: "unpixel_verify_candidates",
 	Description: "Scores a list of candidate strings against a mosaic-pixelated image " +
-		"by rendering each candidate, re-pixelating it, and measuring image distance. " +
-		"Returns the candidates ranked from best (lowest distance) to worst, plus a margin.",
+		"using the faithful forward model (render→re-pixelate→metric, calibrated like Recover). " +
+		"Returns candidates ranked from best (lowest distance) to worst, a margin, and a " +
+		"decisive pick: the lowest-distance candidate whose distance is below " +
+		"VerifyMatchThreshold (a confident physical match). Pick is empty when no candidate " +
+		"meets the threshold. Supply charset and block_size from unpixel_propose_hints or " +
+		"unpixel_analyze to sharpen discrimination.",
 }
 
 // analyzeInput is the JSON-decoded input for unpixel_analyze.
@@ -351,8 +364,10 @@ type verifyInput struct {
 	Candidates []string `json:"candidates" jsonschema:"Candidate strings to verify against the mosaic"`
 	// BlockSize overrides auto-detected block size (0 = auto).
 	BlockSize int `json:"block_size,omitzero" jsonschema:"Override block size in pixels (0 = auto-detect)"`
-	// Charset is recorded for context but not used for scoring.
-	Charset string `json:"charset,omitzero" jsonschema:"Charset hint (informational only for this tool)"`
+	// Charset restricts the rendering alphabet of the faithful scoring model
+	// (forwarded as WithCharset). Empty = engine default. Supplying the charset
+	// from analyze/propose_hints sharpens the decisive match.
+	Charset string `json:"charset,omitzero" jsonschema:"Charset forwarded to the scoring model to restrict the rendering alphabet (empty = default)"`
 }
 
 // RankedCandidate is one scored entry in VerifyReport.Ranked.
@@ -361,17 +376,24 @@ type RankedCandidate struct {
 	Text string `json:"text"`
 	// Distance is the whole-image pixel distance in [0,1] (lower is better).
 	Distance float64 `json:"distance"`
+	// Match reports whether Distance is below [unpixel.VerifyMatchThreshold],
+	// indicating a confident physical match.
+	Match bool `json:"match"`
 }
 
 // VerifyReport is the output of unpixel_verify_candidates.
 type VerifyReport struct {
 	// Ranked lists all scored candidates in ascending distance order.
 	Ranked []RankedCandidate `json:"ranked"`
-	// Best is the text of the top-ranked candidate.
+	// Best is the text of the top-ranked candidate (lowest distance).
 	Best string `json:"best"`
 	// Margin is the distance gap between the 2nd-best and best candidates
 	// (0 when fewer than two candidates were provided).
 	Margin float64 `json:"margin"`
+	// Pick is the lowest-distance candidate whose Match is true (a confident
+	// physical match per [unpixel.VerifyMatchThreshold]). Empty when no
+	// candidate meets the threshold.
+	Pick string `json:"pick"`
 }
 
 // handleVerify is the tool handler for unpixel_verify_candidates.
@@ -385,7 +407,7 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 		return errResult(fmt.Errorf("unpixel_verify_candidates: load image: %w", err)), VerifyReport{}, nil
 	}
 
-	report, err := VerifyCandidates(ctx, img, in.Candidates, in.BlockSize)
+	report, err := VerifyCandidates(ctx, img, in.Candidates, in.BlockSize, in.Charset)
 	if err != nil {
 		return errResult(fmt.Errorf("unpixel_verify_candidates: %w", err)), VerifyReport{}, nil
 	}
@@ -393,34 +415,53 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 }
 
 // VerifyCandidates scores each candidate string against the observed mosaic in
-// img and returns them ranked by ascending image distance. blockSize is ignored
-// (kept for API compatibility) — block size, colorspace, font size, and grid
-// phase are all inferred from the image by [mosaictext.ScoreCandidates], which
-// runs the same auto-calibration as [mosaictext.Decode].
+// img using [unpixel.Verify]'s faithful forward model (render→re-pixelate→metric,
+// calibrated like Recover) and returns a [VerifyReport] with candidates ranked by
+// ascending image distance.
 //
-// Scoring: for each candidate the calibrated forward model
+// blockSize pins the mosaic block size in pixels (0 = auto-detect). charset
+// restricts the rendering alphabet (empty = default). Both are forwarded to
+// [unpixel.Verify] as [unpixel.WithBlockSize] and [unpixel.WithCharset] when
+// non-zero/non-empty, so the LLM propose→verify flow can pass the block and
+// charset discovered by unpixel_analyze / unpixel_propose_hints.
 //
-//	rendered(candidate) → pixelate(block, colorspace) → mseRGB(observed)
-//
-// is evaluated once. This is byte-identical to the inner scoring loop of
-// [mosaictext.Decode], so the winner here will match what Decode recovers.
-func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, _ int) (VerifyReport, error) {
-	dists, err := mosaictext.ScoreCandidates(ctx, img, candidates)
+// Pick is set to the lowest-distance candidate whose [unpixel.Verdict.Match] is
+// true; it is empty when no candidate meets [unpixel.VerifyMatchThreshold].
+func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, blockSize int, charset string) (VerifyReport, error) {
+	var opts []unpixel.Option
+	if blockSize > 0 {
+		opts = append(opts, unpixel.WithBlockSize(blockSize))
+	}
+	if charset != "" {
+		opts = append(opts, unpixel.WithCharset(charset))
+	}
+
+	verdicts, err := unpixel.Verify(ctx, img, candidates, opts...)
 	if err != nil {
 		return VerifyReport{}, fmt.Errorf("score candidates: %w", err)
 	}
 
-	ranked := make([]RankedCandidate, len(candidates))
-	for i, c := range candidates {
-		ranked[i] = RankedCandidate{Text: c, Distance: dists[i]}
+	ranked := make([]RankedCandidate, len(verdicts))
+	for i, v := range verdicts {
+		ranked[i] = RankedCandidate{Text: v.Text, Distance: v.Distance, Match: v.Match}
 	}
 	slices.SortFunc(ranked, func(a, b RankedCandidate) int {
 		return cmp.Compare(a.Distance, b.Distance)
 	})
 
-	report := VerifyReport{Ranked: ranked, Best: ranked[0].Text}
+	report := VerifyReport{Ranked: ranked}
+	if len(ranked) > 0 {
+		report.Best = ranked[0].Text
+	}
 	if len(ranked) >= 2 {
 		report.Margin = ranked[1].Distance - ranked[0].Distance
+	}
+	// Pick: lowest-distance candidate with a confident physical match.
+	for _, rc := range ranked {
+		if rc.Match {
+			report.Pick = rc.Text
+			break
+		}
 	}
 	return report, nil
 }

@@ -83,7 +83,7 @@ func TestVerifyCandidates_ranking(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy", "zz"}, 8)
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy", "zz"}, 8, "")
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -106,15 +106,21 @@ func TestVerifyCandidates_ranking(t *testing.T) {
 // correct answer scores strictly lower than all decoys (margin > 0). This is
 // the missing coverage that exposed the zero-config bug: the old scorer returned
 // distance≈1 for every candidate, so margin was always 0.
+//
+// Block size and charset are supplied explicitly (from the fixture manifest) so
+// that the faithful forward model scores decisively even on small images where
+// auto-detection is weak.
 func TestVerifyCandidates_discrimination(t *testing.T) {
 	tests := []struct {
 		fixture string
 		correct string
 		decoys  []string
+		block   int
+		charset string
 	}{
-		{"block08_go.png", "go", []string{"zz", "qq"}},
-		{"text_cat.png", "cat", []string{"zzz", "abc"}},
-		{"alnum_Go2.png", "Go2", []string{"zzz", "xyz"}},
+		{"block08_go.png", "go", []string{"zz", "qq"}, 8, "abcdefghijklmnopqrstuvwxyz "},
+		{"text_cat.png", "cat", []string{"zzz", "abc"}, 8, "cat eoabd"},
+		{"alnum_Go2.png", "Go2", []string{"zzz", "xyz"}, 8, "Go2 abc019"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.fixture, func(t *testing.T) {
@@ -125,7 +131,7 @@ func TestVerifyCandidates_discrimination(t *testing.T) {
 			}
 
 			all := append([]string{tc.correct}, tc.decoys...)
-			report, err := mcpserver.VerifyCandidates(ctx, img, all, 0)
+			report, err := mcpserver.VerifyCandidates(ctx, img, all, tc.block, tc.charset)
 			if err != nil {
 				t.Fatalf("VerifyCandidates: %v", err)
 			}
@@ -174,7 +180,9 @@ func TestVerifyCandidates_digits(t *testing.T) {
 	}
 
 	candidates := []string{"1234567", "7654321", "0000000", "9999999"}
-	report, err := mcpserver.VerifyCandidates(ctx, img, candidates, 0)
+	// block=8 and charset from the fixture manifest; auto-detection is weak on
+	// small sick-caption images and the faithful model needs the hint to discriminate.
+	report, err := mcpserver.VerifyCandidates(ctx, img, candidates, 8, "0123456789")
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -214,7 +222,7 @@ func TestVerifyCandidates_margin(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy"}, 8)
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy"}, 8, "")
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -234,7 +242,7 @@ func TestVerifyCandidates_singleCandidate(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go"}, 8)
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go"}, 8, "")
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}

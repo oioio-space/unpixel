@@ -60,6 +60,36 @@ func init() {
 	unpixel.DefaultConstrainedStrategy = func(prefix string) unpixel.Strategy {
 		return constrainedGuidedStrategy{prefix: prefix}
 	}
+	unpixel.DefaultVerifyCore = verifyCore
+}
+
+// verifyCore implements the DefaultVerifyCore hook. It builds a CachingScorer
+// from the already-prepped rgba and cfg, discovers valid grid offsets, and
+// scores each candidate at its best (minimum-distance) offset.
+func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candidates []string) ([]unpixel.Verdict, error) {
+	scorer := search.NewCachingScorer(search.NewPipelineScorer(rgba, cfg), cfg.CacheSize)
+	offsets := search.DiscoverOffsets(ctx, scorer, cfg, func(unpixel.Progress) {})
+
+	// Fall back to the zero offset when none survive the threshold gate.
+	if len(offsets) == 0 {
+		offsets = []unpixel.Offset{{}}
+	}
+
+	verdicts := make([]unpixel.Verdict, len(candidates))
+	for i, cand := range candidates {
+		dist := 1.0
+		for _, off := range offsets {
+			if d := scorer.TotalScore(ctx, cand, off); d < dist {
+				dist = d
+			}
+		}
+		verdicts[i] = unpixel.Verdict{
+			Text:     cand,
+			Distance: dist,
+			Match:    dist < unpixel.VerifyMatchThreshold,
+		}
+	}
+	return verdicts, nil
 }
 
 // Wire fills any nil component fields in cfg with the standard implementations.
