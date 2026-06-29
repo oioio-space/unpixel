@@ -59,9 +59,11 @@ Unités à rôle unique, testables isolément :
    Les combinaisons déjà couvertes (mosaïque sRGB/linéaire, gaussienne clamp, box-3) réutilisent
    l'existant.
 
-4. **Méta-stratégie sécurisée** — `internal/forensics/meta.go` (logique pure, testable) + un mince
-   point d'appel dans `Recover`. Décision bandée → exécuter le top-2 via le moteur existant →
-   contrôle d'auto-cohérence → gagnant | abstention.
+4. **Méta-stratégie sécurisée** — `internal/forensics/meta.go` (logique PURE, testable sans le
+   moteur). Décision bandée + sélection sécurisée (seuil distance + accord croisé + départage
+   cohérence + abstention). Elle prend les candidats déjà décodés en entrée (le caller fournit le
+   `(texte, distance)` par opérateur), donc `meta.go` n'importe PAS le moteur (pas de cycle) et se
+   teste avec des candidats synthétiques. Un mince point d'appel dans `Recover` fournit le décodage.
 
 ## 4. Flot de contrôle (sélection sécurisée)
 
@@ -73,23 +75,38 @@ case conf(rank[0]) >= 0.95:                // confiant → mono-opérateur (#2, 
 case conf(rank[0]) < floor (~0.3):         // trop incertain → repli sûr (défaut, inchangé)
     return default
 default:                                    // bande ambiguë
-    cands := rank[:2]
-    for op := range cands {
-        text, dist := engine.run(op)                          // <= 2x recherche
-        reproduced := Fingerprint(op.apply(render(text)))     // re-fingerprint
-        coherent   := signatureMatches(reproduced, observed) && dist < distThreshold
+    t0, d0 := engine.run(rank[0])           // <= 2x recherche
+    t1, d1 := engine.run(rank[1])
+    eligible := {(op,t,d) : d < distThreshold}   // seuil de distance DUR
+    switch {
+    case len(eligible) == 0:               ABSTAIN -> repli
+    case t0 == t1 (et au moins un eligible): winner = ce texte (HAUTE confiance)
+    case marge de cohérence décisive:       winner = op le plus cohérent parmi eligible
+    default:                                ABSTAIN -> repli
     }
-    winner := argmin dist parmi {coherent}  ;  sinon ABSTAIN -> repli
 }
 ```
 
-- **Auto-cohérence** : `signatureMatches` compare la signature de la reconstruction (gamma, kind,
-  σ/block à tolérance) à l'opérateur OBSERVÉ. Un mauvais opérateur échoue ce test même à distance
-  basse → c'est ce qui bloque le « faux avec assurance ».
+**Sécurisation (le cœur — pourquoi pas `argmin(distance)`)** : un mauvais opérateur peut atteindre
+une distance basse avec un texte faux. Les deux signaux qui portent réellement l'information sont :
+
+1. **Seuil de distance dur** : un candidat n'est éligible que si sa distance passe sous un seuil
+   absolu (sinon il « ne marche pas »).
+2. **Accord croisé du texte** : si DEUX modèles directs différents recouvrent la MÊME chaîne, c'est
+   une preuve forte qu'elle est correcte (deux forward models indépendants qui concordent).
+3. **Départage par cohérence** (seulement en cas de désaccord) : préférer l'opérateur dont la
+   signature colle le mieux à l'image observée, **uniquement si la marge de cohérence est décisive**.
+   Sinon **abstention**.
+
+> Note de conception : le re-fingerprint d'une reconstruction (`Fingerprint(op.apply(render(text)))`)
+> a été **écarté** car redondant avec le classement — `op.apply(...)` porte par construction la
+> signature de `op`, donc le test se réduit à la cohérence déjà mesurée et ne capte pas le
+> faux-confiant. L'accord croisé est le signal indépendant.
+
 - **Abstention** = repli sur le meilleur candidat à basse confiance OU le défaut, AVEC une
   confiance basse dans le `Result` (jamais une fidélité haute trompeuse).
-- Le `floor` (~0.3) et `distThreshold` sont des constantes calibrées + commentées, ajustées sur
-  les fixtures de round-trip.
+- `floor` (~0.3), `distThreshold`, et la marge de cohérence sont des constantes calibrées +
+  commentées, ajustées sur les fixtures de round-trip.
 
 ## 5. Intégration & compatibilité
 
@@ -125,7 +142,7 @@ default:                                    // bande ambiguë
 ## 8. Risques & parades
 
 - **Coût 2×** → borné à la bande seulement ; classement sans recherche ; benchstat.
-- **Auto-cohérence trop stricte → abstention excessive** → tolérances calibrées sur round-trip ;
+- **Sélection trop stricte → abstention excessive** → seuils calibrés sur round-trip ;
   l'abstention retombe sur le meilleur candidat à basse confiance (pas pire que #2).
 - **Zoo dupliqué** → dédup par config à la construction (la décision de design clé).
 - **Invariant panel** → la bande ne s'active pas sur entrées confiantes ; test de non-régression.
