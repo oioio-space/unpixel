@@ -2,7 +2,8 @@ package leak
 
 import (
 	"bytes"
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	pdflib "rsc.io/pdf"
@@ -16,6 +17,16 @@ const maxPDFPages = 50
 // takes ~20 pt of height, so a 2×text-height strip across a page
 // (≈ 400 × 40 = 16 000 pt²) is a conservative minimum.
 const minRectArea = 400.0
+
+// DoS bounds against crafted PDFs with enormous operator counts. rsc.io/pdf
+// allocates Content().Text/Rect itself, but we cap the work we do over them
+// (the O(boxes×glyphs) scan) and the recovered output so a hostile file cannot
+// blow up CPU/memory here.
+const (
+	maxBoxesPerPage  = 1024
+	maxGlyphsPerPage = 200_000
+	maxLeakedBytes   = 64 << 10 // 64 KiB of recovered text is far more than any redaction
+)
 
 // pdfText recovers text that lies beneath filled rectangles in a PDF.
 //
@@ -43,8 +54,10 @@ func pdfText(data []byte) (res Result, found bool) {
 	nPages := min(r.NumPage(), maxPDFPages)
 	for i := range nPages {
 		content := r.Page(i + 1).Content()
-		pageText := textUnderRects(content)
-		leaked.WriteString(pageText)
+		leaked.WriteString(textUnderRects(content))
+		if leaked.Len() >= maxLeakedBytes {
+			break // enough recovered; bound output against hostile inputs
+		}
 	}
 
 	text := leaked.String()
@@ -61,22 +74,28 @@ func pdfText(data []byte) (res Result, found bool) {
 // textUnderRects returns all text from content whose baseline falls inside
 // any rectangle large enough to be a redaction box.
 func textUnderRects(content pdflib.Content) string {
-	// Filter to plausible redaction boxes.
+	// Filter to plausible redaction boxes (bounded against hostile inputs).
 	var boxes []pdflib.Rect
 	for _, rect := range content.Rect {
 		w := rect.Max.X - rect.Min.X
 		h := rect.Max.Y - rect.Min.Y
 		if w > 0 && h > 0 && w*h >= minRectArea {
 			boxes = append(boxes, rect)
+			if len(boxes) >= maxBoxesPerPage {
+				break
+			}
 		}
 	}
 	if len(boxes) == 0 {
 		return ""
 	}
 
-	// Collect glyphs inside any box.
+	// Collect glyphs inside any box (cap the scan against huge text streams).
 	var inside []pdflib.Text
-	for _, t := range content.Text {
+	for i, t := range content.Text {
+		if i >= maxGlyphsPerPage {
+			break
+		}
 		if insideAny(t, boxes) {
 			inside = append(inside, t)
 		}
@@ -85,8 +104,10 @@ func textUnderRects(content pdflib.Content) string {
 		return ""
 	}
 
-	// Sort left-to-right (TextHorizontal implements sort.Interface).
-	sort.Sort(pdflib.TextHorizontal(inside))
+	// Sort left-to-right, then top-to-bottom on ties (matches TextHorizontal).
+	slices.SortFunc(inside, func(a, b pdflib.Text) int {
+		return cmp.Or(cmp.Compare(a.X, b.X), cmp.Compare(b.Y, a.Y))
+	})
 
 	var sb strings.Builder
 	for _, t := range inside {
