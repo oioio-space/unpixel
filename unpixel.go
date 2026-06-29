@@ -602,11 +602,14 @@ func applyAutoFingerprint(cfg *Config, rgba *image.RGBA) {
 // top-2 operators (when they share the same Kind — see critical note in Recover)
 // and uses forensics.Select to pick a winner or abstain.
 //
-// Calibration (Task 6): DetectBlur assigns Conf.Kind=0.664 to all 17 panel
-// mosaic fixtures (block04 is detected as blur at 1.000) and Conf.Kind=1.000 to
-// all blur fixtures. Panel fixtures decode via WithBlockSize (not WithAuto), so
-// the meta-band fires only in genuine ambiguous cases — the panel invariant holds
-// regardless of where the mosaic fixtures land relative to the band.
+// These thresholds are calibrated against the fixture corpus; the observed
+// per-fixture Conf.Kind distribution and the chosen values' rationale are
+// recorded in docs/superpowers/plans/task-1b-6-report.md (kept out of this
+// comment so it cannot silently drift as fixtures or the detector change).
+//
+// The panel invariant holds independently of where any fixture lands relative
+// to the band: panel fixtures decode via an explicit pixelator (WithBlockSize),
+// which bypasses this WithAuto-only block entirely.
 const (
 	// metaBandLow is the minimum Conf.Kind to attempt detection at all.
 	// Chosen below the observed mosaic floor (0.664); inputs with less structure
