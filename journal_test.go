@@ -133,7 +133,12 @@ type journalRun struct {
 
 const (
 	journalTimeoutZero = 30 * time.Second
-	journalTimeoutBest = 90 * time.Second
+	// 30s (was 90s): right-sized from measured data — every DECODABLE best-config
+	// decode finishes ≤10.4s (blur) / ≤0.3s (fixtures), so 90s was pure wasted
+	// compute on the undecodable real/wild/sick images (0/N at any budget). 30s
+	// preserves all exact/≥70% counts with ~3× margin while cutting ~30% of journal
+	// wall time. See PROGRESS.md perf section.
+	journalTimeoutBest = 30 * time.Second
 
 	// journalMaxLength is a conservative upper bound for unknown-text runs.
 	journalMaxLength = 30
