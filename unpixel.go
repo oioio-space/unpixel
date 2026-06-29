@@ -602,20 +602,29 @@ func applyAutoFingerprint(cfg *Config, rgba *image.RGBA) {
 // top-2 operators (when they share the same Kind — see critical note in Recover)
 // and uses forensics.Select to pick a winner or abstain.
 //
-// Task 6 calibrates these values from the real fixture confidence distributions.
+// Calibration (Task 6): DetectBlur assigns Conf.Kind=0.664 to all 17 panel
+// mosaic fixtures (block04 is detected as blur at 1.000) and Conf.Kind=1.000 to
+// all blur fixtures. Panel fixtures decode via WithBlockSize (not WithAuto), so
+// the meta-band fires only in genuine ambiguous cases — the panel invariant holds
+// regardless of where the mosaic fixtures land relative to the band.
 const (
 	// metaBandLow is the minimum Conf.Kind to attempt detection at all.
-	// Below this the image has too little structure; the safe fallback is used.
+	// Chosen below the observed mosaic floor (0.664); inputs with less structure
+	// than that fall back to the default pixelator.
 	metaBandLow = 0.30
-	// metaBandHigh is the minimum Conf.Kind for single-operator confidence.
-	// At or above this, the top-ranked operator is used directly (no meta trial).
+	// metaBandHigh is the Conf.Kind threshold for single-operator confidence.
+	// Chosen above the observed mosaic ceiling (0.664) but below blur (1.000),
+	// so all mosaic inputs use the meta trial and all blur inputs go direct.
 	metaBandHigh = 0.95
 	// metaDistThreshold is the maximum BestTotal for a trial result to be
-	// considered eligible in forensics.Select. Task 6 calibrates this.
+	// considered eligible in forensics.Select. 0.10 leaves headroom above a
+	// near-perfect pixel match (~0.00) while rejecting clearly-wrong operators
+	// whose reconstructed image diverges from the redacted region.
 	metaDistThreshold = 0.10
-	// metaCoherenceMargin is the minimum Conf.Kind lead the top eligible
-	// operator must hold over the runner-up to be selected on disagreement.
-	// Task 6 calibrates this.
+	// metaCoherenceMargin is the minimum Conf.Kind gap the top eligible operator
+	// must hold over the runner-up to be selected on text disagreement. 0.25 is
+	// large relative to the observed sRGB/linear spread (~0.05–0.15 typical),
+	// so abstention is the default on close calls.
 	metaCoherenceMargin = 0.25
 )
 

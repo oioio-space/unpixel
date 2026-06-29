@@ -12,7 +12,7 @@ func TestZoo_namesAndDedup(t *testing.T) {
 	for _, p := range zoo {
 		names[p.Tool] = true
 	}
-	for _, want := range []string{"GEGL", "Photoshop", "CSS", "ffmpeg"} {
+	for _, want := range []string{"GEGL", "Photoshop", "CSS", "ffmpeg", "GIMP", "OpenCV"} {
 		if !names[want] {
 			t.Errorf("Zoo() missing tool %q", want)
 		}
@@ -41,5 +41,23 @@ func TestZoo_namesAndDedup(t *testing.T) {
 	blur3 := Profile{Tool: "ffmpeg", Kind: KindBlur, Kernel: KernelTrueGauss, Edge: pixelate.EdgeClamp}
 	if blur1.configKey(0, 2.0) == blur3.configKey(0, 3.0) {
 		t.Errorf("different-sigma blur profiles share a key; want distinct")
+	}
+}
+
+// TestConfigKey_unknownKind verifies that a Profile with KindUnknown produces a
+// non-empty, deterministic key (the default branch in configKey).
+func TestConfigKey_unknownKind(t *testing.T) {
+	p := Profile{Tool: "synthetic", Kind: KindUnknown}
+	key := p.configKey(8, 2.0)
+	if key == "" {
+		t.Errorf("configKey with KindUnknown returned empty string; want a non-empty fallback key")
+	}
+	// Two calls with the same args must produce the same key (deterministic).
+	if p.configKey(8, 2.0) != key {
+		t.Errorf("configKey is not deterministic for KindUnknown")
+	}
+	// Different block/sigma must differ so KindUnknown profiles still dedup correctly.
+	if p.configKey(16, 2.0) == key {
+		t.Errorf("KindUnknown configKey with block=16 equals block=8; want distinct")
 	}
 }
