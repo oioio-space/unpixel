@@ -8,7 +8,6 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oioio-space/unpixel"
-	"github.com/oioio-space/unpixel/internal/capacity"
 	"github.com/oioio-space/unpixel/internal/leak"
 )
 
@@ -19,8 +18,11 @@ import (
 // and any plaintext leaked from the file's metadata (PDF, Office).
 type HintsReport struct {
 	// CharCountEstimate is the estimated number of characters hidden in the
-	// redaction, derived from the redaction bounding box width and the average
-	// rendered glyph width at the inferred font size and block geometry.
+	// redaction = round(bbox width / average rendered glyph width) at the inferred
+	// font size. It is a coarse cue (accurate to ±1 for typical proportional text;
+	// monospace/wide fonts shift it). When no redaction bounding box is detected,
+	// the full image width is used as a conservative upper bound, so the estimate
+	// can be large — cross-check against block_size and the visible layout.
 	CharCountEstimate int `json:"char_count_estimate"`
 	// BlockSize is the detected mosaic block side length in pixels.
 	BlockSize int `json:"block_size"`
@@ -95,11 +97,10 @@ func ProposeHints(path string) (HintsReport, error) {
 }
 
 // ProposeHintsImage returns a [HintsReport] derived solely from img. It runs
-// block/font/bbox analysis and a capacity measurement (to establish a default
-// renderer) and estimates the character count from the redaction bounding box
-// width and average rendered glyph width. No file I/O is performed; use
-// [ProposeHints] when the source file path is available so that metadata leaks
-// (PDF, Office) can be surfaced in [HintsReport.LeakedContext].
+// block/font/bbox analysis and estimates the character count from the redaction
+// bounding box width and the average rendered glyph width. No file I/O is
+// performed; use [ProposeHints] when the source file path is available so that
+// metadata leaks (PDF, Office) can be surfaced in [HintsReport.LeakedContext].
 func ProposeHintsImage(img image.Image) (HintsReport, error) {
 	analysis, err := Analyze(img)
 	if err != nil {
@@ -130,21 +131,9 @@ func ProposeHintsImage(img image.Image) (HintsReport, error) {
 		fontSize = 11 // safe fallback matching panel fixtures
 	}
 
-	charset := analysis.RecommendedCharset
-	if charset == "" {
-		charset = unpixel.CharsetAlnum
-	}
-
-	// Run capacity.Analyze to confirm the renderer works at this geometry and
-	// to verify the charset is renderable. The result is not used for ranking —
-	// only the renderer + geometry are needed for character-width estimation.
-	_, err = capacity.Analyze(context.Background(), cfg.Renderer, charset, fontSize, block, image.Point{})
-	if err != nil {
-		return HintsReport{}, fmt.Errorf("capacity.Analyze: %w", err)
-	}
-
 	// Estimate character count from redaction width and average glyph advance.
-	// Render a mid-width sample character ("m") to get the per-char pixel width.
+	// Render a mid-width sample character ("m") to get the per-char pixel width;
+	// this render also validates the renderer + font size.
 	style := unpixel.Style{FontSize: fontSize}
 	_, sentinelX, err := cfg.Renderer.Render("m", style)
 	if err != nil {
@@ -155,8 +144,10 @@ func ProposeHintsImage(img image.Image) (HintsReport, error) {
 		charWidthPx = block // guard against degenerate renderer output
 	}
 
+	// Round to nearest (not truncate) so a 1.5-glyph-wide bbox estimates 2, not 1
+	// — integer truncation would systematically under-count.
 	bboxW := bboxWidth(analysis.RedactionBbox, img.Bounds())
-	rep.CharCountEstimate = max(1, bboxW/charWidthPx)
+	rep.CharCountEstimate = max(1, (bboxW+charWidthPx/2)/charWidthPx)
 
 	return rep, nil
 }
@@ -176,6 +167,9 @@ func bboxWidth(bbox []int, bounds image.Rectangle) int {
 // isTextLeak reports whether source is a text-bearing metadata channel
 // (PDF text stream or Office body text). EXIF thumbnails and partial
 // redactions are not surfaced as LeakedContext.
+//
+// Maintenance: extend this when a new text-bearing leak.Source is added to
+// internal/leak, or that channel will be silently excluded from LeakedContext.
 func isTextLeak(source leak.Source) bool {
 	return source == leak.SourcePDFText || source == leak.SourceOfficeText
 }
