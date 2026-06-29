@@ -595,6 +595,72 @@ func applyAutoFingerprint(cfg *Config, rgba *image.RGBA) {
 	// BlockAverage, byte-identical to today's default.
 }
 
+// Meta-strategy band constants. When FingerprintN's top-ranked operator has
+// Conf.Kind in [metaBandLow, metaBandHigh) the input is ambiguous: the detector
+// is not confident enough to commit to a single operator, but not so confused
+// that the default fallback is clearly best. In this band, Recover tries the
+// top-2 operators (when they share the same Kind — see critical note in Recover)
+// and uses forensics.Select to pick a winner or abstain.
+//
+// Task 6 calibrates these values from the real fixture confidence distributions.
+const (
+	// metaBandLow is the minimum Conf.Kind to attempt detection at all.
+	// Below this the image has too little structure; the safe fallback is used.
+	metaBandLow = 0.30
+	// metaBandHigh is the minimum Conf.Kind for single-operator confidence.
+	// At or above this, the top-ranked operator is used directly (no meta trial).
+	metaBandHigh = 0.95
+	// metaDistThreshold is the maximum BestTotal for a trial result to be
+	// considered eligible in forensics.Select. Task 6 calibrates this.
+	metaDistThreshold = 0.10
+	// metaCoherenceMargin is the minimum Conf.Kind lead the top eligible
+	// operator must hold over the runner-up to be selected on disagreement.
+	// Task 6 calibrates this.
+	metaCoherenceMargin = 0.25
+)
+
+// runWithPixelator runs the mosaic engine on img using px as the pixelator and
+// returns the best Result. It sets cfg.Pixelator = px before building the
+// engine so that applyAutoFingerprint (called inside New) sees a non-nil
+// Pixelator and skips the fingerprint pass — this is the recursion guard.
+// Auto-crop and auto-calibrate are also disabled on the inner run: the image
+// has already been observed at the Recover level and the trial must operate on
+// the same pixel region that FingerprintN analysed.
+func runWithPixelator(ctx context.Context, img image.Image, cfg Config, px Pixelator) Result {
+	cfg.Pixelator = px        // recursion guard: applyAutoFingerprint skips when non-nil
+	cfg.autoCrop = false      // inner run must not re-crop; image is already at the right region
+	cfg.autoCalibrate = false // calibration already happened (or is not needed for the trial)
+	eng, err := New(img, cfg)
+	if err != nil {
+		return Result{}
+	}
+	progCh, resultCh := eng.Run(ctx)
+	go func() {
+		for range progCh { //nolint:revive // intentional drain
+		}
+	}()
+	var (
+		best     Result
+		bestRank = 2.0
+		found    bool
+	)
+	for r := range resultCh {
+		if r.Err != nil {
+			continue
+		}
+		rank := 1.0
+		if len(r.TopN) > 0 {
+			rank = r.TopN[0].Score
+		}
+		if !found || rank < bestRank {
+			best = r
+			bestRank = rank
+			found = true
+		}
+	}
+	return best
+}
+
 // InferDarkBackground reports whether img looks like dark text/content on a dark
 // background (e.g. a dark-mode screenshot), judged from its border pixels. New
 // uses it to decide whether to invert the image so it matches the dark-on-light
@@ -1929,14 +1995,74 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 	// the cropped image. When Guard 1 does not fire, Fingerprint runs once here
 	// and RecoverBlurred takes over — no redundant call on the mosaic path.
 	if cfg.autoBlur && cfg.Pixelator == nil {
-		// Guard 1: an exact mosaic grid is definitive — skip blur delegation.
-		if _, gridOK := InferBlockGrid(redacted); !gridOK {
-			// Guard 2: require high confidence to avoid misrouting mosaics whose
-			// sharp surround depresses DetectBlur below the 1.00 ceiling.
-			op := forensics.Fingerprint(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
-			if op.Kind == forensics.KindBlur && op.Conf.Kind >= 0.95 {
-				return RecoverBlurred(ctx, redacted, opts...)
+		// Banded meta-strategy: rank all zoo operators search-free, then branch on
+		// confidence. The band gate (metaBandLow … metaBandHigh) determines whether
+		// the top-1 operator is used directly (confident), the default is kept (floor),
+		// or the top-2 are trialled and forensics.Select picks the winner (ambiguous).
+		//
+		// Blur delegation: KindBlur with Conf.Kind ≥ metaBandHigh → RecoverBlurred,
+		// gated by Guard 1 (exact mosaic grid vetoes misrouting) and Guard 2 (the
+		// 0.95 threshold excludes screenshots whose sharp surround inflates DetectBlur).
+		//
+		// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
+		// enters Recover with cfg.Pixelator != nil, so this block is skipped and the
+		// mosaic engine handles those inner calls normally. Similarly, runWithPixelator
+		// sets cfg.Pixelator before calling New, preventing applyAutoFingerprint from
+		// re-entering the detection pass.
+		ranked := forensics.FingerprintN(imutil.ToRGBA(redacted), forensics.Hint{Block: cfg.BlockSize})
+		top := ranked[0]
+		switch {
+		case top.Conf.Kind >= metaBandHigh:
+			// Confident: use the single top-ranked operator.
+			// For blur, apply Guard 1 (exact grid vetoes delegation) before
+			// delegating to the blur pipeline.
+			if top.Kind == forensics.KindBlur {
+				if _, gridOK := InferBlockGrid(redacted); !gridOK {
+					return RecoverBlurred(ctx, redacted, opts...)
+				}
 			}
+			// For mosaic (or blur blocked by Guard 1): fall through to New.
+			// applyAutoFingerprint inside New re-runs Fingerprint on the cropped
+			// image and installs the detected pixelator — no duplicate cost.
+		case top.Conf.Kind < metaBandLow:
+			// Floor: too little structure to trust detection. Fall through to New
+			// where applyAutoFingerprint's 0.5 gate keeps cfg.Pixelator nil and
+			// DefaultComponents wires the standard BlockAverage — byte-identical to
+			// the pre-fingerprint default path.
+		default:
+			// Ambiguous band [metaBandLow, metaBandHigh): try the top-2 operators
+			// and use the secured selection rule (agreement + coherence-margin) to
+			// pick a winner, or abstain and fall through to the single-best path.
+			//
+			// CRITICAL: ranked[1] may be a wrong-Kind operator penalised to ~0.1×
+			// Conf.Kind, making its coherence-margin tiebreak falsely decisive
+			// (confident-wrong). Only include ranked[1] when it shares the same Kind
+			// as ranked[0] — a genuine alternative (e.g. linear vs sRGB mosaic, or a
+			// different blur kernel) rather than a cross-family false contender.
+			if len(ranked) >= 2 && ranked[1].Kind == top.Kind {
+				trialResults := make(map[string]Result, 2)
+				var cands []forensics.Candidate
+				for _, op := range ranked[:2] {
+					// threshold=0: build unconditionally for the trial — the selection
+					// rule (distThreshold) is the real eligibility gate.
+					px, ok := op.Build(0)
+					if !ok {
+						continue
+					}
+					res := runWithPixelator(ctx, redacted, cfg, px)
+					cands = append(cands, forensics.Candidate{
+						Op:   op,
+						Text: res.BestGuess,
+						Dist: res.BestTotal,
+					})
+					trialResults[res.BestGuess] = res
+				}
+				if sel, ok := forensics.Select(cands, metaDistThreshold, metaCoherenceMargin); ok {
+					return trialResults[sel.Text], nil
+				}
+			}
+			// Abstain (or no genuine top-2): fall through to New where
+			// applyAutoFingerprint applies the single-best operator.
 		}
 	}
 

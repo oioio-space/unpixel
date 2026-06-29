@@ -1247,3 +1247,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `7f3ef70` 2026-06-29 — feat(forensics): FingerprintN ranks the tool zoo; Fingerprint delegates to [0] _(3 fichiers)_
 - `561b286` 2026-06-29 — fix(forensics): separate structural match score from Conf in FingerprintN _(3 fichiers)_
 - `8bfe538` 2026-06-29 — docs/test(forensics): fix stale Fingerprint Tool doc + assert structural ranking _(2 fichiers)_
+- `1b3c885` 2026-06-29 — feat(forensics): meta.Select — secured top-2 selection (agreement + coherence + abstain) _(3 fichiers)_
