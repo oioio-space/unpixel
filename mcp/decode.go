@@ -37,6 +37,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"
 	_ "github.com/oioio-space/unpixel/defaults" // wire standard components
 	"github.com/oioio-space/unpixel/internal/lang"
+	"github.com/oioio-space/unpixel/internal/secrets"
 	"github.com/oioio-space/unpixel/mosaictext"
 )
 
@@ -108,6 +109,12 @@ type decodeInput struct {
 	// but that engine is not reached from this tool. Setting this field has no
 	// effect — omit it.
 	Prefix string `json:"prefix,omitzero" jsonschema:"Reserved: not currently forwarded to any decoder; has no effect."`
+	// ExpectedFormat constrains the engine search to a structured-secret format
+	// (digits|credit_card|iban|date|phone_fr|phone_us|phone_e164). Forwarded only
+	// to the engine method via unpixel.WithExpectedFormat; ignored by all other
+	// decoders. Declaring the wrong format will reject the true answer. Omit for
+	// free text.
+	ExpectedFormat string `json:"expected_format,omitzero" jsonschema:"Engine-only structured-secret format: digits|credit_card|iban|date|phone_fr|phone_us|phone_e164 (omit for free text)"`
 	// KnownVisibleText is cleartext known to appear in (or adjacent to) the redaction.
 	KnownVisibleText string `json:"known_visible_text,omitzero" jsonschema:"Cleartext known to appear in or adjacent to the redaction (used by reference and varfont decoders)"`
 	// Frames lists additional mosaic frames for multi-frame IBP fusion. Each
@@ -216,6 +223,9 @@ type DecodeOptions struct {
 	// Prefix is accepted for forward-compatibility but is not forwarded to any
 	// decoder. Setting it has no effect.
 	Prefix string
+	// ExpectedFormat constrains the engine search to a structured-secret format.
+	// Forwarded only to the engine method; ignored by other decoders.
+	ExpectedFormat string
 	// KnownVisibleText is cleartext known to appear in or adjacent to the redaction.
 	KnownVisibleText string
 	// Frames lists additional mosaic frames for the multi-frame method.
@@ -263,6 +273,7 @@ func Decode(ctx context.Context, img image.Image, method string, opts DecodeOpti
 		Language:         opts.Language,
 		MaxLength:        opts.MaxLength,
 		Prefix:           opts.Prefix,
+		ExpectedFormat:   opts.ExpectedFormat,
 		KnownVisibleText: opts.KnownVisibleText,
 		Frames:           opts.Frames,
 		Quad:             opts.Quad,
@@ -341,6 +352,7 @@ func handleDecode(ctx context.Context, req *mcpsdk.CallToolRequest, in decodeInp
 		Language:         in.Language,
 		MaxLength:        in.MaxLength,
 		Prefix:           in.Prefix,
+		ExpectedFormat:   in.ExpectedFormat,
 		KnownVisibleText: in.KnownVisibleText,
 		Frames:           in.Frames,
 		Quad:             in.Quad,
@@ -497,6 +509,10 @@ func decodeEngine(ctx context.Context, img image.Image, in decodeInput) (DecodeR
 	if in.Denoise {
 		opts = append(opts, unpixel.WithNormalize())
 	}
+	expFmt, expFmtOK := secrets.ParseFormat(in.ExpectedFormat)
+	if expFmtOK && expFmt != secrets.FormatNone {
+		opts = append(opts, unpixel.WithExpectedFormat(expFmt))
+	}
 	if len(in.fontData) > 0 {
 		r, err := defaults.RendererFromFonts(in.fontData, nil)
 		if err != nil {
@@ -512,6 +528,9 @@ func decodeEngine(ctx context.Context, img image.Image, in decodeInput) (DecodeR
 	var notes []string
 	if in.Denoise {
 		notes = append(notes, "denoise applied")
+	}
+	if expFmtOK && expFmt != secrets.FormatNone {
+		notes = append(notes, "expected_format="+in.ExpectedFormat+" applied")
 	}
 	return DecodeResult{
 		Text:       res.BestGuess,
