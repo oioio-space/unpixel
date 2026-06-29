@@ -305,10 +305,14 @@ hors-processus, jamais dans le cœur ni la boucle interne. Détail + sources : m
 gagné par prior de police + OSINT + déconvolution, pas par de meilleurs pixels.
 
 Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
-- [ ] **#2 Fingerprint-operator** *(spec : `docs/superpowers/specs/2026-06-29-fingerprint-operator-design.md`)* —
+- [x] **#2 Fingerprint-operator** ✅ *(spec : `docs/superpowers/specs/2026-06-29-fingerprint-operator-design.md`,
+      plan : `docs/superpowers/plans/2026-06-29-fingerprint-operator.md`)* —
       `internal/forensics.Fingerprint(img) → Operator` qui absorbe gamma/grille existants +
-      ajoute mosaïque-vs-flou / σ / famille-de-noyau ; auto-câblé via `WithAuto()` avec **repli
-      sûr** (sous-seuil ⇒ défaut actuel, zéro régression). Mur : réel + flou. **← 1er sous-projet.**
+      ajoute mosaïque-vs-flou / σ / famille-de-noyau ; auto-câblé via `WithAuto()`/`WithAutoBlur()` avec **repli
+      sûr** (sous-seuil ⇒ défaut actuel, zéro régression) ; flou confiant délégué à `RecoverBlurred` ;
+      exposé en MCP `analyze` (`DetectedOperator`). Panel 17/17, CI verte. Reportés (→ #1B/calibration) :
+      `hello-world-noisy` misroute (bruit casse `InferBlockGrid`), bande Conf 0.95–1.00 non couverte,
+      double `DetectColorspace` dans `analyze`. Mur : réel + flou.
 - [ ] **#1B Operator-zoo + méta-stratégie top-2 *sécurisée*** — opérateurs par-outil (GEGL/
       Photoshop/CSS/ffmpeg) enfichables ; quand le fingerprint est ambigu, essayer le top-2 et
       départager par **cohérence du fingerprint** (pas `argmin(distance)` brut — évite le mur
@@ -1234,3 +1238,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `1a23bc6` 2026-06-29 — docs(test): drop stale NOTE in §2.3 blur-equivalence test _(2 fichiers)_
 - `3ea6663` 2026-06-29 — fix(unpixel): guard Recover blur-delegation against mosaic screenshots (I1) _(3 fichiers)_
 - `2d70927` 2026-06-29 — test(fingerprint): assert real no-misroute predicate (final-review M1) _(2 fichiers)_
+- `2b4f48f` 2026-06-29 — test(forensics): raise package coverage to 96% to clear the 85% CI gate _(2 fichiers)_
