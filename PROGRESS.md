@@ -1223,3 +1223,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `7e8f8f5` 2026-06-29 — docs(roadmap): program to unblock decoding + spec for #2 fingerprint-operator _(2 fichiers)_
 - `21358c0` 2026-06-29 — docs(plan): implementation plan for #2 fingerprint-operator _(1 fichiers)_
 - `b4cdfc2` 2026-06-29 — feat(pixelate): DetectBlur — classify mosaic vs Gaussian, estimate sigma+kernel _(4 fichiers)_
+- `9a2fddd` 2026-06-29 — feat(forensics): Operator descriptor + Fingerprint with threshold-gated Build _(3 fichiers)_

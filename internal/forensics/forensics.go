@@ -165,7 +165,7 @@ func Fingerprint(img image.Image, hint Hint) Operator {
 				op.Gamma = GammaSRGB
 			}
 		}
-		op.Tool = mosaicTool(op.Gamma, mapKernel(bi.Kernel))
+		op.Tool = mosaicTool(op.Gamma)
 	case pixelate.BlurKindGaussian:
 		op.Kind = KindBlur
 		op.Kernel = mapKernel(bi.Kernel)
@@ -178,15 +178,15 @@ func Fingerprint(img image.Image, hint Hint) Operator {
 }
 
 // Build constructs the forward pixelator for o when detection was confident
-// enough. It returns (nil, false) when the decisive confidence is below
+// enough. It returns (nil, false) when any decisive confidence is below
 // threshold so the caller can keep its default — guaranteeing no regression.
 //
-// For KindMosaic the decisive attribute is Conf.Gamma (block + colorspace both
-// needed). For KindBlur it is Conf.Kind.
+// For KindMosaic both Conf.Kind and Conf.Gamma must meet threshold (block +
+// operator family + colorspace all needed). For KindBlur it is Conf.Kind.
 func (o Operator) Build(threshold float64) (Pixelator, bool) {
 	switch o.Kind {
 	case KindMosaic:
-		if o.Block < 2 || o.Conf.Gamma < threshold {
+		if o.Block < 2 || o.Conf.Kind < threshold || o.Conf.Gamma < threshold {
 			return nil, false
 		}
 		if o.Gamma == GammaLinear {
@@ -219,11 +219,11 @@ func mapKernel(k pixelate.BlurKernel) Kernel {
 }
 
 // mosaicTool returns a best-effort tool label for mosaic redactions.
-func mosaicTool(g Gamma, k Kernel) string {
-	switch {
-	case g == GammaLinear && k == KernelBox3:
+func mosaicTool(g Gamma) string {
+	switch g {
+	case GammaLinear:
 		return "GEGL/CSS"
-	case g == GammaSRGB:
+	case GammaSRGB:
 		return "Photoshop/GIMP"
 	default:
 		return ""

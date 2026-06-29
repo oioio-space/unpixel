@@ -33,6 +33,9 @@ func TestFingerprint_srgbMosaic(t *testing.T) {
 	if op.Block != 8 {
 		t.Errorf("Block = %d, want 8", op.Block)
 	}
+	if op.Gamma != GammaSRGB {
+		t.Errorf("Gamma = %v, want GammaSRGB", op.Gamma)
+	}
 }
 
 func TestOperatorBuild_thresholdGate(t *testing.T) {
@@ -43,6 +46,11 @@ func TestOperatorBuild_thresholdGate(t *testing.T) {
 	low := Operator{Kind: KindMosaic, Gamma: GammaLinear, Block: 8, Conf: Conf{Kind: 0.2, Gamma: 0.2}}
 	if _, ok := low.Build(0.5); ok {
 		t.Errorf("Build(0.5) on low-confidence op = ok, want ok=false (fallback)")
+	}
+	// Conf.Kind below threshold even though Conf.Gamma is above — must gate.
+	lowKind := Operator{Kind: KindMosaic, Gamma: GammaLinear, Block: 8, Conf: Conf{Kind: 0.2, Gamma: 0.9}}
+	if _, ok := lowKind.Build(0.5); ok {
+		t.Errorf("Build(0.5) with low Conf.Kind = ok, want ok=false (§5 per-attribute gate)")
 	}
 }
 
