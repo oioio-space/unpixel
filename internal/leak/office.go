@@ -25,6 +25,12 @@ func officeText(data []byte) (Result, bool) {
 	if err != nil {
 		return Result{}, false
 	}
+	// DoS guard: zip.NewReader has already parsed the central directory, so an
+	// entry count over the cap is a crafted archive — abstain rather than iterate
+	// it (bounds total iteration over BOTH loops below).
+	if len(zr.File) > maxZipEntries {
+		return Result{}, false
+	}
 
 	// Confirm OOXML: must have [Content_Types].xml.
 	isOOXML := false
@@ -38,18 +44,13 @@ func officeText(data []byte) (Result, bool) {
 		return Result{}, false
 	}
 
+	// Entry count is already bounded by the len(zr.File) check above.
 	var parts []string
-	scanned := 0
 	for _, f := range zr.File {
-		if scanned >= maxZipEntries {
-			break
-		}
 		if !isTargetEntry(f.Name) {
 			continue
 		}
-		scanned++
-		text := extractTextFromEntry(f)
-		if text != "" {
+		if text := extractTextFromEntry(f); text != "" {
 			parts = append(parts, text)
 		}
 	}
