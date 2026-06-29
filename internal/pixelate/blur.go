@@ -8,7 +8,6 @@ package pixelate
 
 import (
 	"image"
-	"math"
 	"sync"
 )
 
@@ -21,42 +20,34 @@ var blurTmpPool = sync.Pool{
 	New: func() any { return new([]float64) },
 }
 
-// GaussianBlur implements unpixel.Pixelator as a separable Gaussian blur with
-// clamped edges. The Pixelate origin arguments are ignored (blur has no grid).
+// GaussianBlur implements unpixel.Pixelator as a separable Gaussian blur.
+// The Pixelate origin arguments are ignored (blur has no grid).
 type GaussianBlur struct {
 	kernel []float64 // normalised 1-D weights, length 2*radius+1
 	sigma  float64
 	radius int
+	edge   Edge // border extension mode; zero value == EdgeClamp
 }
 
 // NewGaussianBlur returns a Gaussian blur operator for the given standard
 // deviation (in pixels). Sigma is clamped to a small positive minimum so the
 // kernel is always well-formed; the radius is ceil(3*sigma), capturing >99.7%
-// of the Gaussian's mass.
+// of the Gaussian's mass. Edges are clamped (border pixel repeated).
 func NewGaussianBlur(sigma float64) *GaussianBlur {
 	if sigma < 0.1 {
 		sigma = 0.1
 	}
-	radius := int(math.Ceil(3 * sigma))
-	kernel := make([]float64, 2*radius+1)
-	var sum float64
-	for i := -radius; i <= radius; i++ {
-		w := math.Exp(-float64(i*i) / (2 * sigma * sigma))
-		kernel[i+radius] = w
-		sum += w
-	}
-	for i := range kernel {
-		kernel[i] /= sum
-	}
-	return &GaussianBlur{kernel: kernel, sigma: sigma, radius: radius}
+	kernel, radius := newGaussianKernel(sigma)
+	return &GaussianBlur{kernel: kernel, sigma: sigma, radius: radius, edge: EdgeClamp}
 }
 
 // Sigma returns the blur's standard deviation in pixels.
 func (g *GaussianBlur) Sigma() float64 { return g.sigma }
 
 // Pixelate returns a Gaussian-blurred copy of src (same bounds, origin 0,0).
-// originX and originY are ignored: blur has no block grid. faithful to the
-// B = K*L convolution model, with K a separable Gaussian and edges clamped.
+// originX and originY are ignored: blur has no block grid. Faithful to the
+// B = K*L convolution model, with K a separable Gaussian; out-of-bounds
+// samples are resolved by the edge mode set at construction time.
 func (g *GaussianBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -79,7 +70,7 @@ func (g *GaussianBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 		for x := range w {
 			var r, gg, bb, a float64
 			for k := -g.radius; k <= g.radius; k++ {
-				sx := clamp(x+k, w)
+				sx := sampleIndex(x+k, w, g.edge)
 				p := rowOff + sx*4
 				wk := g.kernel[k+g.radius]
 				r += float64(src.Pix[p]) * wk
@@ -97,7 +88,7 @@ func (g *GaussianBlur) Pixelate(src *image.RGBA, _, _ int) *image.RGBA {
 		for x := range w {
 			var r, gg, bb, a float64
 			for k := -g.radius; k <= g.radius; k++ {
-				sy := clamp(y+k, h)
+				sy := sampleIndex(y+k, h, g.edge)
 				t := (sy*w + x) * 4
 				wk := g.kernel[k+g.radius]
 				r += tmp[t] * wk
