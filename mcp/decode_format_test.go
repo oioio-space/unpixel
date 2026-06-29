@@ -1,7 +1,6 @@
 package mcpserver_test
 
 import (
-	"context"
 	"image"
 	"strings"
 	"testing"
@@ -45,7 +44,7 @@ func TestParseFormat_engineFieldNames(t *testing.T) {
 func TestDecodeEngine_expectedFormatRecoversDigits(t *testing.T) {
 	const secret = "8675309"
 	img := renderPixelatedMCP(t, secret, 6, 24)
-	res, err := mcpserver.Decode(context.Background(), img, "engine", mcpserver.DecodeOptions{
+	res, err := mcpserver.Decode(t.Context(), img, "engine", mcpserver.DecodeOptions{
 		CharsetPreset:  "digits",
 		BlockSize:      6,
 		FontSize:       24,

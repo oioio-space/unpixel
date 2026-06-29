@@ -108,13 +108,42 @@ func TestValid(t *testing.T) {
 		{FormatPhoneUS, "+14155550123", true},
 		{FormatPhoneUS, "1155550123", false}, // area code starts 1
 		{FormatPhoneE164, "+33612345678", true},
-		{FormatPhoneE164, "+0612345678", false}, // leading digit 0
-		{FormatPhoneE164, "0612345678", false},  // no '+'
+		{FormatPhoneE164, "+0612345678", false},        // leading digit 0
+		{FormatPhoneE164, "0612345678", false},         // no '+'
+		{FormatPhoneE164, "+12", false},                // too short (below min length 8)
+		{FormatPhoneE164, "+12345678901234567", false}, // too long (above max length 16)
+		{FormatPhoneE164, "+12345678901234", true},     // valid long E.164 (15 chars)
+		{FormatIBAN, "GB82WEST1234569876543!", false},  // bad character in BBAN
+		{FormatIBAN, "G182WEST12345698765432", false},  // digit in country-code position
+		{FormatDate, "2024-00-10", false},              // month 0 out of range
+		{FormatDate, "2024-01-00", false},              // day 0 out of range
+		{FormatPhoneFR, "+33012345678", false},         // intl FR: subscriber digit 0 invalid
+		{FormatPhoneUS, "+14055550123", true},          // valid intl US
+		{FormatPhoneUS, "+10155550123", false},         // intl US: area code starts 0
 	}
 	for _, c := range cases {
 		if got := Valid(c.f, c.s); got != c.want {
 			t.Errorf("Valid(%v, %q) = %v; want %v", c.f, c.s, got, c.want)
 		}
+	}
+}
+
+func TestAllowedRunesAt_dateSeperators(t *testing.T) {
+	// pos 4 with an ISO prefix should yield only '-' (separator path).
+	got := AllowedRunesAt(FormatDate, 4, "2024", 0)
+	if len(got) != 1 || got[0] != '-' {
+		t.Errorf("date pos4 ISO prefix = %q; want ['-']", runesString(got))
+	}
+	// pos 5 with a DMY-only prefix "31/0" should yield only '/' (separator path).
+	// ISO mask requires a digit at pos 2, but prefix[2]='/' rules it out.
+	got = AllowedRunesAt(FormatDate, 5, "31/0", 0)
+	if len(got) != 1 || got[0] != '/' {
+		t.Errorf("date pos5 DMY prefix = %q; want ['/']", runesString(got))
+	}
+	// pos 0 with no prefix: both layouts start with a digit so we get digits.
+	got = AllowedRunesAt(FormatDate, 0, "", 0)
+	if !slices.Contains(got, '1') || !slices.Contains(got, '9') {
+		t.Errorf("date pos0 = %q; want digits", runesString(got))
 	}
 }
 
