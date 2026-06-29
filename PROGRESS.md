@@ -1222,3 +1222,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `468550f` 2026-06-29 — docs(journal): refresh trend analysis through v0.17.0+dev (6ecdcbd) _(1 fichiers)_
 - `7e8f8f5` 2026-06-29 — docs(roadmap): program to unblock decoding + spec for #2 fingerprint-operator _(2 fichiers)_
 - `21358c0` 2026-06-29 — docs(plan): implementation plan for #2 fingerprint-operator _(1 fichiers)_
+- `b4cdfc2` 2026-06-29 — feat(pixelate): DetectBlur — classify mosaic vs Gaussian, estimate sigma+kernel _(4 fichiers)_
