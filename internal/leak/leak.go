@@ -126,12 +126,6 @@ func Scan(path string, opts Options) (Result, bool, error) {
 	}
 }
 
-// pdfText attempts to recover text hidden beneath filled rectangles in a PDF.
-// It is a stub; the real implementation lands in Task 3.
-func pdfText(data []byte) (Result, bool) {
-	return Result{}, false
-}
-
 // officeText attempts to extract body text from an OOXML document (docx/pptx).
 // It is a stub; the real implementation lands in Task 4.
 func officeText(data []byte) (Result, bool) {
