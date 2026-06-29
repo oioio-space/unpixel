@@ -12,6 +12,7 @@ package mcpserver_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -556,5 +557,81 @@ func TestVerifyCandidates_loadImageError(t *testing.T) {
 	}
 	if !strings.Contains(text, "no/such.png") {
 		t.Errorf("error text %q does not mention path", text)
+	}
+}
+
+// ---- handleProposeHints ----
+
+// TestHandleProposeHints_success exercises handleProposeHints with a valid
+// fixture path, covering the handler → ProposeHints → ProposeHintsImage path.
+func TestHandleProposeHints_success(t *testing.T) {
+	cs := newTestClient(t)
+	text, isErr := callTool(t, cs, "unpixel_propose_hints", map[string]any{
+		"image_path": fixturePath("block08_go.png"),
+	})
+	if isErr {
+		t.Fatalf("unpixel_propose_hints: tool returned error: %s", text)
+	}
+	var rep mcpserver.HintsReport
+	if err := json.Unmarshal([]byte(text), &rep); err != nil {
+		t.Fatalf("unmarshal HintsReport: %v", err)
+	}
+	if rep.BlockSize == 0 {
+		t.Error("HintsReport.BlockSize == 0, want > 0")
+	}
+	if rep.CharCountEstimate <= 0 {
+		t.Error("HintsReport.CharCountEstimate <= 0, want > 0")
+	}
+}
+
+// TestHandleProposeHints_badPath covers the load-image error path in
+// handleProposeHints (errResult returned for a non-existent file).
+func TestHandleProposeHints_badPath(t *testing.T) {
+	cs := newTestClient(t)
+	_, isErr := callTool(t, cs, "unpixel_propose_hints", map[string]any{
+		"image_path": "/no/such/file.png",
+	})
+	if !isErr {
+		t.Error("unpixel_propose_hints(bad path): want isError=true, got false")
+	}
+}
+
+// ---- handleLeakScan ----
+
+// TestHandleLeakScan_success exercises handleLeakScan with a .docx temp file
+// that contains a text leak, covering the handler → LeakScan → isTextLeak path.
+func TestHandleLeakScan_success(t *testing.T) {
+	docxData := docxBytesWith(t, "mcp-handler-leak-secret")
+	dir := t.TempDir()
+	docxPath := dir + "/redacted.docx"
+	if err := os.WriteFile(docxPath, docxData, 0o600); err != nil {
+		t.Fatalf("write docx: %v", err)
+	}
+
+	cs := newTestClient(t)
+	text, isErr := callTool(t, cs, "unpixel_leak_scan", map[string]any{
+		"image_path": docxPath,
+	})
+	if isErr {
+		t.Fatalf("unpixel_leak_scan: tool returned error: %s", text)
+	}
+	var rep mcpserver.LeakReport
+	if err := json.Unmarshal([]byte(text), &rep); err != nil {
+		t.Fatalf("unmarshal LeakReport: %v", err)
+	}
+	if !rep.Found {
+		t.Error("LeakReport.Found = false, want true for a docx with body text")
+	}
+}
+
+// TestHandleLeakScan_badPath covers the error path in handleLeakScan when the
+// file cannot be read.
+func TestHandleLeakScan_badPath(t *testing.T) {
+	cs := newTestClient(t)
+	_, isErr := callTool(t, cs, "unpixel_leak_scan", map[string]any{
+		"image_path": "/no/such/file.docx",
+	})
+	if !isErr {
+		t.Error("unpixel_leak_scan(bad path): want isError=true, got false")
 	}
 }

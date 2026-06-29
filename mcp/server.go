@@ -5,7 +5,16 @@
 //     detection, colorspace, blur estimation, font size, redaction bounding box, and
 //     a heuristic recommended decoder.
 //   - unpixel_verify_candidates — scores a list of known candidate strings against
-//     an observed mosaic and returns them ranked by image distance (lowest = best).
+//     an observed mosaic using the faithful forward model (render→re-pixelate→metric,
+//     calibrated like Recover) and returns them ranked by image distance. The result
+//     is now decisive: each candidate carries a Match flag (distance <
+//     [unpixel.VerifyMatchThreshold]) and Pick is set to the lowest-distance
+//     confident match, or empty when no candidate meets the threshold.
+//   - unpixel_propose_hints — aggregates hints for the LLM propose→physics-verify
+//     loop: estimated character count, detected block size and font size, optional
+//     redaction bounding box, a coarse charset suggestion, and any plaintext leaked
+//     from file metadata (PDF text streams, Office body text). Call this before
+//     unpixel_verify_candidates to guide candidate generation.
 //   - unpixel_decode — recovers hidden text from a pixelated or blurred redaction
 //     using one of thirteen decoder methods (auto, mosaic, blurred, mono-hmm,
 //     window-hmm, trained-hmm, did, varfont, perspective, reference, blind,
@@ -97,8 +106,12 @@ var toolAnalyze = &mcpsdk.Tool{
 var toolVerify = &mcpsdk.Tool{
 	Name: "unpixel_verify_candidates",
 	Description: "Scores a list of candidate strings against a mosaic-pixelated image " +
-		"by rendering each candidate, re-pixelating it, and measuring image distance. " +
-		"Returns the candidates ranked from best (lowest distance) to worst, plus a margin.",
+		"using the faithful forward model (render→re-pixelate→metric, calibrated like Recover). " +
+		"Returns candidates ranked from best (lowest distance) to worst, a margin, and a " +
+		"decisive pick: the lowest-distance candidate whose distance is below " +
+		"VerifyMatchThreshold (a confident physical match). Pick is empty when no candidate " +
+		"meets the threshold. Supply charset and block_size from unpixel_propose_hints or " +
+		"unpixel_analyze to sharpen discrimination.",
 }
 
 // analyzeInput is the JSON-decoded input for unpixel_analyze.
