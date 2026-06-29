@@ -1233,3 +1233,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `191e501` 2026-06-29 — fix(unpixel): delegate Recover+WithAuto() to RecoverBlurred on blur detection _(3 fichiers)_
 - `1a23bc6` 2026-06-29 — docs(test): drop stale NOTE in §2.3 blur-equivalence test _(2 fichiers)_
 - `3ea6663` 2026-06-29 — fix(unpixel): guard Recover blur-delegation against mosaic screenshots (I1) _(3 fichiers)_
+- `2d70927` 2026-06-29 — test(fingerprint): assert real no-misroute predicate (final-review M1) _(2 fichiers)_
