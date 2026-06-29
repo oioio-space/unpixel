@@ -1243,3 +1243,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `57cf0b8` 2026-06-29 — docs(spec): refine #1B securing — cross-operator agreement, not re-fingerprint _(1 fichiers)_
 - `ebc5de8` 2026-06-29 — docs(plan): implementation plan for #1B operator-zoo + meta-strategy _(1 fichiers)_
 - `7bb53e4` 2026-06-29 — feat(pixelate): NewGaussianBlurEdge — selectable border handling (clamp/reflect/wrap) _(3 fichiers)_
+- `42e77ee` 2026-06-29 — feat(forensics): named tool-profile zoo with config dedup key _(3 fichiers)_
