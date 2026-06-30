@@ -28,3 +28,4 @@ machine, so compare the **deltas** between rows. Raw run: `quality-baseline.json
 | 2026-06-26 | `v0.15.0` | 17/17 (100%) | 1 | 1 | 1745 | opt-in real-world: auto crop/colorspace/calibrate + prefix constraint |
 | 2026-06-26 | `v0.16.0` | 17/17 (100%) | 1 | 1 | 2045 | opt-in ensemble + multi-frame + context-aware DID + glyph fingerprint + opsz/slnt |
 | 2026-06-26 | `v0.17.0` | 17/17 (100%) | 1 | 1 | 765 | MCP server (LLM toolbox) + calibrated verify_candidates + trend-check gate |
+| 2026-06-30 | `v0.17.0+prog` | 17/17 (100%) | 1 | 1 | 743 | program #1–#8 (leak/operator-zoo/trained-hmm/Verify, checksum-trellis, font-prior, rerank, image-verify-gate, infoleak) — all opt-in/additive, default path byte-identical so the panel is unchanged |
