@@ -404,9 +404,21 @@ Tier 3 — moonshots (haut plafond, coût élevé) :
       additif (Verify/Recover/panel 17/17 intacts, CI verte, cover 85.2 %). Limite honnête : livre
       la PORTE + le protocole, PAS un recouvreur ; aucun gain de décodage tant qu'un restaurateur
       externe n'est pas branché ; mosaïque ambigu non tranchable ; flou > mosaïque.
-- [ ] **#8 Inverse-renderer neuronal amorti + idées novatrices** — entraîné sur la pipeline
-      synthétique render→re-pixelate (le renderer est le labelleur), amorce CMA-ES/Viterbi ;
-      + offset-comme-multiframe, moiré JPEG⊗mosaïque, fuite sub-pixel d'anti-aliasing. Mur : tous.
+- [x] **#8 Inverse-renderer neuronal amorti + idées novatrices** ✅ *(décomposé ; spec/plan :
+      `docs/superpowers/{specs,plans}/2026-06-30-infoleak-study*.md` ; chiffres : `docs/JOURNAL.md`
+      §#8)* — le paquet de 4 idées s'est décomposé honnêtement : (1) **offset-comme-multiframe DÉJÀ
+      livré** (`internal/multiframe` IBP) ; (4) **inverse-renderer neuronal = ML différé** (la couture
+      `//go:build ml` existe déjà — borné par le mur d'information comme la diffusion #7) ; (2) **moiré
+      JPEG** & (3) **fuite AA** = pas de fuite intra-bloc récupérable pour un mosaïque moyenne-de-bloc
+      (exploit connu = effet d'avalanche, déjà fait). Livré à la place : **étude de faisabilité pur-Go
+      mesurée** — package `internal/infoleak` (`Separability`/`JPEGRoundTrip`/`binarizeHardEdge`/
+      `MeasureAALeak`/`MeasureJPEGImpact`) + runner `//go:build infoleak` (`mise run infoleak`) +
+      écriture des chiffres dans le JOURNAL. **Résultats mesurés** : le gain AA est NÉGATIF sur les 9
+      polices (l'AA adoucit les arêtes → les confusables deviennent PLUS proches après moyenne-de-bloc,
+      pas moins) ; le JPEG = coût de robustesse croissant à basse qualité (true-still-wins sur un
+      confusable propre), pas une fuite ; multi-offset = seul vrai levier super-résolution, déjà livré.
+      **Verdict** : le mur d'information tient ; aucun exploiteur (décodeur DCT / exploiteur AA) justifié.
+      Additif, pur-Go, panel 17/17 intact. CI verte, cover 85,2 %. Clôture honnête du tier moonshot.
 
 Garde-fou commun : `internal/ml` derrière `//go:build ml` ; HMM/Viterbi, petit CNN forward-pass,
 RL/Wiener/homographie écrits **à la main en pur-Go sur gonum** ; ne pas adopter gotch/libtorch ni
