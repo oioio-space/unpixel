@@ -47,6 +47,7 @@ import (
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/blind"            // blind recovery API (P6.6)
 	"github.com/oioio-space/unpixel/defaults"         // named: strategy/metric constructors; init() still wires defaults
+	"github.com/oioio-space/unpixel/fontprior"        // blind font prior (reorder/prune the bundle sweep)
 	"github.com/oioio-space/unpixel/fonts"            // bundled redistributable fonts for the zero-config sweep
 	"github.com/oioio-space/unpixel/internal/deblur"  // input normalisation for real blurred captures
 	"github.com/oioio-space/unpixel/internal/imutil"  // image helpers (ToRGBA etc.)
@@ -136,6 +137,8 @@ type flagParams struct {
 	framePaths          []string // --frame: repeated image paths for multi-frame IBP fusion
 	didContext          bool     // --did-context: context-aware emission for --decoder did
 	leakScan            bool     // --leak-scan: run file-level leak pre-pass before pixel solving
+	fontPrior           bool     // --font-prior: order the bundled-font sweep by a blind font prior
+	fontPriorTopK       int      // --font-prior-top-k: decode only the top-K ranked fonts (0 = all)
 }
 
 // fastBlurMinSigma is the sigma at/above which blur mode uses the O(1) box
@@ -467,6 +470,41 @@ func bundleCandidates() ([]candidateFont, error) {
 		cands[i] = candidateFont{r: r, display: f.Name, jsonName: f.Name}
 	}
 	return cands, nil
+}
+
+// applyFontPrior reorders cands to match the prior ranking (best-first), then
+// truncates to topK when 0 < topK < len. Candidates absent from ranked keep
+// their original relative order at the end. cands is returned unchanged when
+// ranked is empty.
+func applyFontPrior(cands []candidateFont, ranked []fontprior.Ranked, topK int) []candidateFont {
+	if len(ranked) == 0 {
+		return cands
+	}
+	pos := make(map[string]int, len(ranked))
+	for i, r := range ranked {
+		if _, dup := pos[r.Name]; !dup {
+			pos[r.Name] = i
+		}
+	}
+	ordered := append([]candidateFont(nil), cands...)
+	slices.SortStableFunc(ordered, func(a, b candidateFont) int {
+		ra, oka := pos[a.jsonName]
+		rb, okb := pos[b.jsonName]
+		switch {
+		case oka && okb:
+			return cmp.Compare(ra, rb)
+		case oka:
+			return -1
+		case okb:
+			return 1
+		default:
+			return 0
+		}
+	})
+	if topK > 0 && topK < len(ordered) {
+		ordered = ordered[:topK]
+	}
+	return ordered
 }
 
 // sweepOutcome is the result of one font sweep: the winning recovery plus the
@@ -2330,6 +2368,14 @@ Examples:
 				Usage: "run a file-level leak pre-pass before pixel solving: checks EXIF thumbnail, PDF text-under-rect, Office body text, and visible-text-assisted partial redaction; exits early when a leak is found (default true)",
 				Value: true,
 			},
+			&cli.BoolFlag{
+				Name:  "font-prior",
+				Usage: "order the bundled-font sweep by a blind font prior (likeliest font first)",
+			},
+			&cli.IntFlag{
+				Name:  "font-prior-top-k",
+				Usage: "with --font-prior, decode only the top-K ranked fonts (0 = all; implies --font-prior)",
+			},
 		},
 		Action: run,
 	}
@@ -2413,6 +2459,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		framePaths:          cmd.StringSlice("frame"),
 		didContext:          cmd.Bool("did-context"),
 		leakScan:            cmd.Bool("leak-scan"),
+		fontPrior:           cmd.Bool("font-prior"),
+		fontPriorTopK:       cmd.Int("font-prior-top-k"),
 	}
 
 	if err := validateParams(p); err != nil {
@@ -2606,6 +2654,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		cands, berr := bundleCandidates()
 		if berr != nil {
 			return berr
+		}
+		if p.fontPrior || p.fontPriorTopK > 0 {
+			if ranked, rankErr := fontprior.Default().Rank(ctx, img, cfg.BlockSize, fonts.All()); rankErr == nil {
+				cands = applyFontPrior(cands, ranked, p.fontPriorTopK)
+				if !p.quiet && p.format != "json" {
+					fmt.Fprintf(os.Stderr, "Font prior: trying %s first\n", cands[0].display)
+				}
+			}
 		}
 		// No charset given → widen it until a confident result (P3.6).
 		if p.escalate && !p.charsetExplicit {
