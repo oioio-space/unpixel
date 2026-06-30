@@ -254,6 +254,9 @@ func validateParams(p flagParams) error {
 	if len(p.framePaths) > 0 && p.decoder != "" && p.decoder != "default" {
 		return fmt.Errorf("--frame cannot be combined with --decoder %q (multi-frame uses the default decoder)", p.decoder)
 	}
+	if p.fontPriorTopK < 0 {
+		return fmt.Errorf("--font-prior-top-k must be >= 0 (0 = all fonts), got %d", p.fontPriorTopK)
+	}
 	return nil
 }
 
