@@ -39,12 +39,14 @@ func TestDecodeMultiFrameAuto_Errors(t *testing.T) {
 
 // TestDecodeMultiFrameAuto_SingleFrameEquivalent verifies that a one-element
 // slice produces the same result as calling Decode directly on that image.
+//
+// It uses a small panel fixture (not the large real-world capture) so the
+// byte-identical contract is exercised on every run — including the default,
+// non-short test pass — without the multi-minute cost of a blind decode of a
+// full-size photo.
 func TestDecodeMultiFrameAuto_SingleFrameEquivalent(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping single-frame equivalence (full decode) in -short mode")
-	}
 	ctx := t.Context()
-	img := loadPNG(t, "../testdata/real/hello-world.png")
+	img := loadPNG(t, "../testdata/fixtures/text_cat.png")
 
 	want, err := mosaictext.Decode(ctx, img)
 	if err != nil {
@@ -60,7 +62,10 @@ func TestDecodeMultiFrameAuto_SingleFrameEquivalent(t *testing.T) {
 	t.Logf("DecodeMultiFrameAuto(1): %q (dist=%.4f)", got.Text, got.Distance)
 
 	if got.Text != want.Text {
-		t.Errorf("single-frame contract: got %q, want %q", got.Text, want.Text)
+		t.Errorf("single-frame contract (text): got %q, want %q", got.Text, want.Text)
+	}
+	if got.Distance != want.Distance {
+		t.Errorf("single-frame contract (distance): got %v, want %v", got.Distance, want.Distance)
 	}
 }
 
