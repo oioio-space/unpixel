@@ -384,10 +384,26 @@ Tier 2 — ML opt-in (build tag ONNX OU sidecar), défaut reste pur-Go :
       LM (relève #6) ; poids élevé peut supplanter physique correcte (défaut 0).
 
 Tier 3 — moonshots (haut plafond, coût élevé) :
-- [ ] **#7 Restaurateur diffusion fine-tuné sur la dégradation de caviardage** (sidecar Python) —
-      DiffTSR/UDiffText(MIT)/AnyText2(Apache) conditionnés glyphes, en dernière étape sur le top-K
-      seulement, vérifié par la physique (anti-hallucination). Retraining sur dégradation mosaïque/
-      flou = inexploré dans la littérature. Mur : tous.
+- [x] **#7 Porte image-verify + protocole sidecar restaurateur** ✅ *(spec/plan :
+      `docs/superpowers/{specs,plans}/2026-06-30-image-verify-gate*.md`)* —
+      Découverte clé : la diffusion-texte (DiffTSR CVPR-2024, UDiffText, AnyText2) est de la
+      super-résolution/édition sur du texte DÉGRADÉ MAIS PRÉSENT ; le caviardage mosaïque DÉTRUIT
+      l'information (plusieurs lettres → même moyenne de bloc) → un restaurateur HALLUCINE ; la porte
+      physique ne peut pas trancher un mosaïque ambigu. Valeur légitime : régime FLOU (plus
+      discriminant), modèle diffusion = différé (sidecar Python/GPU, hors flux pur-Go).
+      Livré (porte manquante, pur-Go) : `unpixel.VerifyImage(ctx, redacted, restored, opts...) (ImageVerdict, error)`
+      — ré-applique l'opérateur direct à une image restaurée fournie et la compare physiquement au
+      caviardage (anti-hallucination). Moitié basse de `Verify` : `Verify(texte) ≡ VerifyImage(render(texte))` ;
+      prologue partagé extrait en `prepareVerify` (refactor byte-identique). Hook `DefaultVerifyImageCore` →
+      `defaults.verifyImageCore` (resize x/image/draw + recherche de phase + métrique). Outil MCP
+      `unpixel_verify_image`. Protocole sidecar documenté : `docs/sidecar-protocol.md`. PAS de CGO,
+      PAS de `os/exec`, PAS de tag `//go:build` (modèle = processus externe). Bug critique attrapé
+      en revue finale et corrigé : `metric.Compare` renvoie 0 sur bornes inégales, `Pixelate` re-pad
+      la largeur → faux-accept de garbage quand la largeur n'est pas multiple du bloc ; corrigé en
+      alignant `reMosaic`/`redacted` sur la région réelle. Tests de régression ajoutés. Strictement
+      additif (Verify/Recover/panel 17/17 intacts, CI verte, cover 85.2 %). Limite honnête : livre
+      la PORTE + le protocole, PAS un recouvreur ; aucun gain de décodage tant qu'un restaurateur
+      externe n'est pas branché ; mosaïque ambigu non tranchable ; flou > mosaïque.
 - [ ] **#8 Inverse-renderer neuronal amorti + idées novatrices** — entraîné sur la pipeline
       synthétique render→re-pixelate (le renderer est le labelleur), amorce CMA-ES/Viterbi ;
       + offset-comme-multiframe, moiré JPEG⊗mosaïque, fuite sub-pixel d'anti-aliasing. Mur : tous.
@@ -1324,3 +1340,12 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `bc60de9` 2026-06-29 — fix(secrets): prune dead date branches; clarify MCP expected_format scope _(3 fichiers)_
 - `f901915` 2026-06-30 — docs(spec): #4 blind font prior design (heuristic now, ML-ready seam) _(1 fichiers)_
 - `796285c` 2026-06-30 — polish(fontprior): CLI breadcrumb on prior failure + slices.Clone (final review) _(2 fichiers)_
+- `9d53841` 2026-06-30 — docs(spec): #7 image-restoration verify gate + sidecar protocol _(1 fichiers)_
+- `b0ac389` 2026-06-30 — docs(plan): #7 image-restoration verify gate implementation plan _(1 fichiers)_
+- `026579e` 2026-06-30 — refactor(verify): extract prepareVerify prologue (byte-identical) _(2 fichiers)_
+- `b24697b` 2026-06-30 — feat(unpixel): VerifyImage + ImageVerdict + DefaultVerifyImageCore hook _(3 fichiers)_
+- `19f894b` 2026-06-30 — feat(defaults): verifyImageCore — re-pixelate restored image + phase search _(2 fichiers)_
+- `664e870` 2026-06-30 — fix(defaults): bounds-exact resize guard in verifyImageCore + test/clarity _(2 fichiers)_
+- `0076fe2` 2026-06-30 — feat(mcp): unpixel_verify_image — physics-gate a restored image _(3 fichiers)_
+- `10ba766` 2026-06-30 — docs(sidecar): external-restorer protocol + VerifyImage identity test _(2 fichiers)_
+- `d32f2fc` 2026-06-30 — fix(defaults): align reMosaic to redacted bounds in verifyImageCore (close C1 false-accept) _(2 fichiers)_
