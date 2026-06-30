@@ -33,6 +33,7 @@ section, and C1a/C1b are also in the `## Évolution — décodeurs` table.
 | 2026-06-28 | v0.17.0+dev | 6ecdcbd | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/11% | 0/3/0/8%  | 0/5/0/0%  | 0/5/0/0%  | 0/10/0/16% | 0/10/0/23% | 0/9/0/3% | 54    | 1962    |
 | 2026-06-30 | v0.17.0+dev | 6c1f5cb | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3% | 0/3/0/4% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/1/24% | 0/9/0/3% | 54 | 2185 |
 | 2026-06-30 | v0.17.0+dev | e5a09b1 | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3% | 0/3/0/4% | 0/5/0/0% | 0/5/0/0% | 0/10/0/16% | 0/10/1/24% | 0/9/0/3% | 54 | 2209 |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | 8/17/9/54% | 17/17/17/100% | 13/14/14/98% | 13/14/14/99% | 0/3/0/3% | 0/3/0/4% | 0/5/0/0% | 0/5/0/0% | 0/10/0/18% | 0/10/1/23% | 0/9/0/3% | 54 | 2355 |
 
 
 ## Analyse de tendance
@@ -141,6 +142,121 @@ restants — fidélité de police (real, *B1*) et frontières de phrases (sick, 
 cf. roadmap PROGRESS.md « Prochaines étapes » + [[decode-full-corpus-roadmap]],
 [[blind-sentence-scoring-wall]]).
 
+
+## Run 2026-06-30T19:18:29Z — 5fb175a
+
+**Environment:** Go go1.26.4 · linux/amd64 · NumCPU=20 GOMAXPROCS=20 · total 2354.6 s
+
+### Résumé par corpus
+
+| Corpus | exact | ≥70% | mean% | mean-conf | mean-fidelity | dur(s) | échecs (top buckets) |
+|---|---|---|---|---|---|---|---|
+| fixtures | 17/17 | 17 | 100% | 1.000 | 1.000 | 1.2 | — |
+| blur | 13/14 | 14 | 99% | 0.982 | 0.984 | 27.7 | wrong-gly ×1 |
+| real | 0/3 | 0 | 4% | 1.000 | 0.000 | 124.7 | wrong-len ×3 |
+| wild | 0/5 | 0 | 0% | 0.327 | 0.200 | 177.9 | below-thr ×3, wrong-len ×1, timeout ×1 |
+| sick | 0/10 | 1 | 23% | 0.915 | 0.166 | 180.2 | below-thr ×1, wrong-len ×9 |
+
+### fixtures
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `block04_go` | `go` | ok/`go`/100%/conf=1.00/ms=102 | ok/`go`/100%/conf=1.00/ms=32 | — |
+| `block08_go` | `go` | ok/`go`/100%/conf=1.00/ms=29 | ok/`go`/100%/conf=1.00/ms=26 | — |
+| `block16_go` | `go` | fail/`c`/0%/conf=0.56/ms=72 | ok/`go`/100%/conf=1.00/ms=46 | below-threshold / no confident candidate |
+| `size24_go` | `go` | fail/`u`/0%/conf=0.69/ms=14 | ok/`go`/100%/conf=1.00/ms=18 | below-threshold / no confident candidate |
+| `size40_go` | `go` | fail/`a`/0%/conf=0.45/ms=22 | ok/`go`/100%/conf=1.00/ms=35 | below-threshold / no confident candidate |
+| `bold_go` | `go` | fail/`a`/0%/conf=0.62/ms=16 | ok/`go`/100%/conf=1.00/ms=25 | below-threshold / no confident candidate |
+| `alnum_Go2` | `Go2` | fail/`t`/0%/conf=0.74/ms=19 | ok/`Go2`/100%/conf=1.00/ms=20 | below-threshold / no confident candidate |
+| `symbols_x_eq_1` | `x=1` | fail/`x`/33%/conf=1.00/ms=964 | ok/`x=1`/100%/conf=1.00/ms=47 | wrong length (got 1 want 3) |
+| `pad_04_04_go` | `go` | ok/`go`/100%/conf=1.00/ms=25 | ok/`go`/100%/conf=1.00/ms=21 | — |
+| `pad_12_12_go` | `go` | fail/`q`/0%/conf=0.67/ms=18 | ok/`go`/100%/conf=1.00/ms=52 | below-threshold / no confident candidate |
+| `text_single_x` | `x` | ok/`x`/100%/conf=1.00/ms=40 | ok/`x`/100%/conf=1.00/ms=32 | — |
+| `text_cat` | `cat` | ok/`cat`/100%/conf=1.00/ms=5146 | ok/`cat`/100%/conf=1.00/ms=137 | — |
+| `text_with_space` | `a b` | ok/`a b`/100%/conf=1.00/ms=847 | ok/`a b`/100%/conf=1.00/ms=27 | — |
+| `text_hello` | `hello` | ok/`hello`/100%/conf=1.00/ms=2591 | ok/`hello`/100%/conf=1.00/ms=205 | — |
+| `secret_admin` | `admin` | ok/`admin`/100%/conf=1.00/ms=22853 | ok/`admin`/100%/conf=1.00/ms=227 | — |
+| `secret_azerty` | `azerty` | fail/`azert`/83%/conf=1.00/ms=5654 | ok/`azerty`/100%/conf=1.00/ms=203 | wrong length (got 5 want 6) |
+| `secret_pin1234` | `1234` | fail/`y`/0%/conf=0.72/ms=48 | ok/`1234`/100%/conf=1.00/ms=39 | below-threshold / no confident candidate |
+
+### blur
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `blur_go_s2` | `go` | ok/`go`/100%/conf=1.00/ms=1308 | ok/`go`/100%/conf=1.00/ms=72 | — |
+| `blur_go_s3` | `go` | ok/`go`/100%/conf=1.00/ms=1827 | ok/`go`/100%/conf=1.00/ms=93 | — |
+| `blur_go_s4` | `go` | ok/`go`/100%/conf=1.00/ms=2170 | ok/`go`/100%/conf=1.00/ms=89 | — |
+| `blur_go_s6` | `go` | ok/`go`/100%/conf=0.91/ms=339 | ok/`go`/100%/conf=0.91/ms=41 | — |
+| `blur_cat_s2` | `cat` | ok/`cat`/100%/conf=1.00/ms=9918 | ok/`cat`/100%/conf=1.00/ms=530 | — |
+| `blur_cat_s3` | `cat` | ok/`cat`/100%/conf=1.00/ms=2989 | ok/`cat`/100%/conf=1.00/ms=233 | — |
+| `blur_cat_s4` | `cat` | ok/`cat`/100%/conf=1.00/ms=3040 | ok/`cat`/100%/conf=1.00/ms=258 | — |
+| `blur_cat_s6` | `cat` | ok/`cat`/100%/conf=0.89/ms=3571 | ok/`cat`/100%/conf=0.89/ms=271 | — |
+| `blur_hello_s2` | `hello` | ok/`hello`/100%/conf=0.96/ms=11387 | ok/`hello`/100%/conf=0.96/ms=1798 | — |
+| `blur_hello_s3` | `hello` | ok/`hello`/100%/conf=1.00/ms=21414 | ok/`hello`/100%/conf=1.00/ms=3684 | — |
+| `blur_hello_s4` | `hello` | ok/`hello`/100%/conf=0.99/ms=5545 | ok/`hello`/100%/conf=0.99/ms=714 | — |
+| `blur_hello_s6` | `hello` | ok/`hello`/100%/conf=1.00/ms=3240 | ok/`hello`/100%/conf=1.00/ms=303 | — |
+| `blur_connect_s3` | `connect` | ok/`connect`/100%/conf=1.00/ms=30002 | fail/`cennect`/86%/conf=1.00/ms=7363 | wrong glyphs (font fidelity / params) |
+| `blur_connect_s6` | `connect` | fail/`connevi`/71%/conf=0.94/ms=30003 | ok/`connect`/100%/conf=1.00/ms=12297 | wrong glyphs (font fidelity / params) |
+
+### real
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `hello-world` | `Hello World !` | fail/`a          vc`/8%/conf=1.00/ms=30040 | fail/`a           ''`/8%/conf=1.00/ms=33331 | wrong glyphs (font fidelity / params) |
+| `hello-world-noisy` | `Hello World !` | fail/`(none)`/0%/conf=0.00/ms=149230 | fail/`'a          '''`/0%/conf=1.00/ms=39569 | timeout (no result in 30s) |
+| `marx` | `Celui qui ne connaît pas…` | fail/`(none)`/0%/conf=0.00/ms=116235 | fail/`a'`/3%/conf=1.00/ms=51764 | timeout (no result in 30s) |
+
+### wild
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `m1` | `—` | unknown/`wow s,`/NA/conf=1.00/ms=31357 | unknown/`w,`/NA/conf=1.00/ms=30528 | — |
+| `m2` | `—` | unknown/`-`/NA/conf=0.35/ms=15106 | unknown/`-`/NA/conf=0.35/ms=36 | — |
+| `m3` | `—` | unknown/`F`/NA/conf=0.23/ms=45 | unknown/`F`/NA/conf=0.23/ms=41 | — |
+| `m4` | `Hello from the other side` | fail/`!`/0%/conf=0.27/ms=51 | fail/`!`/0%/conf=0.27/ms=51 | below-threshold / no confident candidate |
+| `m5` | `Hello from the other side` | fail/`(`/0%/conf=0.36/ms=53 | fail/`(`/0%/conf=0.36/ms=51 | below-threshold / no confident candidate |
+| `b1` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30006 | unknown/`(none)`/NA/conf=0.00/ms=30005 | — |
+| `b2` | `—` | unknown/`(none)`/NA/conf=0.00/ms=30010 | unknown/`(none)`/NA/conf=0.00/ms=30001 | — |
+| `b3` | `DEBLUR` | fail/`',`/0%/conf=1.00/ms=30001 | fail/`,,`/0%/conf=1.00/ms=30001 | wrong length (got 2 want 6) |
+| `b4` | `BLUR` | fail/`@`/0%/conf=0.00/ms=26734 | fail/`@`/0%/conf=0.00/ms=27147 | below-threshold / no confident candidate |
+| `b5` | `Blur Text` | fail/`(none)`/0%/conf=0.00/ms=30022 | fail/`(none)`/0%/conf=0.00/ms=30014 | timeout (no result in 30s) |
+
+### sick
+
+| image | gt | zero: status/guess/score%/conf/ms | best: status/guess/score%/conf/ms | why |
+|---|---|---|---|---|
+| `sick_wrestling` | `two dogs are wrestling a…` | fail/`two       s        …`/24%/conf=1.00/ms=30026 | fail/`two       s   re w …`/32%/conf=1.00/ms=30017 | wrong length (got 32 want 34) |
+| `sick_boys_outdoors` | `the young boys are playi…` | fail/`cu   a b     t`/20%/conf=1.00/ms=30039 | fail/`cu   a b     t`/20%/conf=1.00/ms=30014 | wrong length (got 14 want 35) |
+| `sick_water_safety` | `nobody is practicing wat…` | fail/`n    z    r        …`/18%/conf=1.00/ms=30029 | fail/`lre  z    r    s`/18%/conf=1.00/ms=30011 | wrong length (got 24 want 33) |
+| `sick_man_playing` | `a man is playing a guitar` | fail/`a man is pl  y  ig …`/64%/conf=1.00/ms=30017 | fail/`a man is play  ig a…`/72%/conf=1.00/ms=30023 | wrong length (got 24 want 25) |
+| `sick_children_playing` | `two children are playing…` | fail/`t     v   l be    u…`/22%/conf=1.00/ms=30012 | fail/`t     vh l be    um…`/22%/conf=1.00/ms=30011 | wrong length (got 24 want 36) |
+| `sick_woman_singing` | `a woman is singing a song` | fail/`a  w  n  r     a`/28%/conf=1.00/ms=30015 | fail/`a  wzf acr`/20%/conf=1.00/ms=30012 | wrong length (got 16 want 25) |
+| `digits_7d_1234567` | `1234567` | fail/`ij`/0%/conf=1.00/ms=2504 | fail/`12`/29%/conf=0.86/ms=55 | wrong length (got 2 want 7) |
+| `digits_8d_98765432` | `98765432` | fail/`q`/0%/conf=1.00/ms=124 | fail/`1`/0%/conf=0.71/ms=38 | wrong length (got 1 want 8) |
+| `digits_9d_012345678` | `012345678` | fail/`d`/0%/conf=1.00/ms=165 | fail/`1`/11%/conf=0.81/ms=27 | wrong length (got 1 want 9) |
+| `digits_10d_1029384756` | `1029384756` | fail/`ru`/0%/conf=1.00/ms=8283 | fail/`2`/10%/conf=0.77/ms=23 | wrong length (got 2 want 10) |
+
+### context
+
+Context-assisted decode (C1a/C1b): the font is calibrated from a visible source
+(C1a: a sharp `visible_rect` in the same image; C1b: a separate font-sample PNG),
+then the redacted region is decoded blind. Calibration finds the font well
+(dist≈0 in unit tests), but blind recovery of the redacted secret stays weak —
+this section makes each fixture visible per-image rather than as a single 0/9 row.
+
+| image | secret | C1a visible: guess/score | C1b sample: guess/score | block |
+|---|---|---|---|---|
+| `ctx_sameline_user` | `hunter2` | `W`/0% | — | 8 |
+| `ctx_sameline_pin` | `4892` | `W`/0% | — | 8 |
+| `ctx_sameline_mono_token` | `a3f9b2` | `O`/0% | — | 8 |
+| `ctx_label_password` | `Pa55w0rd!` | `W`/0% | — | 8 |
+| `ctx_label_secret` | `X7kQ9m` | `m`/17% | — | 8 |
+| `ctx_varfont_wght600` | `Tr0ub4dor` | `W`/0% | — | 8 |
+| `ctx_varfont_wght750` | `G4te2024` | `G`/12% | — | 8 |
+| `ctx_sameline_block10` | `r00t` | `T`/0% | — | 10 |
+| `ctx_crossimg_wght700` | `Secret7` | `A`/0% | `G`/0% | 8 |
+
+C1a (calibrate-visible): 0/9 exact, mean 3%. C1b (calibrate-sample): 0/1 exact.
 
 ## Run 2026-06-30T13:43:48Z — e5a09b1
 
@@ -1906,6 +2022,17 @@ are capped to the first 4 sick images (noted in the Subset column).
 | 2026-06-30 | v0.17.0+dev | e5a09b1 | calibrate-sample | context | 0/1/0/0% | 0 |  |
 | 2026-06-30 | v0.17.0+dev | e5a09b1 | perspective | perspective | 3/3/3/100% | 4 |  |
 | 2026-06-30 | v0.17.0+dev | e5a09b1 | perspective-auto | perspective | 2/3/2/87% | 4 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | default | sick | 0/10/0/23% | 270 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | did | sick | 0/4/0/8% | 191 | first 4 |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | window-hmm | sick | 0/10/0/2% | 295 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | trained-hmm | sick | 0/4/0/0% | 202 | first 4 |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | ref-match | sick | 4/10/4/54% | 7 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | varfont | real | 0/3/0/0% | 0 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | blind | sick | 0/10/0/11% | 13 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | calibrate-visible | context | 0/9/0/3% | 3 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | calibrate-sample | context | 0/1/0/0% | 0 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | perspective | perspective | 3/3/3/100% | 8 |  |
+| 2026-06-30 | v0.17.0+dev | 5fb175a | perspective-auto | perspective | 2/3/2/87% | 8 |  |
 
 ## #8 — Information-leak feasibility study (2026-06-30)
 
@@ -2077,22 +2204,45 @@ once, then re-pixelated at every frame's grid phase and scored against that fram
 no longer need hand-labeled offsets. A wiring bug (negative phase deltas → malformed
 canvas → inflated distance) was found and fixed (normalize deltas non-negative).
 
-Decisive controlled measurement — does phase diversity add discriminating
-information? Score TRUE vs WRONG text, 1-frame vs 2-frame, isolated from blind
-calibration:
+Decisive controlled measurement — does it improve RECOVERY? An early "gap
+magnitude widens with a 2nd frame" reading was **wrong on two counts**: (1) it was
+measured under a since-fixed phase-alignment bug (deltas anchored to the minimum
+phase, not frame 0, so frame 0 itself was mis-placed); (2) `dist` AVERAGES the
+per-frame distances (sum/N), and averaging is monotonic — it cannot change a
+candidate's *rank* by magnitude alone, so "gap size" is not a valid success metric.
+The recovery-relevant question is whether multi-frame moves the TRUE text to a
+better argmin RANK among confusable candidates. Measured (`mfmeasure`, frame-0-
+relative alignment, true text vs 5–8 same-length confusables):
 
-| block | single-frame (wrong−true) gap | multi-frame gap | Δ |
-|-------|-------------------------------|-----------------|---|
-| 8     | 232.0                         | 234.0           | +2.0 (widened) |
-| 16    | −183.2                        | −152.3          | +31.0 (toward correct) |
+| scenario | block | rank@N=1 | rank@N=2 | rank@N=4 | improved? |
+|----------|-------|----------|----------|----------|-----------|
+| be   | 8/12/16/24 | 4/5/4/5 | 4/5/4/5 | 4/5/4/5 | no (5×) |
+| cat  | 8         | 5 | 5 | 4 | marginal |
+| cat  | 12/16/24  | 3/2/4 | 5/2/4 | 4/3/5 | no / worse |
+| word | 8/16      | 4/5 | 2/1 | 2/1 | yes (2×) |
+| word | 12/24     | 1/1 | 2/1 | 1/1 | no (already #1) |
 
-The gap **widens** with a second phase-diverse frame: the mechanism adds real
-information, confirming the Positive Security premise. **But the gain is modest on
-the synthetic single-line corpus**, and at block 16 the wrong text still wins on
-absolute distance (a coarse-block calibration artefact). The dramatic gains (the
-Positive Security IBAN at block 50) need the large-block / many-real-capture regime
-— pure-Go fusion (`Fuse`/`FuseN`) is retained as a standalone super-resolution
-utility for that, but it no longer feeds the decoder. New fixtures:
+**Honest result: multi-frame averaging does NOT reliably improve recovery on the
+synthetic corpus** — 3/12 regimes improve (and those flips are noise: phase
+diversity shuffles *which wrong* candidate scores lowest, not the true text's
+absolute fit), 5/12 unchanged, 4/12 degrade. The math is the limiter: averaging
+re-averages the same per-frame confusion; it cannot amplify signal a single frame
+already lacks. Multi-frame adds genuinely new information only when a single frame is
+*sample-starved* — block ≥ glyph width, so each glyph gets <1 average and phase-
+diverse frames supply samples the single frame physically lacks (the Positive
+Security IBAN at block 50). Our blind-calibration fixtures keep glyphs spanning
+several blocks, so they never enter that regime, and constructing it is hard
+precisely because blind size/length calibration also fails when a glyph is ~1 block
+— a documented frontier, not a delivered gain.
+
+What this change DID deliver: the multi-frame API is now **correct** — it returns a
+decode that preserves single-frame quality (`frames==nil` byte-identical;
+`TestMultiFrameDistWidensGap` guards that multi-frame never FLIPS a correct
+single-frame argmin to wrong) — instead of the previous path that returned
+`ErrNoMosaic` whenever fusion actually worked. Plus auto phase discovery
+(`DiscoverPhases`) removes the hand-labeled-offset requirement. Pure-Go fusion
+(`Fuse`/`FuseN`) is retained as a standalone super-resolution utility for the
+sample-starved regime but no longer feeds the decoder. New fixtures:
 `testdata/multiframe/` (phase-diverse sharp-source frame sets) and
 `testdata/largeblock/` (block 20/24/32).
 
@@ -2133,9 +2283,14 @@ exactly W columns), recorded as a scoped follow-up. ML emission training (D) sta
 deferred behind the designed `//go:build ml` seam — building it half-way would be
 worse than the honest gap.
 
-**Net.** Two walls genuinely moved: the multi-frame path is now *correct* (and proven
-to add information) rather than self-defeating, and the forward model is now
-*optimized* rather than guessed. Neither is a magic bullet on the existing hard
-corpora — the mosaic information wall (§#8) stands for single static frames — but
-both are the right pure-Go mechanisms for the regimes where recovery is possible
-(real multi-captures; real images with a visible same-font region).
+**Net.** One wall moved, one was correctly diagnosed. The forward model is now
+*optimized* rather than guessed (B — a real, if modest, recovery gain when a visible
+same-font region exists). The multi-frame path is now *correct* (returns a
+quality-preserving decode instead of `ErrNoMosaic`) with auto phase discovery — but
+measurement showed averaging does NOT add recovery on the synthetic corpus; its
+genuine information gain is confined to the sample-starved large-block / real-multi-
+capture regime, which our fixtures cannot exercise (documented frontier, not a
+delivered gain). C confirmed the long-digit coverage wall. The mosaic information
+wall (§#8) stands for single static frames. The honest through-line: the value here
+is correct mechanisms + rigorously-mapped limits, not new recoveries on the hard
+corpora.
