@@ -1951,7 +1951,12 @@ func WithFontPrior() Option { return func(c *Config) { c.FontPrior = true } }
 // best-ranked fonts. k <= 0 or k >= the font count means reorder-only. Pruning
 // is faster but can drop the true font when k is too small, so it is opt-in;
 // k >= 3 is recommended. Implies the font prior.
-func WithFontPriorTopK(k int) Option { return func(c *Config) { c.FontPriorTopK = k } }
+func WithFontPriorTopK(k int) Option {
+	return func(c *Config) {
+		c.FontPriorTopK = k
+		c.FontPrior = true // honour the "implies the font prior" contract
+	}
+}
 
 // WithAuto enables the full zero-config real-world recovery path in one call:
 // it combines [WithAutoCrop], [WithAutoColorspace], [WithAutoBlur], and
