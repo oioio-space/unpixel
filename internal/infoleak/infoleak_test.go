@@ -92,6 +92,25 @@ func testRenderer(t *testing.T) unpixel.Renderer {
 	return r
 }
 
+func TestMeasureJPEGImpact_driftGrowsAsQualityDrops(t *testing.T) {
+	r := testRenderer(t)
+	rep, err := MeasureJPEGImpact(r, "the", "tho", 6, 28, []int{90, 50, 20})
+	if err != nil {
+		t.Fatalf("MeasureJPEGImpact: %v", err)
+	}
+	if len(rep.Points) != 3 {
+		t.Fatalf("points = %d; want 3", len(rep.Points))
+	}
+	// Drift is monotonically non-decreasing as quality drops (90 → 50 → 20).
+	if !(rep.Points[0].Drift <= rep.Points[1].Drift && rep.Points[1].Drift <= rep.Points[2].Drift) {
+		t.Errorf("drift not non-decreasing as quality drops: %+v", rep.Points)
+	}
+	// At high quality the true candidate should still win.
+	if !rep.Points[0].TrueStillWins {
+		t.Errorf("q=90: true candidate should still win")
+	}
+}
+
 func TestMeasureAALeak_runsAndAggregates(t *testing.T) {
 	r := testRenderer(t)
 	rep, err := MeasureAALeak(r, "Liberation Sans", [][2]string{{"rn", "m"}, {"0", "O"}}, 6, 28)

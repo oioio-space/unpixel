@@ -12,7 +12,7 @@ import (
 	"image"
 	"image/jpeg"
 
-	unpixel "github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 )
@@ -107,6 +107,68 @@ func MeasureAALeak(r unpixel.Renderer, fontName string, pairs [][2]string, block
 	}
 	if n := float64(len(pairs)); n > 0 {
 		rep.MeanAASep, rep.MeanHardSep, rep.MeanGain = sumAA/n, sumHard/n, sumGain/n
+	}
+	return rep, nil
+}
+
+// JPEGPoint is the JPEG impact at one quality level: Drift is how far the
+// compressed mosaic moved from the clean mosaic (Separability), and TrueStillWins
+// reports whether the compressed observation is still closer to the true
+// candidate's mosaic than to a wrong candidate's.
+type JPEGPoint struct {
+	// Quality is the JPEG quality level (1..100) used for this measurement.
+	Quality int
+	// Drift is the Separability between the JPEG-compressed mosaic and the
+	// clean mosaic; higher values mean more distortion introduced by compression.
+	Drift float64
+	// TrueStillWins reports whether the compressed mosaic is closer to the true
+	// candidate's mosaic than to the wrong candidate's mosaic.
+	TrueStillWins bool
+}
+
+// JPEGReport aggregates MeasureJPEGImpact results for one (text, wrong) candidate pair.
+type JPEGReport struct {
+	// Text is the true candidate string.
+	Text string
+	// Wrong is the confusable wrong candidate string.
+	Wrong string
+	// Points holds one measurement per requested quality level, in the order
+	// qualities were passed to MeasureJPEGImpact.
+	Points []JPEGPoint
+}
+
+// MeasureJPEGImpact renders text and a wrong candidate, block-averages both, then
+// JPEG-round-trips the clean text mosaic at each quality and reports the drift
+// (distance from the clean mosaic) and whether the compressed observation still
+// resolves to the true candidate. It quantifies JPEG as a robustness cost on the
+// known block values — not a sub-block information leak. qualities are processed
+// in the given order; pass them high→low for a readable drift curve.
+func MeasureJPEGImpact(r unpixel.Renderer, text, wrong string, block int, fontSize float64, qualities []int) (JPEGReport, error) {
+	pix := pixelate.NewBlockAverage(block)
+	tImg, _, err := r.Render(text, unpixel.Style{FontSize: fontSize})
+	if err != nil {
+		return JPEGReport{}, err
+	}
+	wImg, _, err := r.Render(wrong, unpixel.Style{FontSize: fontSize})
+	if err != nil {
+		return JPEGReport{}, err
+	}
+	clean := pix.Pixelate(tImg, 0, 0)
+	wrongMosaic := pix.Pixelate(wImg, 0, 0)
+
+	rep := JPEGReport{Text: text, Wrong: wrong, Points: make([]JPEGPoint, 0, len(qualities))}
+	for _, q := range qualities {
+		jpegd, err := JPEGRoundTrip(clean, q)
+		if err != nil {
+			return JPEGReport{}, err
+		}
+		toTrue := Separability(jpegd, clean)
+		toWrong := Separability(jpegd, wrongMosaic)
+		rep.Points = append(rep.Points, JPEGPoint{
+			Quality:       q,
+			Drift:         toTrue,
+			TrueStillWins: toTrue < toWrong,
+		})
 	}
 	return rep, nil
 }
