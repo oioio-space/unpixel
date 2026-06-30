@@ -352,9 +352,21 @@ Tier 1 — pur-Go, gros ROI, sans toucher à la règle no-CGO :
       `DefaultFormatStrategy`, pas de cycle). CI verte, cover 85.2 %. Mur : secrets structurés.
 
 Tier 2 — ML opt-in (build tag ONNX OU sidecar), défaut reste pur-Go :
-- [ ] **#4 Prior de police** — `Storia-AI/font-classify` (MIT, ONNX, ~3k Google Fonts) ou
-      DINOv2-PEFT → top-k polices classées qui amorcent le moteur. ⚠️ jamais de VLM générique
-      (effet Stroop). Mur : police inconnue (réel).
+- [x] **#4 Prior de police** ✅ *(spec/plan : `docs/superpowers/{specs,plans}/2026-06-{29,30}-font-prior*.md`)* —
+      Découverte clé : les classifieurs VFR pré-entraînés (DeepFont/DINOv2/font-classify) opèrent
+      sur du texte LISIBLE et sont inadaptés aux mosaïques ; le moteur ne rend que 9 polices. 
+      Pas d'import 3000-polices. Le signal juste = signature PIXELISÉE (`internal/fontrank`, déjà
+      aveugle). Livré : package public `fontprior` (cycle-safe au-dessus de `fonts`/`internal/fontrank`).
+      Interface `Prior` + impl pur-Go `Histogram` (aveugle, `fontrank.RankFontsAt`, sans `known_text`)
+      + `RecoverWithPrior` qui réordonne le balayage multi-polices (byte-identique, plus rapide) et
+      élague optionnellement au top-K. Options racine `WithFontPrior`/`WithFontPriorTopK` (inertes
+      cœur). MCP : `rank_fonts` mode aveugle + `unpixel_decode` `font_prior_top_k`. CLI :
+      `--font-prior` / `--font-prior-top-k`. Couture ML futur derrière `//go:build ml` (stub
+      `ErrMLNotBuilt`, zéro modèle/poids/gonum) — CNN entraîné domaine render→pixelise pourra
+      s'y brancher sans impacter les appelants. Qualité mesurée : prior place vraie police en
+      top-3 (3/3 fixtures render→pixelise) ; réordonnancement byte-identique (panel 17/17). Limite :
+      9 polices ; histogram bruité court/peu-encré (top-K k≥3 absorbe) ; police inconnue = mur.
+      Additif, pas de cycle, pur-Go. CI verte, cover 85.2 %.
 - [ ] **#5 Re-ranker CTC-logprob** — tête CRNN-CTC PP-OCRv4/v5 ou OnnxTR (Apache/MIT) → log-proba
       CTC de toute chaîne candidate sur le top-K. Mur : police, digits.
 
@@ -1298,3 +1310,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `87256d2` 2026-06-29 — test(format): t.Context + coverage buffer for secrets validators _(2 fichiers)_
 - `bc60de9` 2026-06-29 — fix(secrets): prune dead date branches; clarify MCP expected_format scope _(3 fichiers)_
 - `f901915` 2026-06-30 — docs(spec): #4 blind font prior design (heuristic now, ML-ready seam) _(1 fichiers)_
+- `796285c` 2026-06-30 — polish(fontprior): CLI breadcrumb on prior failure + slices.Clone (final review) _(2 fichiers)_

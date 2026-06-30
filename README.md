@@ -54,6 +54,14 @@ real-world images:
 unpixel --font Consolas.ttf --font-size 24 redacted.png
 ```
 
+**2b. Blind font prior** — when the font is unknown, a pixelated-signature prior ranks
+the 9 bundled fonts, so the likeliest font is tried first (faster):
+
+```bash
+unpixel --font-prior redacted.png              # order fonts by blind prior
+unpixel --font-prior --font-prior-top-k 3 redacted.png  # decode only top-3 (even faster, but riskier)
+```
+
 **3. Blur instead of pixelation:**
 
 ```bash
@@ -170,9 +178,12 @@ unpixel-mcp   # speaks MCP over stdio; point your MCP client at it
 
 Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` (13 methods
 behind one `method` enum; async for long runs), `unpixel_verify_candidates` (LLM proposes
-strings, UnPixel scores them by physical re-pixelation), `unpixel_render`, `unpixel_rank_fonts`,
-`unpixel_calibrate`; resources `unpixel://{fonts,charsets,methods,operating-envelope}`. Custom
-fonts upload via `font_path`/`font_base64`. See [docs](docs/) for the full schema.
+strings, UnPixel scores them by physical re-pixelation), `unpixel_render`, `unpixel_rank_fonts`
+(now supports blind histogram ranking without `known_text`), `unpixel_calibrate`; resources 
+`unpixel://{fonts,charsets,methods,operating-envelope}`. Custom fonts upload via 
+`font_path`/`font_base64`. `unpixel_decode` accepts `font_prior_top_k` to run a blind font-prior 
+sweep (orders the bundled-font search by pixelated-signature ranking). See [docs](docs/) for the 
+full schema.
 
 ## Effectiveness
 
