@@ -1,0 +1,83 @@
+[
+  {
+    "name": "hello_b8",
+    "text": "hello",
+    "block_size": 8,
+    "frames": [
+      {
+        "file": "hello_b8_f0.png",
+        "offset_x": 0,
+        "offset_y": 0
+      },
+      {
+        "file": "hello_b8_f1.png",
+        "offset_x": 3,
+        "offset_y": 0
+      },
+      {
+        "file": "hello_b8_f2.png",
+        "offset_x": 0,
+        "offset_y": 4
+      },
+      {
+        "file": "hello_b8_f3.png",
+        "offset_x": 5,
+        "offset_y": 2
+      }
+    ]
+  },
+  {
+    "name": "Go2_b8",
+    "text": "Go2",
+    "block_size": 8,
+    "frames": [
+      {
+        "file": "Go2_b8_f0.png",
+        "offset_x": 0,
+        "offset_y": 0
+      },
+      {
+        "file": "Go2_b8_f1.png",
+        "offset_x": 3,
+        "offset_y": 0
+      },
+      {
+        "file": "Go2_b8_f2.png",
+        "offset_x": 0,
+        "offset_y": 4
+      },
+      {
+        "file": "Go2_b8_f3.png",
+        "offset_x": 5,
+        "offset_y": 2
+      }
+    ]
+  },
+  {
+    "name": "cat_b8",
+    "text": "cat",
+    "block_size": 8,
+    "frames": [
+      {
+        "file": "cat_b8_f0.png",
+        "offset_x": 0,
+        "offset_y": 0
+      },
+      {
+        "file": "cat_b8_f1.png",
+        "offset_x": 3,
+        "offset_y": 0
+      },
+      {
+        "file": "cat_b8_f2.png",
+        "offset_x": 0,
+        "offset_y": 4
+      },
+      {
+        "file": "cat_b8_f3.png",
+        "offset_x": 5,
+        "offset_y": 2
+      }
+    ]
+  }
+]
