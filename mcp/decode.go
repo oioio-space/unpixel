@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 	"time"
 
@@ -542,8 +543,7 @@ func decodeEngine(ctx context.Context, img image.Image, in decodeInput) (DecodeR
 	// Font-prior sweep: when FontPriorTopK > 0, rank bundled fonts blind and
 	// decode with the top-K best-ranked fonts, returning the winner.
 	if in.FontPriorTopK > 0 {
-		fopts := append([]unpixel.Option{}, opts...)
-		fopts = append(fopts, unpixel.WithFontPriorTopK(in.FontPriorTopK))
+		fopts := append(slices.Clone(opts), unpixel.WithFontPriorTopK(in.FontPriorTopK))
 		ranked, ferr := fontprior.RecoverWithPrior(ctx, img, fopts...)
 		if ferr != nil {
 			return DecodeResult{}, ferr

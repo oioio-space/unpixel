@@ -2661,6 +2661,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 				if !p.quiet && p.format != "json" && len(cands) > 0 {
 					fmt.Fprintf(os.Stderr, "Font prior: trying %s first\n", cands[0].display)
 				}
+			} else if !p.quiet && p.format != "json" {
+				// The user explicitly requested the prior; surface why it had no
+				// effect rather than silently sweeping in catalog order.
+				fmt.Fprintf(os.Stderr, "Font prior unavailable (%v); sweeping in catalog order\n", rankErr)
 			}
 		}
 		// No charset given → widen it until a confident result (P3.6).
