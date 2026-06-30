@@ -556,6 +556,7 @@ func decodeEngine(ctx context.Context, img image.Image, in decodeInput) (DecodeR
 			Distance:   best.Result.BestTotal,
 			Fidelity:   best.Result.Fidelity(),
 			Font:       best.Font,
+			BlockSize:  in.BlockSize, // 0 when auto-detected; mirrors the single-font path
 			MethodUsed: "engine",
 			Notes:      notes,
 		}, nil
