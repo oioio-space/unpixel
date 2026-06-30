@@ -4,9 +4,11 @@ package mcpserver
 // mosaic redaction by glyph-metric fingerprinting and returns them ranked best-first.
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"image"
+	"slices"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -107,13 +109,23 @@ func RankFonts(ctx context.Context, img image.Image, knownText string) (RankFont
 	return reportFromScores(blended), nil
 }
 
-// reportFromScores converts a slice of FontScore into a RankFontsReport, setting
-// Best to the first entry's font name (which is already ranked best-first).
+// reportFromScores converts a slice of FontScore into a RankFontsReport. It sorts
+// the entries best-first (lowest Score) so Best is correct regardless of the
+// caller's input order — the blind path passes an already-sorted slice (a no-op
+// re-sort), while the known-text path passes a blended slice that is NOT sorted
+// by the blended score and must be re-ordered here. Ties break by font name for
+// determinism.
 func reportFromScores(scores []fontrank.FontScore) RankFontsReport {
 	ranked := make([]FontRankEntry, len(scores))
 	for i, s := range scores {
 		ranked[i] = FontRankEntry{Font: s.Name, Score: s.Score}
 	}
+	slices.SortStableFunc(ranked, func(a, b FontRankEntry) int {
+		if c := cmp.Compare(a.Score, b.Score); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Font, b.Font)
+	})
 	best := ""
 	if len(ranked) > 0 {
 		best = ranked[0].Font
