@@ -1,0 +1,42 @@
+[
+  {
+    "name": "lb_block20_go",
+    "text": "go",
+    "charset": "go abcdef",
+    "font_size": 80,
+    "bold": false,
+    "block_size": 20,
+    "padding_top": 8,
+    "padding_left": 8
+  },
+  {
+    "name": "lb_block20_cat",
+    "text": "cat",
+    "charset": "cat eoabd",
+    "font_size": 80,
+    "bold": false,
+    "block_size": 20,
+    "padding_top": 8,
+    "padding_left": 8
+  },
+  {
+    "name": "lb_block24_go",
+    "text": "go",
+    "charset": "go abcdef",
+    "font_size": 96,
+    "bold": false,
+    "block_size": 24,
+    "padding_top": 8,
+    "padding_left": 8
+  },
+  {
+    "name": "lb_block32_go",
+    "text": "go",
+    "charset": "go abcdef",
+    "font_size": 128,
+    "bold": false,
+    "block_size": 32,
+    "padding_top": 8,
+    "padding_left": 8
+  }
+]

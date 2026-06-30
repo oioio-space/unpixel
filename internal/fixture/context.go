@@ -54,6 +54,12 @@ type ContextSpec struct {
 	VarFont bool `json:"var_font,omitempty"`
 	// VarWght is the wght axis value for variable-font fixtures.
 	VarWght float32 `json:"var_wght,omitempty"`
+	// XStretch is the horizontal scale factor applied after glyph rendering
+	// (1.0 = no stretch; > 1.0 expands; < 1.0 compresses). Zero is treated as
+	// 1.0 (no stretch). Used by geometry-calibration fixtures to produce
+	// visible crops at a known non-unity stretch so CalibrateGeometry can be
+	// validated against a ground-truth stretch value.
+	XStretch float64 `json:"x_stretch,omitempty"`
 	// FontSample, when non-nil, describes a SEPARATE companion image (a different
 	// file) that provides the font calibration source. This is the C1b scenario:
 	// the font weight is determined from an image OTHER than the redaction image.
@@ -82,6 +88,85 @@ func (f FontSampleSpec) File() string { return f.Name + ".png" }
 
 // File returns the fixture's PNG filename.
 func (s ContextSpec) File() string { return s.Name + ".png" }
+
+// GeometryMatrix returns the geometry-calibration corpus: visible+redacted
+// pairs rendered with the Nunito variable font at NON-DEFAULT font sizes and/or
+// non-unity x-stretch. These fixtures let [varfont.CalibrateGeometry] be
+// validated end-to-end: the generator embeds the true (fontSize, xStretch) in
+// the manifest, and the test asserts recovery within tight tolerances.
+//
+// All fixtures use the same-line layout (visible label left, mosaic right) and
+// linear-light block averaging. The VarWght field is set to the default Nunito
+// weight (400) so the axis is not a variable here — only size and stretch vary.
+//
+// Coordinate fields (VisibleRect / RedactedRect) are zero here; the generator
+// (gengeometry) fills them from the computed image geometry.
+func GeometryMatrix() []ContextSpec {
+	return []ContextSpec{
+		// fontSize=24, xStretch=1.0 — size well below the default (32).
+		// Longer visible text ("Username: ") gives the geometry fitter enough
+		// ink signal to distinguish size-24 from nearby sizes.
+		{
+			Name:        "geom_size24_stretch10",
+			Layout:      LayoutSameLine,
+			VisibleText: "Username: ",
+			Secret:      "go",
+			Font:        "Nunito",
+			FontSize:    24,
+			BlockSize:   8,
+			Linear:      true,
+			VarFont:     true,
+			VarWght:     400,
+			XStretch:    1.0,
+			Notes:       "geometry: Nunito size=24 stretch=1.0",
+		},
+		// fontSize=40, xStretch=1.0 — size above the default (32).
+		{
+			Name:        "geom_size40_stretch10",
+			Layout:      LayoutSameLine,
+			VisibleText: "Password: ",
+			Secret:      "go",
+			Font:        "Nunito",
+			FontSize:    40,
+			BlockSize:   8,
+			Linear:      true,
+			VarFont:     true,
+			VarWght:     400,
+			XStretch:    1.0,
+			Notes:       "geometry: Nunito size=40 stretch=1.0",
+		},
+		// fontSize=32 (default), xStretch=1.2 — stretch diverges from unity.
+		{
+			Name:        "geom_size32_stretch12",
+			Layout:      LayoutSameLine,
+			VisibleText: "Access code: ",
+			Secret:      "cat",
+			Font:        "Nunito",
+			FontSize:    32,
+			BlockSize:   8,
+			Linear:      true,
+			VarFont:     true,
+			VarWght:     400,
+			XStretch:    1.2,
+			Notes:       "geometry: Nunito size=32 stretch=1.2",
+		},
+		// fontSize=24, xStretch=1.2 — both size and stretch deviate from default.
+		{
+			Name:        "geom_size24_stretch12",
+			Layout:      LayoutSameLine,
+			VisibleText: "Enter PIN: ",
+			Secret:      "42",
+			Font:        "Nunito",
+			FontSize:    24,
+			BlockSize:   8,
+			Linear:      true,
+			VarFont:     true,
+			VarWght:     400,
+			XStretch:    1.2,
+			Notes:       "geometry: Nunito size=24 stretch=1.2",
+		},
+	}
+}
 
 // ContextMatrix returns the canonical context-corpus: fixtures that each
 // contain a visible cleartext region adjacent to a pixelated redaction of a

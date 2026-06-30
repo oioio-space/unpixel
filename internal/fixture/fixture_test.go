@@ -134,3 +134,47 @@ func TestRedact_allSpecsProduceImages(t *testing.T) {
 		}
 	}
 }
+
+// TestLargeBlockMatrix_selfConsistent checks every large-block spec has a
+// unique name, positive sizes, and a charset that contains all target runes.
+func TestLargeBlockMatrix_selfConsistent(t *testing.T) {
+	seen := map[string]bool{}
+	for _, s := range LargeBlockMatrix() {
+		if s.Name == "" || seen[s.Name] {
+			t.Errorf("empty or duplicate spec name %q", s.Name)
+		}
+		seen[s.Name] = true
+		if s.Text == "" {
+			t.Errorf("%s: empty text", s.Name)
+		}
+		if s.BlockSize < 20 {
+			t.Errorf("%s: block_size %d is below 20 (not a large-block spec)", s.Name, s.BlockSize)
+		}
+		if s.FontSize <= 0 {
+			t.Errorf("%s: non-positive font_size %.0f", s.Name, s.FontSize)
+		}
+		for _, r := range s.Text {
+			if !strings.ContainsRune(s.Charset, r) {
+				t.Errorf("%s: charset is missing %q from text %q", s.Name, r, s.Text)
+			}
+		}
+	}
+}
+
+// TestLargeBlockMatrix_redactProducesImages confirms every large-block spec
+// renders a non-empty image and that the image width is a multiple of BlockSize.
+func TestLargeBlockMatrix_redactProducesImages(t *testing.T) {
+	for _, s := range LargeBlockMatrix() {
+		img, err := Redact(s)
+		if err != nil {
+			t.Errorf("%s: Redact: %v", s.Name, err)
+			continue
+		}
+		if img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+			t.Errorf("%s: empty image %v", s.Name, img.Bounds())
+		}
+		if w := img.Bounds().Dx(); w%s.BlockSize != 0 {
+			t.Errorf("%s: width %d not a multiple of block_size %d", s.Name, w, s.BlockSize)
+		}
+	}
+}

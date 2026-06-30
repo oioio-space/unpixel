@@ -1375,3 +1375,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `069a346` 2026-06-30 — feat(varfont): add CalibrateGeometry — fit font size + x-stretch from visible text _(4 fichiers)_
 - `410f801` 2026-06-30 — feat(varfont): wire geometry calibration into visible-calibration decode path _(4 fichiers)_
 - `b9badf5` 2026-06-30 — chore(tracking): record quality panel + progress after geometry-calibration feat _(3 fichiers)_
+- `c66bd16` 2026-06-30 — test(mosaictext): observational DID-vs-engine measurement on digit fixtures _(3 fichiers)_

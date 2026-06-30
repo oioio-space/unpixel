@@ -55,6 +55,26 @@ func (s Spec) File() string { return s.Name + ".png" }
 // the large-block and multi-character cases trim the charset deliberately.
 const csLower = unpixel.CharsetLower
 
+// LargeBlockMatrix returns additional single-redaction fixtures at large block
+// sizes (20, 24, 32 px). These stress the multi-frame scoring regime: large
+// blocks contain fewer pixels per glyph, so phase diversity across frames is
+// the primary lever for sub-block information. Every spec uses a font size
+// roughly 4× the block size so glyphs span at least two block rows.
+//
+// These fixtures are kept separate from [Matrix] so the 17-fixture panel
+// invariant is not disturbed. New tests reference [LargeBlockMatrix] directly.
+func LargeBlockMatrix() []Spec {
+	return []Spec{
+		// block20: font 80 px ≈ 4× block — "go" and "cat" span 2 block rows.
+		{Name: "lb_block20_go", Text: "go", Charset: "go abcdef", FontSize: 80, BlockSize: 20, PaddingTop: 8, PaddingLeft: 8},
+		{Name: "lb_block20_cat", Text: "cat", Charset: "cat eoabd", FontSize: 80, BlockSize: 20, PaddingTop: 8, PaddingLeft: 8},
+		// block24: font 96 px ≈ 4× block.
+		{Name: "lb_block24_go", Text: "go", Charset: "go abcdef", FontSize: 96, BlockSize: 24, PaddingTop: 8, PaddingLeft: 8},
+		// block32: font 128 px ≈ 4× block.
+		{Name: "lb_block32_go", Text: "go", Charset: "go abcdef", FontSize: 128, BlockSize: 32, PaddingTop: 8, PaddingLeft: 8},
+	}
+}
+
 // Matrix is the canonical reference set, spanning block sizes, font sizes and
 // weights, charsets (incl. digits/uppercase/symbols), padding (grid offset) and
 // text shapes. Every spec is recoverable by the engine; note a block size needs
