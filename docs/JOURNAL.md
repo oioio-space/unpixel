@@ -2045,3 +2045,97 @@ information wall (§#8). Recorded follow-up: rerank can break a correct physics
 result, so a future safer default could bound the LM's influence to a
 physical-distance tie-break band rather than an unbounded weight.
 
+
+
+## Wall-breakers v0.18 — multi-frame scoring, geometry calibration, digit-trellis probe (2026-06-30)
+
+After the campaign mapped four decode "walls", a 4-explorer recon + algo-architect
+design established what was already built and which walls are breakable in pure Go.
+Research grounding: [Positive Security – video depixelation](https://positive.security/blog/video-depixelation)
+(phase-diverse frames = independent linear measurements of the same content) and
+Hill et al., *On the (In)effectiveness of Mosaicing and Blurring*. Three changes
+landed (all additive/opt-in; default path byte-identical; panel 17/17).
+
+**A. Multi-frame: fuse-then-decode was self-defeating; replaced by generate-and-test
+scoring.** `DecodeMultiFrame`/`Auto` previously IBP-FUSED the frames then ran
+`Decode` on the result — but `Decode` gates on `InferBlockGrid`, which requires
+block-constant structure, so a *successful* fusion (sub-block detail recovered) made
+the grid undetectable. `mise run mfmeasure` on genuine sharp-source fixtures
+confirmed it: `ErrNoMosaic` on all cases.
+
+| case (block 8) | truth | single-frame | multi-frame (fuse→decode) |
+|----------------|-------|--------------|---------------------------|
+| hello | hello | "bemo" (dist 218.8) | **ErrNoMosaic** |
+| Go2   | Go2   | "Kwmk" (dist 116.4) | **ErrNoMosaic** |
+| cat   | cat   | "CAt"  (dist  99.2) | **ErrNoMosaic** |
+
+Fix: keep phase diversity in the OBJECTIVE, not the image. Each candidate is rendered
+once, then re-pixelated at every frame's grid phase and scored against that frame
+(`decoder.dist` over `[]scoreFrame`; single-frame `frames==nil` path byte-identical).
+`internal/multiframe.DiscoverPhases` auto-detects each frame's sub-block phase
+(within-block-variance minimum), so the CLI `--frame` and the MCP multi-frame method
+no longer need hand-labeled offsets. A wiring bug (negative phase deltas → malformed
+canvas → inflated distance) was found and fixed (normalize deltas non-negative).
+
+Decisive controlled measurement — does phase diversity add discriminating
+information? Score TRUE vs WRONG text, 1-frame vs 2-frame, isolated from blind
+calibration:
+
+| block | single-frame (wrong−true) gap | multi-frame gap | Δ |
+|-------|-------------------------------|-----------------|---|
+| 8     | 232.0                         | 234.0           | +2.0 (widened) |
+| 16    | −183.2                        | −152.3          | +31.0 (toward correct) |
+
+The gap **widens** with a second phase-diverse frame: the mechanism adds real
+information, confirming the Positive Security premise. **But the gain is modest on
+the synthetic single-line corpus**, and at block 16 the wrong text still wins on
+absolute distance (a coarse-block calibration artefact). The dramatic gains (the
+Positive Security IBAN at block 50) need the large-block / many-real-capture regime
+— pure-Go fusion (`Fuse`/`FuseN`) is retained as a standalone super-resolution
+utility for that, but it no longer feeds the decoder. New fixtures:
+`testdata/multiframe/` (phase-diverse sharp-source frame sets) and
+`testdata/largeblock/` (block 20/24/32).
+
+**B. Forward-model calibration: font size + x-stretch now OPTIMIZED, not seeded.**
+`internal/varfont.CalibrateGeometry` fits font size and x-stretch against a sharp
+visible region (grid scan → Nelder-Mead), recovering an exact-enough forward model so
+single-frame render-match is injective. Wired opt-in via
+`WithVarFontCalibrateGeometry` / CLI `--calibrate-geometry`. Demonstrated win on a
+size+stretch mismatch (true 24 px / stretch 1.25 vs default 32 px / 1.0):
+
+| path | text | distance |
+|------|------|----------|
+| without geometry calibration | world | 0.4778 |
+| with geometry calibration    | world | **0.4444** (−7%) |
+
+Round-trip recovery: 27.6 px / 1.165 vs true 28 / 1.15. Caveat discovered: the
+optimizer needs an ink-tight visible crop (large white margins collapse it to a
+boundary minimum) and enough visible ink (longer strings). New fixtures:
+`testdata/geometry/` (visible+redacted pairs at non-default size/stretch).
+
+**C. DID column trellis does NOT break the long-digit wall (measured, not built).**
+Hypothesis: route `sick/` digit strings through the length-native DID Viterbi trellis
+instead of the combinatorial engine. `mise run didmeasure`:
+
+| fixture | truth | engine (acc) | DID (acc) | DID+context (acc) |
+|---------|-------|--------------|-----------|-------------------|
+| digits_7d  | 1234567    | iRHASKT (0%)  | 112 (14%)  | 112 (14%)  |
+| digits_8d  | 98765432   | Wq?eBWtw (0%) | 571 (0%)   | 171 (0%)   |
+| digits_9d  | 012345678  | HtbWMMPK (0%) | 571 (0%)   | 571 (0%)   |
+| digits_10d | 1029384756 | bXmNmM?NO (0%)| 1121 (20%) | 1121 (20%) |
+
+DID's distances are far lower (37–45 vs 272–358) — the trellis fits the signal — but
+it outputs a *short* run of digits and stops: a short path beats a long one under
+noisy per-column emission cost. This is a **coverage wall**, not a
+character-discrimination wall. Routing digits→DID is therefore NOT worth building as
+a fix; the real lever is a hard coverage constraint (force the Viterbi path to span
+exactly W columns), recorded as a scoped follow-up. ML emission training (D) stays
+deferred behind the designed `//go:build ml` seam — building it half-way would be
+worse than the honest gap.
+
+**Net.** Two walls genuinely moved: the multi-frame path is now *correct* (and proven
+to add information) rather than self-defeating, and the forward model is now
+*optimized* rather than guessed. Neither is a magic bullet on the existing hard
+corpora — the mosaic information wall (§#8) stands for single static frames — but
+both are the right pure-Go mechanisms for the regimes where recovery is possible
+(real multi-captures; real images with a visible same-font region).
