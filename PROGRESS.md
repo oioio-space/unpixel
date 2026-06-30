@@ -1366,3 +1366,7 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `d07d034` 2026-06-30 — docs(plan): wall-breakers v0.18 spec + implementation plan _(2 fichiers)_
 - `ddd4916` 2026-06-30 — feat(multiframe): add DiscoverPhases for automatic grid-phase detection _(4 fichiers)_
 - `c457210` 2026-06-30 — feat(multiframe): add DiscoverPhases for automatic grid-phase detection _(4 fichiers)_
+- `9edcb42` 2026-06-30 — feat(mosaictext): add DecodeMultiFrameAuto — zero-config multi-frame fusion _(3 fichiers)_
+- `9f635e1` 2026-06-30 — test(multiframe): genuine sharp-source fixtures + mfmeasure observational gate _(17 fichiers)_
+- `67911bd` 2026-06-30 — docs(design): multi-frame generate-and-test scoring (replaces fuse-then-decode) _(1 fichiers)_
+- `850d981` 2026-06-30 — feat(mosaictext): multi-frame generate-and-test scoring via decodeFrames _(7 fichiers)_
