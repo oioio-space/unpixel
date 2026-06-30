@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/fontprior"
 	"github.com/oioio-space/unpixel/mosaictext"
 )
 
@@ -1469,4 +1470,26 @@ func TestRunPerspectiveCLI(t *testing.T) {
 		t.Error("got empty stdout, want non-empty text")
 	}
 	t.Logf("perspective CLI output: %q", strings.TrimSpace(out))
+}
+
+// TestApplyFontPrior_reordersAndTruncates verifies that applyFontPrior reorders
+// candidates best-first according to the prior ranking and truncates to topK.
+func TestApplyFontPrior_reordersAndTruncates(t *testing.T) {
+	cands := []candidateFont{
+		{display: "Liberation Sans", jsonName: "Liberation Sans"},
+		{display: "Liberation Mono", jsonName: "Liberation Mono"},
+		{display: "Liberation Serif", jsonName: "Liberation Serif"},
+	}
+	ranked := []fontprior.Ranked{
+		{Name: "Liberation Serif", Score: 0.1},
+		{Name: "Liberation Mono", Score: 0.2},
+		{Name: "Liberation Sans", Score: 0.3},
+	}
+	got := applyFontPrior(cands, ranked, 2)
+	if len(got) != 2 {
+		t.Fatalf("top-2 returned %d", len(got))
+	}
+	if got[0].jsonName != "Liberation Serif" || got[1].jsonName != "Liberation Mono" {
+		t.Errorf("order = [%s,%s]; want [Liberation Serif, Liberation Mono]", got[0].jsonName, got[1].jsonName)
+	}
 }

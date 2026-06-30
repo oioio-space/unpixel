@@ -577,17 +577,20 @@ func TestDecode_clampFidelity_boundaries(t *testing.T) {
 
 // ---- RankFonts: base64 font path ----
 
-// TestRankFonts_emptyTextReturnsError is a re-check of the error path from
-// rankfonts.go:57 to cover the "known_text empty" sentinel.
-func TestRankFonts_emptyTextReturnsError(t *testing.T) {
+// TestRankFonts_emptyTextBlind verifies that an empty known_text triggers
+// blind histogram-only ranking (succeeds, does not error).
+func TestRankFonts_emptyTextBlind(t *testing.T) {
 	ctx := t.Context()
 	img, err := loadFixture("block08_go.png")
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
 	}
-	_, err = mcpserver.RankFonts(ctx, img, "")
-	if err == nil {
-		t.Error("RankFonts(\"\"): want error, got nil")
+	rep, err := mcpserver.RankFonts(ctx, img, "")
+	if err != nil {
+		t.Errorf("RankFonts(blind): want nil error, got %v", err)
+	}
+	if len(rep.Ranked) == 0 || rep.Best == "" {
+		t.Error("RankFonts(blind): want non-empty ranking")
 	}
 }
 

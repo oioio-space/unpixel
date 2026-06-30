@@ -32,6 +32,25 @@ func TestConfig_defaultConstants(t *testing.T) {
 	}
 }
 
+func TestWithFontPriorOptions(t *testing.T) {
+	var c unpixel.Config
+	unpixel.WithFontPrior()(&c)
+	if !c.FontPrior {
+		t.Errorf("WithFontPrior did not set FontPrior")
+	}
+	unpixel.WithFontPriorTopK(3)(&c)
+	if c.FontPriorTopK != 3 {
+		t.Errorf("FontPriorTopK = %d; want 3", c.FontPriorTopK)
+	}
+
+	// WithFontPriorTopK alone must imply the font prior (per its doc).
+	var d unpixel.Config
+	unpixel.WithFontPriorTopK(2)(&d)
+	if !d.FontPrior {
+		t.Errorf("WithFontPriorTopK did not imply FontPrior")
+	}
+}
+
 func TestEventKind_consts(t *testing.T) {
 	// Verify iota ordering so Progress consumers can rely on numeric values.
 	if unpixel.EventCandidate != 0 {

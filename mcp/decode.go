@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/oioio-space/unpixel/blind"
 	"github.com/oioio-space/unpixel/defaults"
 	_ "github.com/oioio-space/unpixel/defaults" // wire standard components
+	"github.com/oioio-space/unpixel/fontprior"
 	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/secrets"
 	"github.com/oioio-space/unpixel/mosaictext"
@@ -115,6 +117,10 @@ type decodeInput struct {
 	// unpixel.WithExpectedFormat; ignored by all other decoders. Declaring the
 	// wrong format will reject the true answer. Omit for free text.
 	ExpectedFormat string `json:"expected_format,omitzero" jsonschema:"Structured-secret format applied on engine path (incl. ensemble engine sub-call): digits|credit_card|iban|date|phone_fr|phone_us|phone_e164 (omit for free text)"`
+	// FontPriorTopK, when > 0, runs a blind font-prior-ordered multi-font sweep
+	// pruned to the K best-ranked bundled fonts (engine path). 0 = disabled
+	// (single default font). See fontprior.RecoverWithPrior.
+	FontPriorTopK int `json:"font_prior_top_k,omitzero" jsonschema:"Engine-only: run a blind font-prior sweep pruned to the top-K bundled fonts (0 = off)"`
 	// KnownVisibleText is cleartext known to appear in (or adjacent to) the redaction.
 	KnownVisibleText string `json:"known_visible_text,omitzero" jsonschema:"Cleartext known to appear in or adjacent to the redaction (used by reference and varfont decoders)"`
 	// Frames lists additional mosaic frames for multi-frame IBP fusion. Each
@@ -226,6 +232,9 @@ type DecodeOptions struct {
 	// ExpectedFormat constrains the engine search to a structured-secret format.
 	// Forwarded only to the engine method; ignored by other decoders.
 	ExpectedFormat string
+	// FontPriorTopK, when > 0, runs a blind font-prior-ordered multi-font sweep
+	// pruned to the K best-ranked bundled fonts (engine path). 0 = disabled.
+	FontPriorTopK int
 	// KnownVisibleText is cleartext known to appear in or adjacent to the redaction.
 	KnownVisibleText string
 	// Frames lists additional mosaic frames for the multi-frame method.
@@ -274,6 +283,7 @@ func Decode(ctx context.Context, img image.Image, method string, opts DecodeOpti
 		MaxLength:        opts.MaxLength,
 		Prefix:           opts.Prefix,
 		ExpectedFormat:   opts.ExpectedFormat,
+		FontPriorTopK:    opts.FontPriorTopK,
 		KnownVisibleText: opts.KnownVisibleText,
 		Frames:           opts.Frames,
 		Quad:             opts.Quad,
@@ -353,6 +363,7 @@ func handleDecode(ctx context.Context, req *mcpsdk.CallToolRequest, in decodeInp
 		MaxLength:        in.MaxLength,
 		Prefix:           in.Prefix,
 		ExpectedFormat:   in.ExpectedFormat,
+		FontPriorTopK:    in.FontPriorTopK,
 		KnownVisibleText: in.KnownVisibleText,
 		Frames:           in.Frames,
 		Quad:             in.Quad,
@@ -521,16 +532,39 @@ func decodeEngine(ctx context.Context, img image.Image, in decodeInput) (DecodeR
 		opts = append(opts, unpixel.WithRenderer(r))
 	}
 
-	res, err := unpixel.Recover(ctx, img, opts...)
-	if err != nil {
-		return DecodeResult{}, err
-	}
 	var notes []string
 	if in.Denoise {
 		notes = append(notes, "denoise applied")
 	}
 	if expFmtOK && expFmt != secrets.FormatNone {
 		notes = append(notes, "expected_format="+in.ExpectedFormat+" applied")
+	}
+
+	// Font-prior sweep: when FontPriorTopK > 0, rank bundled fonts blind and
+	// decode with the top-K best-ranked fonts, returning the winner.
+	if in.FontPriorTopK > 0 {
+		fopts := append(slices.Clone(opts), unpixel.WithFontPriorTopK(in.FontPriorTopK))
+		ranked, ferr := fontprior.RecoverWithPrior(ctx, img, fopts...)
+		if ferr != nil {
+			return DecodeResult{}, ferr
+		}
+		// RecoverWithPrior errors when all fonts fail, so ranked is non-empty.
+		best := ranked[0]
+		notes = append(notes, fmt.Sprintf("font prior top-%d; chose %s", in.FontPriorTopK, best.Font))
+		return DecodeResult{
+			Text:       best.Result.BestGuess,
+			Distance:   best.Result.BestTotal,
+			Fidelity:   best.Result.Fidelity(),
+			Font:       best.Font,
+			BlockSize:  in.BlockSize, // 0 when auto-detected; mirrors the single-font path
+			MethodUsed: "engine",
+			Notes:      notes,
+		}, nil
+	}
+
+	res, err := unpixel.Recover(ctx, img, opts...)
+	if err != nil {
+		return DecodeResult{}, err
 	}
 	return DecodeResult{
 		Text:       res.BestGuess,

@@ -1,10 +1,44 @@
 package mcpserver_test
 
 import (
+	"image"
 	"testing"
 
 	mcpserver "github.com/oioio-space/unpixel/mcp"
+
+	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/defaults"
+	"github.com/oioio-space/unpixel/fonts"
 )
+
+// mosaicFixtureMCP renders text with the named bundled font at the given block
+// size and pixelates it in memory. No file or network I/O is performed.
+func mosaicFixtureMCP(t *testing.T, fontName, text string, block int) image.Image {
+	t.Helper()
+	var fontData []byte
+	for _, f := range fonts.All() {
+		if f.Name == fontName {
+			fontData = f.Data
+			break
+		}
+	}
+	if fontData == nil {
+		t.Fatalf("mosaicFixtureMCP: font %q not found in bundled fonts", fontName)
+	}
+	r, err := defaults.RendererFromFonts(fontData, nil)
+	if err != nil {
+		t.Fatalf("mosaicFixtureMCP: build renderer: %v", err)
+	}
+	cfg := unpixel.Config{BlockSize: block}
+	if err := defaults.Wire(&cfg); err != nil {
+		t.Fatalf("mosaicFixtureMCP: wire defaults: %v", err)
+	}
+	rendered, _, err := r.Render(text, cfg.Style)
+	if err != nil {
+		t.Fatalf("mosaicFixtureMCP: render %q: %v", text, err)
+	}
+	return cfg.Pixelator.Pixelate(rendered, 0, 0)
+}
 
 // TestRankFonts_returnsRankedList verifies that RankFonts returns at least one
 // entry for a known fixture and known text.
@@ -31,17 +65,16 @@ func TestRankFonts_returnsRankedList(t *testing.T) {
 	}
 }
 
-// TestRankFonts_emptyTextError verifies that an empty known_text returns an error.
-func TestRankFonts_emptyTextError(t *testing.T) {
-	ctx := t.Context()
-	img, err := loadFixture("block08_go.png")
+// TestRankFonts_blindNoKnownText verifies that RankFonts with an empty known_text
+// returns a valid histogram-only ranking (blind mode).
+func TestRankFonts_blindNoKnownText(t *testing.T) {
+	img := mosaicFixtureMCP(t, "Liberation Mono", "ABC123", 6)
+	rep, err := mcpserver.RankFonts(t.Context(), img, "") // blind: empty known_text
 	if err != nil {
-		t.Fatalf("load fixture: %v", err)
+		t.Fatalf("blind RankFonts: %v", err)
 	}
-
-	_, err = mcpserver.RankFonts(ctx, img, "")
-	if err == nil {
-		t.Error("RankFonts(emptyText): want error, got nil")
+	if len(rep.Ranked) == 0 || rep.Best == "" {
+		t.Errorf("blind RankFonts returned empty ranking")
 	}
 }
 
