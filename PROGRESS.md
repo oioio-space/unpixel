@@ -1373,3 +1373,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `843fc3d` 2026-06-30 — fix(mosaictext): normalize multi-frame phase deltas to non-negative _(3 fichiers)_
 - `07625c8` 2026-06-30 — feat(cli,mcp): wire DecodeMultiFrameAuto into --frame and multi-frame MCP path _(4 fichiers)_
 - `069a346` 2026-06-30 — feat(varfont): add CalibrateGeometry — fit font size + x-stretch from visible text _(4 fichiers)_
+- `410f801` 2026-06-30 — feat(varfont): wire geometry calibration into visible-calibration decode path _(4 fichiers)_
