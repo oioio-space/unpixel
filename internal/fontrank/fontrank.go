@@ -102,28 +102,27 @@ const exemplarFontSize = 28.0
 const histBuckets = 16
 
 // RankFonts scores each candidate font by how well a small glyph exemplar
-// (the exemplarText pangram rendered at the detected block size) matches the
-// block-luminance profile of img, and returns the list sorted best-first
-// (lowest Score first).
-//
-// The probe is substantially cheaper than a full per-font mosaic decode: it
-// renders one string per font rather than sweeping every candidate character
-// sequence, and compares aggregate histogram profiles rather than per-pixel MSE
-// at every candidate. It is appropriate as a pre-filter: call RankFonts to
-// select the top-K fonts, then run the full decode only on those.
-//
-// RankFonts is safe for concurrent use. It returns a nil error in all normal
-// cases; a non-nil error indicates a context cancellation.
+// matches the block-luminance profile of img, auto-detecting the mosaic block
+// size, and returns the list sorted best-first (lowest Score first). See
+// [RankFontsAt] for the full contract.
 func RankFonts(ctx context.Context, img image.Image, fonts []NamedFont) ([]FontScore, error) {
+	return RankFontsAt(ctx, img, fonts, 0)
+}
+
+// RankFontsAt is [RankFonts] with an explicit mosaic block size. When blockSize
+// is <= 0 it auto-detects the block size from img (identical to RankFonts); when
+// > 0 it uses the caller's known block size and skips detection. It is blind: it
+// needs no known plaintext. RankFontsAt is safe for concurrent use; it returns a
+// non-nil error only on context cancellation.
+func RankFontsAt(ctx context.Context, img image.Image, fonts []NamedFont, blockSize int) ([]FontScore, error) {
 	if len(fonts) == 0 {
 		return nil, nil
 	}
 
-	// Convert target to *image.RGBA once; detect the block size.
 	target := imutil.ToRGBA(img)
-	blockSize := detectBlockSize(target)
-
-	// Compute the target's normalised luminance histogram.
+	if blockSize <= 0 {
+		blockSize = detectBlockSize(target)
+	}
 	targetHist := blockLumHistogram(target, blockSize)
 
 	// Score each font concurrently; goroutines are bounded by font count (the

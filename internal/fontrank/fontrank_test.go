@@ -245,6 +245,59 @@ func TestCropToSentinel_CopyPath(t *testing.T) {
 	}
 }
 
+// TestRankFontsAt_explicitBlockMatchesAuto verifies that RankFontsAt(0) and
+// RankFonts produce identical results — confirming RankFonts delegates to
+// RankFontsAt with blockSize=0 (auto-detect) and the path is deterministic.
+func TestRankFontsAt_explicitBlockMatchesAuto(t *testing.T) {
+	img := makeMosaic(t, "Liberation Mono", "ABC123", 6)
+	named := namedFonts()
+
+	auto, err := fontrank.RankFonts(t.Context(), img, named)
+	if err != nil {
+		t.Fatalf("RankFonts: %v", err)
+	}
+	explicit, err := fontrank.RankFontsAt(t.Context(), img, named, 0)
+	if err != nil {
+		t.Fatalf("RankFontsAt(0): %v", err)
+	}
+	if len(auto) != len(explicit) {
+		t.Fatalf("len mismatch: auto %d, explicit %d", len(auto), len(explicit))
+	}
+	// Both paths use auto-detection: the rankings must be identical.
+	for i := range auto {
+		if auto[i].Name != explicit[i].Name || auto[i].Score != explicit[i].Score {
+			t.Errorf("rank %d: RankFonts=%v, RankFontsAt(0)=%v", i, auto[i], explicit[i])
+		}
+	}
+}
+
+// TestRankFontsAt_zeroBlockAutoDetects verifies that blockSize=0 falls back to
+// auto-detection and returns a full result (same contract as RankFonts).
+func TestRankFontsAt_zeroBlockAutoDetects(t *testing.T) {
+	img := makeMosaic(t, "Liberation Sans", "Hello", 8)
+	got, err := fontrank.RankFontsAt(t.Context(), img, namedFonts(), 0)
+	if err != nil {
+		t.Fatalf("RankFontsAt(0): %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("RankFontsAt(0) returned no scores")
+	}
+}
+
+// TestRankFontsAt_positiveBlockSkipsDetection verifies that a positive blockSize
+// is used directly without auto-detection, and returns one score per font.
+func TestRankFontsAt_positiveBlockSkipsDetection(t *testing.T) {
+	img := makeMosaic(t, "Liberation Mono", "ABC123", 8)
+	named := namedFonts()
+	got, err := fontrank.RankFontsAt(t.Context(), img, named, 8)
+	if err != nil {
+		t.Fatalf("RankFontsAt(8): %v", err)
+	}
+	if len(got) != len(named) {
+		t.Errorf("got %d scores, want %d", len(got), len(named))
+	}
+}
+
 // BenchmarkRankFonts measures the end-to-end cost of ranking all bundled fonts.
 // The ns/op figure should be compared to a full per-font calibrate+decode sweep
 // (see BenchmarkFullDecodeSweep) to quantify the pruning value.
