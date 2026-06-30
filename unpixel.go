@@ -1596,6 +1596,14 @@ var DefaultFormatStrategy func(format secrets.Format) Strategy
 // A nil hook causes Verify to return ErrNoComponents.
 var DefaultVerifyCore func(ctx context.Context, rgba *image.RGBA, cfg Config, candidates []string) ([]Verdict, error)
 
+// DefaultVerifyImageCore is a hook populated by importing the defaults package
+// for its side-effect. It physically verifies an already-prepped restored image
+// against the prepped redaction by re-applying the forward operator (cfg's
+// Pixelator) at the best grid phase and comparing with cfg's Metric. VerifyImage
+// delegates to it to avoid an import cycle with internal packages. A nil hook
+// makes VerifyImage return ErrNoComponents.
+var DefaultVerifyImageCore func(ctx context.Context, redacted, restored *image.RGBA, cfg Config) (ImageVerdict, error)
+
 // Run starts the search and returns a progress channel and a results channel.
 // The progress channel carries Progress events and is closed after EventDone is
 // delivered. The results channel receives one Result per surviving grid offset

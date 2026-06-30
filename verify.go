@@ -98,6 +98,47 @@ func prepareVerify(img image.Image, opts []Option) (*image.RGBA, Config, error) 
 	return rgba, cfg, nil
 }
 
+// ImageVerdict is the result of physically verifying a restored image against a
+// redaction by re-applying the forward operator and comparing.
+type ImageVerdict struct {
+	// Distance is the whole-image distance in [0,1] between the redaction and the
+	// re-pixelated restored image at its best grid phase (lower = more consistent).
+	Distance float64
+	// Match reports whether Distance is below VerifyMatchThreshold.
+	Match bool
+}
+
+// VerifyImage physically verifies a restored (clean) image against a redaction:
+// it re-applies the engine's forward operator to restored (re-pixelate at the
+// mosaic block, or blur when a blur Pixelator is set via WithPixelator) and
+// compares the result to redacted with the faithful metric, at the best grid
+// phase. It is the image-input analogue of [Verify]: VerifyImage(redacted,
+// render(text)) is the physical core of Verify(redacted, []string{text}).
+//
+// Use it as an anti-hallucination gate for an external restorer (e.g. a diffusion
+// sidecar): a faithful restoration re-pixelates back to the observed redaction
+// (low Distance, Match=true); a hallucination does not — except where the mosaic
+// is genuinely ambiguous (many restorations map to the same mosaic), which no
+// physical check can disambiguate.
+//
+// VerifyImage returns ErrNilImage when either image is nil and ErrNoComponents
+// when the defaults package is not imported. opts mirror Verify's
+// (WithBlockSize/WithCharset/WithPixelator/WithAuto…); for blurred redactions
+// pass an explicit blur operator via WithPixelator, like Verify.
+func VerifyImage(ctx context.Context, redacted, restored image.Image, opts ...Option) (ImageVerdict, error) {
+	if redacted == nil || restored == nil {
+		return ImageVerdict{}, ErrNilImage
+	}
+	if DefaultVerifyImageCore == nil {
+		return ImageVerdict{}, ErrNoComponents
+	}
+	rgba, cfg, err := prepareVerify(redacted, opts)
+	if err != nil {
+		return ImageVerdict{}, err
+	}
+	return DefaultVerifyImageCore(ctx, rgba, imutil.ToRGBA(restored), cfg)
+}
+
 // Verify scores each candidate against img using the engine's faithful forward
 // model (same render→operator→metric pipeline as Recover), evaluated at the
 // candidate's best grid offset. opts mirror Recover's options

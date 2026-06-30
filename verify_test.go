@@ -196,6 +196,18 @@ func mosaicWord(t *testing.T, text string) (image.Image, int) {
 	return mosaic, block
 }
 
+// TestVerifyImage_nilImages verifies that VerifyImage returns ErrNilImage when
+// either the redacted or restored image is nil.
+func TestVerifyImage_nilImages(t *testing.T) {
+	img, _ := mosaicWord(t, "the")
+	if _, err := unpixel.VerifyImage(t.Context(), nil, img); !errors.Is(err, unpixel.ErrNilImage) {
+		t.Errorf("nil redacted err = %v; want ErrNilImage", err)
+	}
+	if _, err := unpixel.VerifyImage(t.Context(), img, nil); !errors.Is(err, unpixel.ErrNilImage) {
+		t.Errorf("nil restored err = %v; want ErrNilImage", err)
+	}
+}
+
 // TestVerify_unchangedAfterRefactor confirms that extracting prepareVerify did
 // not alter Verify's observable behaviour: the true text matches and a clearly
 // wrong candidate does not.
