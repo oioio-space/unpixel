@@ -696,11 +696,12 @@ func TestValidateParams(t *testing.T) {
 		t.Errorf("valid params rejected: %v", err)
 	}
 	cases := map[string]func(*flagParams){
-		"bad format":    func(p *flagParams) { p.format = "xml" },
-		"bad strategy":  func(p *flagParams) { p.strategy = "astar" },
-		"bad metric":    func(p *flagParams) { p.metric = "psnr" },
-		"bad redaction": func(p *flagParams) { p.redaction = "scribble" },
-		"bad decoder":   func(p *flagParams) { p.decoder = "viterbi" },
+		"bad format":     func(p *flagParams) { p.format = "xml" },
+		"bad strategy":   func(p *flagParams) { p.strategy = "astar" },
+		"bad metric":     func(p *flagParams) { p.metric = "psnr" },
+		"bad redaction":  func(p *flagParams) { p.redaction = "scribble" },
+		"bad decoder":    func(p *flagParams) { p.decoder = "viterbi" },
+		"negative top-k": func(p *flagParams) { p.fontPriorTopK = -1 },
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {
