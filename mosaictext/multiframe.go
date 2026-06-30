@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"image"
-
-	"github.com/oioio-space/unpixel"
-	"github.com/oioio-space/unpixel/internal/multiframe"
 )
 
 // Frame is one observed mosaic of the same hidden content captured at a
 // known sub-block grid phase offset.  Multiple Frame values with distinct
-// (OffsetX, OffsetY) pairs allow [DecodeMultiFrame] to reconstruct
-// sub-block detail that no single frame can reveal.
+// (OffsetX, OffsetY) pairs allow [DecodeMultiFrame] to score each candidate
+// against all phase-diverse observations, making the objective strictly more
+// disambiguating than any single frame.
 //
 // OffsetX and OffsetY are the pixel offsets at which the pixelation grid
 // was aligned when this frame was produced (e.g. the horizontal scroll
@@ -29,19 +27,21 @@ type Frame struct {
 	OffsetY int
 }
 
-// DecodeMultiFrame fuses multiple phase-diverse mosaics of the same hidden
-// content via iterative back-projection (IBP) and then recovers the text
-// using the same zero-configuration pipeline as [Decode].
+// DecodeMultiFrame recovers text from multiple phase-diverse mosaics of the
+// same hidden content by scoring each candidate against ALL frames: the render
+// is produced once and then pixelated at each frame's grid phase; the
+// per-frame distances are averaged. A candidate that matches under one phase
+// but not others is penalised, making the objective strictly more
+// disambiguating than any single observation.
 //
-// frames must be non-empty and every Frame.Img must be non-nil; all images
-// must cover at least the same top-left region (the first frame's bounds
-// determine the output size).  Options are forwarded unchanged to [Decode].
+// frames must be non-empty and every Frame.Img must be non-nil; every image
+// must contain frame-0's content region (frames may differ in total size but
+// must share the same content area). Options are forwarded unchanged to the
+// underlying decode pipeline.
 //
-// When len(frames)==1 the IBP fusion is a no-op and the result is
-// identical to calling [Decode] on that frame's image directly — callers
-// can therefore upgrade a single-frame call site to multi-frame by
-// wrapping the existing image in a one-element slice with no behaviour
-// change.
+// When len(frames)==1 the result is identical to calling [Decode] on that
+// frame's image directly — callers can upgrade a single-frame call site to
+// multi-frame by wrapping the existing image in a one-element slice.
 //
 // The function returns [ErrNoMosaic] or [ErrNoContent] under the same
 // conditions as [Decode].
@@ -55,37 +55,16 @@ func DecodeMultiFrame(ctx context.Context, frames []Frame, opts ...Option) (Resu
 		}
 	}
 
-	// Single-frame fast path: IBP with one frame converges in one pass to a
-	// block-constant image identical to the input, but the uint8 round-trip in
-	// Fuse can introduce sub-LSB noise that breaks InferBlockGrid.  Skip fusion
-	// entirely and pass the raw image straight to Decode — this preserves the
-	// "1-frame ≡ Decode" contract exactly.
+	// Single-frame fast path: identical to Decode, preserving byte-exact equivalence.
 	if len(frames) == 1 {
 		return Decode(ctx, frames[0].Img, opts...)
 	}
 
-	// Translate public Frame slice to the internal multiframe.Frame slice.
-	// The internal type lives in an internal package so callers cannot import
-	// it directly; Frame is the public mirror.
-	mf := make([]multiframe.Frame, len(frames))
+	imgs := make([]image.Image, len(frames))
+	phases := make([][2]int, len(frames))
 	for i, f := range frames {
-		mf[i] = multiframe.Frame{Img: f.Img, OffsetX: f.OffsetX, OffsetY: f.OffsetY}
+		imgs[i] = f.Img
+		phases[i] = [2]int{f.OffsetX, f.OffsetY}
 	}
-
-	// Infer the block size from the first frame so Fuse uses the correct grid.
-	// InferBlockGrid is run again inside Decode on the fused image, but we need
-	// it here to drive the IBP back-projection kernel size.  If inference fails
-	// we fall back to block=1, which makes Fuse a plain copy of the first frame
-	// and lets Decode report ErrNoMosaic normally.
-	block := 1
-	if g, ok := unpixel.InferBlockGrid(frames[0].Img); ok && g.Size >= 2 {
-		block = g.Size
-	}
-
-	fused, err := multiframe.Fuse(mf, block)
-	if err != nil {
-		return Result{}, fmt.Errorf("mosaictext: frame fusion: %w", err)
-	}
-
-	return Decode(ctx, fused, opts...)
+	return decodeFrames(ctx, imgs, phases, opts...)
 }

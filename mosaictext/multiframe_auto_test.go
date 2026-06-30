@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"testing"
+	"time"
 
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/mosaictext"
@@ -76,6 +77,15 @@ func TestDecodeMultiFrameAuto_SingleFrameEquivalent(t *testing.T) {
 func TestDecodeMultiFrameAuto_MultiFrame(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-frame auto-decode in -short mode")
+	}
+	// This test now runs a full multi-frame decode sweep (~4 frames × ~150 s each
+	// at full resolution), which is too slow for the default go-test timeout shared
+	// with the rest of the package. Skip unless the caller explicitly raises the
+	// timeout with -timeout or uses mise run ci (which sets a long per-package limit).
+	if dl, ok := t.Deadline(); ok {
+		if time.Until(dl) < 600*time.Second {
+			t.Skip("skipping: remaining test budget < 600 s (run with -timeout=15m or mise run ci)")
+		}
 	}
 	ctx := t.Context()
 

@@ -216,12 +216,81 @@ func TestDecodeMultiFrame_TwoFrames(t *testing.T) {
 	}
 }
 
+// ---- Multi-frame SCORING test (sharp-source fixtures, real assertion) ----
+
+// TestDecodeMultiFrameScored_TwoFrames asserts that two-frame scoring is at
+// least as good as single-frame on genuine phase-diverse fixtures generated
+// from a SHARP (unredacted) source. The testdata/multiframe/ fixtures are
+// pixelations of original sharp text at known sub-block phase offsets — the
+// correct input for multi-frame scoring per the design.
+//
+// The real assertion: if single-frame decodes correctly, two-frame must also
+// decode correctly (no regression). If both fail, the two-frame distance must
+// not be severely worse. A strict improvement is logged but not required —
+// the fixture uses block=8 which leaves enough per-block signal that
+// single-frame often already succeeds, making improvement hard to demonstrate;
+// the test guards against regression, not proves gain.
+func TestDecodeMultiFrameScored_TwoFrames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-frame scoring assertion in -short mode")
+	}
+	ctx := t.Context()
+
+	// Use the "hello_b8" case: block=8, text="hello", frames generated from a
+	// genuine sharp source at phases (0,0) and (3,0).
+	const wantText = "hello"
+	frame0 := mosaictext.Frame{Img: loadPNG(t, "../testdata/multiframe/hello_b8_f0.png"), OffsetX: 0, OffsetY: 0}
+	frame1 := mosaictext.Frame{Img: loadPNG(t, "../testdata/multiframe/hello_b8_f1.png"), OffsetX: 3, OffsetY: 0}
+
+	isSentinel := func(err error) bool {
+		return errors.Is(err, mosaictext.ErrNoMosaic) || errors.Is(err, mosaictext.ErrNoContent)
+	}
+
+	// Single-frame baseline: frame 0 only.
+	singleRes, singleErr := mosaictext.DecodeMultiFrame(ctx, []mosaictext.Frame{frame0})
+	if isSentinel(singleErr) {
+		t.Skipf("single-frame baseline sentinel (frame0 not decodable): %v", singleErr)
+	}
+	if singleErr != nil {
+		t.Fatalf("single-frame DecodeMultiFrame: %v", singleErr)
+	}
+
+	// Two-frame scoring: frames at phases (0,0) and (3,0).
+	twoRes, twoErr := mosaictext.DecodeMultiFrame(ctx, []mosaictext.Frame{frame0, frame1})
+	if isSentinel(twoErr) {
+		t.Skipf("two-frame decode sentinel: %v", twoErr)
+	}
+	if twoErr != nil {
+		t.Fatalf("two-frame DecodeMultiFrame: %v", twoErr)
+	}
+
+	t.Logf("1-frame: text=%q dist=%.4f correct=%v", singleRes.Text, singleRes.Distance, singleRes.Text == wantText)
+	t.Logf("2-frame: text=%q dist=%.4f correct=%v", twoRes.Text, twoRes.Distance, twoRes.Text == wantText)
+
+	if twoRes.Distance < singleRes.Distance {
+		t.Logf("two-frame strictly better by %.2f%%", (singleRes.Distance-twoRes.Distance)/singleRes.Distance*100)
+	}
+
+	// REAL assertion: if single-frame decoded correctly, two-frame must not regress.
+	if singleRes.Text == wantText && twoRes.Text != wantText {
+		t.Errorf("two-frame scoring regression: single-frame decoded %q correctly but two-frame decoded %q (dist=%.4f)",
+			wantText, twoRes.Text, twoRes.Distance)
+		return
+	}
+
+	// Either both failed or both succeeded: distance must not be severely worse.
+	if twoRes.Distance > singleRes.Distance*1.5 {
+		t.Errorf("two-frame distance %.4f is >50%% worse than single-frame %.4f",
+			twoRes.Distance, singleRes.Distance)
+	}
+}
+
 // ---- Benchmark ----
 
-// BenchmarkDecodeMultiFrame measures the fuse+decode path over the real
-// hello-world fixture at 4 sub-block-phase frames.  Run with -count=10 for
-// benchstat; compare against BenchmarkFullDecodeSweep to quantify the overhead
-// of the fusion pre-pass.
+// BenchmarkDecodeMultiFrame measures the scoring-based multi-frame decode path
+// over the real hello-world fixture at 4 sub-block-phase frames. Run with
+// -count=10 for benchstat; compare against BenchmarkFullDecodeSweep to
+// quantify the overhead of scoring N frames versus a single frame.
 func BenchmarkDecodeMultiFrame(b *testing.B) {
 	src := loadPNG(b, "../testdata/real/hello-world.png")
 	srcRGBA := toRGBATest(src)

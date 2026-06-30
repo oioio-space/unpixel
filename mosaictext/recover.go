@@ -235,15 +235,17 @@ func (d *decoder) renderStretched(text string, fs, stretch float64) *image.RGBA 
 	return st
 }
 
-// placed pixelates the stretched candidate at grid phase (pox,poy) and composites
-// it onto a target-sized white canvas at (ox,oy).
-func (d *decoder) placed(st *image.RGBA, pox, poy, ox, oy int) *image.RGBA {
+// placed2 pixelates the stretched candidate st using pix at grid phase (pox,poy)
+// and composites it onto a target-sized white canvas at (ox,oy). It is the
+// parameterised form of placed, allowing multi-frame scoring to reuse the same
+// stretched render with per-frame pixelators and targets.
+func (d *decoder) placed2(st *image.RGBA, pix unpixel.Pixelator, target *image.RGBA, pox, poy, ox, oy int) *image.RGBA {
 	p := image.NewRGBA(image.Rect(0, 0, st.Bounds().Dx()+pox, st.Bounds().Dy()+poy))
 	imutil.FillWhite(p)
 	xdraw.Draw(p, image.Rect(pox, poy, pox+st.Bounds().Dx(), poy+st.Bounds().Dy()), st, st.Bounds().Min, xdraw.Src)
-	rp := d.pixelate.Pixelate(p, 0, 0)
+	rp := pix.Pixelate(p, 0, 0)
 	rw, rh := rp.Bounds().Dx(), rp.Bounds().Dy()
-	c := image.NewRGBA(image.Rect(0, 0, d.target.Bounds().Dx(), d.target.Bounds().Dy()))
+	c := image.NewRGBA(image.Rect(0, 0, target.Bounds().Dx(), target.Bounds().Dy()))
 	imutil.FillWhite(c)
 	if ox+rw <= c.Bounds().Dx() && oy+rh <= c.Bounds().Dy() {
 		xdraw.Draw(c, image.Rect(ox, oy, ox+rw, oy+rh), rp, rp.Bounds().Min, xdraw.Src)
@@ -251,10 +253,27 @@ func (d *decoder) placed(st *image.RGBA, pox, poy, ox, oy int) *image.RGBA {
 	return c
 }
 
+// placed pixelates the stretched candidate at grid phase (pox,poy) and composites
+// it onto a target-sized white canvas at (ox,oy).
+func (d *decoder) placed(st *image.RGBA, pox, poy, ox, oy int) *image.RGBA {
+	return d.placed2(st, d.pixelate, d.target, pox, poy, ox, oy)
+}
+
 // dist is the whole-image block-value MSE at a fixed horizontal phase (the fast
-// path used during the per-cell sweeps).
+// path used during the per-cell sweeps). When d.frames is nil it returns the
+// single-frame MSE (byte-identical to the original expression). When d.frames is
+// non-nil it renders once and averages the per-frame MSE, reusing the render
+// across all frames (the expensive step) and paying only placed2+mseRGB per frame.
 func (d *decoder) dist(text string, fs, stretch float64, pox int) float64 {
-	return mseRGB(d.placed(d.stretched(text, fs, stretch), pox, 0, 0, 0), d.target)
+	if d.frames == nil {
+		return mseRGB(d.placed(d.stretched(text, fs, stretch), pox, 0, 0, 0), d.target)
+	}
+	st := d.stretched(text, fs, stretch)
+	var sum float64
+	for _, f := range d.frames {
+		sum += mseRGB(d.placed2(st, f.pixelate, f.target, pox+f.pox, f.poy, 0, 0), f.target)
+	}
+	return sum / float64(len(d.frames))
 }
 
 // --- language priors ---

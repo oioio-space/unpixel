@@ -22,6 +22,7 @@ package mosaictext
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"image"
 	"math"
 	"runtime"
@@ -118,29 +119,79 @@ func (c config) plan(frameBytes, tasks int) (workers, cacheCap int) {
 // ErrNoContent if the image has no redacted content. Options rate-limit CPU and
 // memory (see WithMaxParallelism, WithMemBudget).
 func Decode(ctx context.Context, img image.Image, opts ...Option) (Result, error) {
+	return decodeFrames(ctx, []image.Image{img}, nil, opts...)
+}
+
+// decodeFrames is the shared entry point for single- and multi-frame recovery.
+// imgs[0] drives all calibration (block inference, contentBounds, font/phase
+// sweep). When phases is non-nil it must have the same length as imgs; each
+// entry is the [2]int{offsetX, offsetY} grid phase at which that frame was
+// pixelated. Pass phases==nil (or a single-element imgs with any phases) to
+// use single-frame mode (frames==nil on each decoder → byte-identical to the
+// original Decode path).
+//
+// All images in imgs must have identical bounds (same Dx/Dy as imgs[0] after
+// the content crop to frame-0's rect); decodeFrames returns an error otherwise
+// to avoid the mseRGB overlap-truncation trap.
+func decodeFrames(ctx context.Context, imgs []image.Image, phases [][2]int, opts ...Option) (Result, error) {
 	cfg := defaultConfig()
 	for _, o := range opts {
 		o(&cfg)
 	}
-	rgba := toRGBA(img)
 
-	grid, ok := unpixel.InferBlockGrid(img)
+	rgba0 := toRGBA(imgs[0])
+
+	grid, ok := unpixel.InferBlockGrid(imgs[0])
 	if !ok || grid.Size < 2 {
 		return Result{}, ErrNoMosaic
 	}
-	block := grid.Size
+	blockHiBase := grid.Size
 
-	rect := contentBounds(rgba)
+	rect := contentBounds(rgba0)
 	if rect.Empty() {
 		return Result{}, ErrNoContent
 	}
+
+	// multiFrame is true when we have more than one frame with distinct phases.
+	multiFrame := len(imgs) > 1 && len(phases) == len(imgs)
+
+	// Guard: each additional frame must contain frame-0's content rect so the
+	// xdraw.Draw crop below stays in-bounds. Frames may have different total
+	// sizes (e.g. different padding); only the content region must be common.
+	// This is the mseRGB overlap-truncation trap guard from the design: all
+	// per-frame targets are cropped to the same rect, so mseRGB always sees
+	// identical bounds regardless of the original frame sizes.
+	if multiFrame {
+		for i := 1; i < len(imgs); i++ {
+			ib := imgs[i].Bounds()
+			if rect.Max.X > ib.Max.X || rect.Max.Y > ib.Max.Y ||
+				rect.Min.X < ib.Min.X || rect.Min.Y < ib.Min.Y {
+				return Result{}, fmt.Errorf("mosaictext: frame %d bounds %v do not contain frame-0 content rect %v", i, ib, rect)
+			}
+		}
+	}
+
+	// Build frame-0's hi-res target (the anchor for all calibration).
+	const pad = 24
 	// Tight content crop, padded so a calibrated render can shift to align. This is
 	// the full-resolution ("Hi") target used for the final rerank.
-	const pad = 24
-	targetHi := image.NewRGBA(image.Rect(0, 0, rect.Dx()+pad, rect.Dy()+pad))
-	imutil.FillWhite(targetHi)
-	xdraw.Draw(targetHi, image.Rect(0, 0, rect.Dx(), rect.Dy()), rgba, rect.Min, xdraw.Src)
-	blockHi, tWHi, tHHi := block, rect.Dx(), rect.Dy()
+	targetHi0 := image.NewRGBA(image.Rect(0, 0, rect.Dx()+pad, rect.Dy()+pad))
+	imutil.FillWhite(targetHi0)
+	xdraw.Draw(targetHi0, image.Rect(0, 0, rect.Dx(), rect.Dy()), rgba0, rect.Min, xdraw.Src)
+	blockHi, tWHi, tHHi := blockHiBase, rect.Dx(), rect.Dy()
+
+	// Build hi-res targets for additional frames, cropped to frame-0's rect.
+	hiTargets := make([]*image.RGBA, len(imgs))
+	hiTargets[0] = targetHi0
+	if multiFrame {
+		for i := 1; i < len(imgs); i++ {
+			rgbai := toRGBA(imgs[i])
+			ti := image.NewRGBA(image.Rect(0, 0, rect.Dx()+pad, rect.Dy()+pad))
+			imutil.FillWhite(ti)
+			xdraw.Draw(ti, image.Rect(0, 0, rect.Dx(), rect.Dy()), rgbai, rect.Min, xdraw.Src)
+			hiTargets[i] = ti
+		}
+	}
 
 	// Coarse search at reduced resolution. The objective is a block-average
 	// distance, so area-downscaling the target and the block together by f shrinks
@@ -149,12 +200,24 @@ func Decode(ctx context.Context, img image.Image, opts ...Option) (Result, error
 	// ('e'/'n', 'l'/'I'), so the final shortlist is re-scored on targetHi (see the
 	// fine decoder wired in phase 2) to recover the lost discrimination. Grid
 	// inference already ran on the full-res input, so coarsening here is safe.
-	f := max(1, block/targetBlockPx)
-	target, tW, tH := targetHi, tWHi, tHHi
+	f := max(1, blockHiBase/targetBlockPx)
+	target, tW, tH := targetHi0, tWHi, tHHi
+	block := blockHiBase
 	if f > 1 {
-		block = blockHi / f
-		target = downscaleBox(targetHi, f)
+		block = blockHiBase / f
+		target = downscaleBox(targetHi0, f)
 		tW, tH = tWHi/f, tHHi/f
+	}
+
+	// Build coarse targets for additional frames.
+	coarseTargets := make([]*image.RGBA, len(imgs))
+	coarseTargets[0] = target
+	if multiFrame && f > 1 {
+		for i := 1; i < len(imgs); i++ {
+			coarseTargets[i] = downscaleBox(hiTargets[i], f)
+		}
+	} else if multiFrame {
+		copy(coarseTargets[1:], hiTargets[1:])
 	}
 
 	rs, err := fonts.Renderers()
@@ -225,6 +288,24 @@ func Decode(ctx context.Context, img image.Image, opts ...Option) (Result, error
 
 	bc := bestCombo
 
+	// buildFrames constructs the []scoreFrame for a decoder at a given block size
+	// and downscale factor df (1 for hi-res, f for coarse). Phase 0 has Δ=0 and
+	// is always included; subsequent frames get Δ_i = phase_i − phase_0, scaled
+	// by 1/df for the coarse stage.
+	buildFrames := func(pix unpixel.Pixelator, targets []*image.RGBA, df int) []scoreFrame {
+		if !multiFrame {
+			return nil
+		}
+		p0x, p0y := phases[0][0], phases[0][1]
+		sfs := make([]scoreFrame, len(imgs))
+		for i := range imgs {
+			dx := (phases[i][0] - p0x) / df
+			dy := (phases[i][1] - p0y) / df
+			sfs[i] = scoreFrame{target: targets[i], pixelate: pix, pox: dx, poy: dy}
+		}
+		return sfs
+	}
+
 	// A dres is one character-count hypothesis decoded to a string with its score.
 	type dres struct {
 		n, pox   int
@@ -256,6 +337,9 @@ func Decode(ctx context.Context, img image.Image, opts ...Option) (Result, error
 		return out
 	}
 
+	// Attach multi-frame scoring to the coarse decoder and run phase 2a.
+	bc.d.frames = buildFrames(pixelatorFor(block, bc.linear), coarseTargets, f)
+
 	// Phase 2a — localize the character count cheaply, in parallel, on the coarse
 	// winner. Per-cell glyphs may be confused at low resolution, but the *length*
 	// that best fits the redaction is robust to it; keep the best few for a
@@ -284,11 +368,20 @@ func Decode(ctx context.Context, img image.Image, opts ...Option) (Result, error
 	for i, r := range coarse {
 		fineN[i], finePox[i] = r.n, r.pox
 	}
-	hiFrameBytes := targetHi.Bounds().Dx() * targetHi.Bounds().Dy() * 4
+	hiFrameBytes := targetHi0.Bounds().Dx() * targetHi0.Bounds().Dy() * 4
 	hiWorkers, hiCap := cfg.plan(hiFrameBytes, len(coarse))
 	dec, scale := bc.d, 1
 	if f > 1 {
-		hi := &decoder{r: bc.d.r, target: targetHi, tW: tWHi, tH: tHHi, block: blockHi, pixelate: pixelatorFor(blockHi, bc.linear), cacheCap: hiCap}
+		hi := &decoder{
+			r:        bc.d.r,
+			target:   targetHi0,
+			tW:       tWHi,
+			tH:       tHHi,
+			block:    blockHi,
+			pixelate: pixelatorFor(blockHi, bc.linear),
+			cacheCap: hiCap,
+			frames:   buildFrames(pixelatorFor(blockHi, bc.linear), hiTargets, 1),
+		}
 		if _, _, _, ok := hi.calibrate(); ok {
 			dec, scale = hi, f
 		}
@@ -322,6 +415,16 @@ func pixelatorFor(block int, linear bool) unpixel.Pixelator {
 	return defaults.BlockAverage(block)
 }
 
+// scoreFrame is one additional phase-diverse observation used during multi-frame
+// scoring. pox and poy are the phase DELTAS relative to frame 0 (Δ_i = phase_i −
+// phase_0), so frame 0 is represented by Δ=0 in the slice. When frames is nil on
+// the parent decoder, dist falls back to the single-frame expression.
+type scoreFrame struct {
+	target   *image.RGBA
+	pixelate unpixel.Pixelator
+	pox, poy int // phase delta relative to frame 0 (full-res pixels)
+}
+
 // decoder holds the per-(font,pixelator) calibration and search state. A
 // decoder runs on a single goroutine, so cache needs no synchronization.
 type decoder struct {
@@ -330,8 +433,9 @@ type decoder struct {
 	tW, tH   int
 	block    int
 	pixelate unpixel.Pixelator
-	fs, adv  float64 // calibrated font size and natural monospace advance
-	cacheCap int     // per-decoder render-cache entry cap (from the memory budget)
+	fs, adv  float64      // calibrated font size and natural monospace advance
+	cacheCap int          // per-decoder render-cache entry cap (from the memory budget)
+	frames   []scoreFrame // nil ⇒ single-frame; non-nil ⇒ multi-frame scoring
 	// cache memoizes stretched renders by text within one decodeN (where fs and
 	// the stretch factor are fixed), so the phase sweep and the per-cell search
 	// pay the costly render+resample only once per distinct string. It is bounded
