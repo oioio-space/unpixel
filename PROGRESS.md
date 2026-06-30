@@ -1389,3 +1389,5 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `b6cb518` 2026-06-30 — feat(fixture): add geometry-calibration and large-block committed testdata _(20 fichiers)_
 - `db90f0b` 2026-06-30 — test(mosaictext): make multi-frame single-frame-equivalence test cheap _(1 fichiers)_
 - `5fb175a` 2026-06-30 — docs(journal): wall-breakers v0.18 analysis — multi-frame scoring, geometry, digit probe _(1 fichiers)_
+- `00325d6` 2026-06-30 — docs: record wall-breakers v0.18 program — multi-frame auto-phase + geometry calibration _(4 fichiers)_
+- `ad084e8` 2026-06-30 — fix(mosaictext): anchor multi-frame phase deltas to frame 0, not min _(2 fichiers)_
