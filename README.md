@@ -187,8 +187,9 @@ operator; anti-hallucination gate for external diffusion restorers; see library 
 (now supports blind histogram ranking without `known_text`), `unpixel_calibrate`; resources 
 `unpixel://{fonts,charsets,methods,operating-envelope}`. Custom fonts upload via 
 `font_path`/`font_base64`. `unpixel_decode` accepts `font_prior_top_k` to run a blind font-prior 
-sweep (orders the bundled-font search by pixelated-signature ranking). See [docs](docs/) for the 
-full schema.
+sweep (orders the bundled-font search by pixelated-signature ranking) and `expected_format` 
+(`digits|credit_card|iban|date|phone_fr|phone_us|phone_e164`) to prune the engine search to a 
+structured secret (Luhn/mod-97/date/phone-validated). See [docs](docs/) for the full schema.
 
 ## Effectiveness
 

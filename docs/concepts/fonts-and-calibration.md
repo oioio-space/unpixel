@@ -20,6 +20,11 @@ fonts **in parallel** and retains the best fit by whole-image score:
 This is convenient but **exploratory**: if the true font is not close to a bundled one,
 the sweep will not match well.
 
+`--font-prior` orders this sweep by a blind pixelated-signature prior so the likeliest
+bundled font is tried first (result unchanged, just faster); `--font-prior-top-k N` prunes
+the sweep to the N best-ranked fonts (faster still, but a too-small N can drop the true
+font). The prior ranks only the bundled set — it does not widen it.
+
 ### 2. Supplying the exact font (recommended for real images)
 
 ```bash

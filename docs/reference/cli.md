@@ -23,6 +23,11 @@ unpixel --font Consolas.ttf --font-size 24 --letter-spacing -0.2 -b 5 redacted.p
 unpixel --font Arial.ttf --font Consolas.ttf --font Courier.ttf -b 5 redacted.png
 unpixel --font-dir /usr/share/fonts/truetype -b 5 redacted.png
 
+# Unknown font: order the bundled-font sweep by a blind prior (likeliest first),
+# or prune to the top-3 fonts for speed
+unpixel --font-prior -b 5 redacted.png
+unpixel --font-prior --font-prior-top-k 3 -b 5 redacted.png
+
 # Decoders (see docs/concepts/decoders.md)
 unpixel --decoder mono-hmm --lang en image.png                            # LM-guided monospace
 unpixel --decoder mono-hmm --lang fr --font "JetBrains Mono" long.png     # with a specific font
@@ -72,6 +77,8 @@ unpixel --remosaic-linear --redaction blur gimp-output.png               # linea
 | `--block-size`, `-b` | `0` (auto) | Pixelation block size; `0` auto-detects from the image |
 | `--font` | embedded (Liberation Sans) | TTF/OTF font to render candidates; **repeat to sweep** and keep the best fit |
 | `--font-dir` | — | Directory of TTF/OTF fonts to sweep (each tried; best whole-image fit wins) |
+| `--font-prior` | off | Order the bundled-font sweep by a blind pixelated-signature prior (try the likeliest font first; result unchanged, just faster) |
+| `--font-prior-top-k` | `0` (all) | With the font prior, decode only the top-K ranked fonts (faster, but can drop the true font if too small; implies `--font-prior`). Must be ≥ 0 |
 | `--font-size` | `0` (32) | Font size in points to match the redaction |
 | `--letter-spacing` | `0` | Extra px after each glyph, like CSS `letter-spacing` (may be negative) |
 | `--redaction` | `auto` | `auto`, `mosaic`, or `blur` (blur auto-detected when there's no mosaic grid) |

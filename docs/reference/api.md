@@ -59,7 +59,10 @@ fmt.Println((<-results).BestGuess)
 | `RecoverReader(ctx, io.Reader, ...Option)` / `RecoverFile(ctx, path, ...Option)` | Decode then `Recover` |
 | `RecoverMultiFont(ctx, image.Image, []Renderer, ...Option) ([]FontResult, error)` | Sweep candidate fonts in parallel; ranked best-fit first by `BestTotal` |
 | `RecoverBlurred(ctx, image.Image, ...Option) (Result, error)` | Zero-config Gaussian-blur recovery: auto-estimates σ, searches it as a dimension, defaults to beam+language prior |
+| `Verify(ctx, image.Image, []string, ...Option) ([]Verdict, error)` | Physically score caller-proposed candidate strings against the redaction (render→re-pixelate→metric); `Verdict{Text, Distance, Match}`, `Match` when `Distance < VerifyMatchThreshold` (0.10). The anti-hallucination gate for an external propose→verify loop |
+| `VerifyImage(ctx, redacted, restored image.Image, ...Option) (ImageVerdict, error)` | Physics-verify an externally-restored *image* (e.g. from a diffusion sidecar): re-applies the forward operator and compares. `ImageVerdict{Distance, Match}`. `Verify(text) ≡ VerifyImage(render(text))`. See [sidecar protocol](../sidecar-protocol.md) |
 | `With*` options (`WithCharset`, `WithWorkers`, `WithRenderer`, `WithStrategy`, `WithPriors`, …) | Tweak common knobs; `WithConfig` seeds a full `Config` |
+| Opt-in priors/constraints: `WithFontPrior`/`WithFontPriorTopK` (blind font-sweep ordering/pruning), `WithRerankWeight` (language-blended candidate re-rank), `WithExpectedFormat` (structured-secret search pruning — its enum is `internal/secrets.Format`, so it is reached in practice via the CLI/MCP, see below) | All default-off; the core search is byte-identical when unset |
 | `New(redacted image.Image, cfg Config) (*Engine, error)` | Build an engine; zero `Config` = faithful defaults |
 | `(*Engine).Run(ctx) (<-chan Progress, <-chan Result)` | Run the search; stream progress, deliver the result |
 | `(*Engine).Config() Config` | Resolved config (e.g. the inferred block size) |
@@ -69,7 +72,7 @@ fmt.Println((<-results).BestGuess)
 | `InferBlurSigma(image.Image) float64` | Estimate Gaussian blur radius σ from image contrast |
 | `InferImpulseNoise(image.Image) float64` | Detect impulse (salt-pepper) noise; used by `blind.Recover` to auto-denoise |
 | `Renderer`, `Pixelator`, `Metric`, `Strategy` | Pluggable pipeline interfaces (defined in root; implementations under `internal/`) |
-| `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind` | Configuration and result/event types |
+| `Config`, `Style`, `Result`, `FontResult`, `Eval`, `Offset`, `Progress`, `EventKind`, `Verdict`, `ImageVerdict` | Configuration and result/event types |
 
 The faithful default metric is `orisano/pixelmatch`; `defaults.PixelmatchFastMetric()`
 skips anti-aliasing detection on block-average mosaic for identical results ~35% faster,
@@ -140,6 +143,38 @@ Each decoder's options follow a `With<Decoder>*` naming pattern (e.g. `WithRefFo
 `WithWHMMCharset`, `WithTHMMK`, `WithDIDLanguage`, `WithVarFontText`) for font, charset,
 color space (sRGB/linear-light), and decoder-specific tuning. The exact set is on
 [pkg.go.dev](https://pkg.go.dev/github.com/oioio-space/unpixel/mosaictext).
+
+## Blind font prior (`fontprior`)
+
+Orders (and optionally prunes) the bundled-font sweep by a blind pixelated-signature
+prior — no known plaintext required — so the likeliest font is decoded first.
+
+| Symbol | Purpose |
+|--------|---------|
+| `fontprior.RecoverWithPrior(ctx, image.Image, ...unpixel.Option) ([]fontprior.FontResult, error)` | Rank `fonts.All()` by the prior, reorder the sweep (result-preserving), optionally truncate to the top-K (`unpixel.WithFontPriorTopK`), then decode. `FontResult{Result, Font}` best-first |
+| `fontprior.Default() Prior` / `fontprior.Histogram` | The active prior (pure-Go block-luminance heuristic by default; a trained CNN drops in behind `//go:build ml`) |
+
+Limit: ranks only the 9 bundled fonts, and the histogram is noisy on very short/low-ink
+redactions — reordering never loses the answer, but a small `--font-prior-top-k` can.
+
+## Candidate re-rank (`rerank`)
+
+Re-orders already-physically-scored candidates by blending image distance with a
+language score — generalises the search's narrow language tie-break into a tunable stage.
+
+| Symbol | Purpose |
+|--------|---------|
+| `rerank.Rerank(ctx, image.Image, []string, ...unpixel.Option) ([]rerank.Ranked, error)` | `Verify` the candidates, then blend distance with the language prior; weight via `unpixel.WithRerankWeight` (0 = physical order). `Ranked{Text, Distance, LMScore, Blended}` best-first |
+| `rerank.Default() Reranker` / `rerank.Linguistic` | The active reranker (pure-Go language blend by default; a CTC model drops in behind `//go:build ml`) |
+
+## Structured-secret search pruning (`WithExpectedFormat`)
+
+`unpixel.WithExpectedFormat(secrets.Format)` prunes the guided search to candidates
+feasible for a declared structured secret (credit card/Luhn, IBAN/mod-97, date, phone
+FR/US/E164, digits) and drops complete-but-invalid candidates. Strictly opt-in
+(`FormatNone`/unset is byte-identical). Because the `Format` enum lives in
+`internal/secrets`, external callers reach it through the **MCP** `unpixel_decode`
+`expected_format` field rather than the Go option directly.
 
 ## See also
 

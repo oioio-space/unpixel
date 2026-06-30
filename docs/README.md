@@ -26,6 +26,7 @@ index maps the remainder of the documentation.
 | Review the package layout and pipeline | [architecture.md](architecture.md) |
 | Compare with the original Bishop Fox tool | [comparison.md](comparison.md) |
 | Examine the performance work and the GPU/SIMD study | [performance.md](performance.md) |
+| Wire an external image restorer behind the physics-verify gate | [sidecar-protocol.md](sidecar-protocol.md) |
 
 ## Project records (maintained for history)
 

@@ -31,6 +31,20 @@ many strings produce nearly identical blocks. Beyond a certain point this is
 information-theoretically unrecoverable: insufficient information remains to distinguish
 candidates.
 
+This wall is **measured, not assumed**. The `internal/infoleak` study (`mise run infoleak`,
+results in [`JOURNAL.md` §#8](../JOURNAL.md)) quantified the two channels most often proposed
+as ways around it, and both add nothing exploitable for a block-average mosaic:
+
+- **Anti-aliasing:** sub-pixel AA coverage *survives* averaging but, measured across the 9
+  bundled fonts, the separability gain on confusable pairs (`rn`/`m`, `0`/`O`, …) is
+  **negative** — AA softens edges, making confusables *more* alike after block-averaging.
+- **JPEG compression:** adds only signal-dependent noise to the *already-known* block values
+  (drift grows as quality drops); it does not reconstruct averaged-away detail.
+
+The only genuine super-resolution lever is **multiple grid phases** of the same content
+(`mosaictext.DecodeMultiFrame`, IBP fusion). Otherwise the sole recoverable signal is the
+block values themselves, which the generate-and-test engine already exploits.
+
 ### 3. Boundary coupling
 After pixelation, pixels straddling two glyphs average together. Decoders that score glyphs
 in isolation (`did`, `ref-match`) therefore diverge from the true full-line pixelation at
