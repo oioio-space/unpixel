@@ -18,6 +18,7 @@ func mosaicOf(t *testing.T, fontName, text string, block int) image.Image {
 	for _, f := range fonts.All() {
 		if f.Name == fontName {
 			data = f.Data
+			break
 		}
 	}
 	if data == nil {
