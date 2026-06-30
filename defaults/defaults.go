@@ -39,6 +39,7 @@ import (
 	xdraw "golang.org/x/image/draw"
 
 	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/locate"
 	"github.com/oioio-space/unpixel/internal/metric"
@@ -103,15 +104,39 @@ func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candi
 // forward operator (cfg.Pixelator) to the restored image and compares it to the
 // redaction (cfg.Metric), taking the minimum distance over grid phases — the
 // image analogue of verifyCore's best-offset search. restored is resized to the
-// redaction's bounds (pure-Go CatmullRom) when their sizes differ.
+// redaction's pixel dimensions (pure-Go CatmullRom) when their sizes differ.
+//
+// The key invariant: cfg.Pixelator.Pixelate may pad its output to a block
+// multiple (e.g. BlockAverage pads width to the next multiple of blockSize). If
+// redacted's width is not a multiple of blockSize, reMosaic.Bounds() !=
+// redacted.Bounds() and metric.Compare short-circuits on unequal bounds,
+// returning 0.0 — a false accept for any input. To prevent this, verifyImageCore:
+//  1. Normalises redacted to a zero-Min rectangle of size dx×dy (redZero).
+//  2. Scales restored into the same dx×dy rectangle (rest).
+//  3. After each Pixelate call, crops reMosaic back to dx×dy before Compare.
+//
+// This guarantees Compare always sees equal bounds over the real (unpadded)
+// pixel region, so garbage restorations receive a genuinely high distance.
 func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg unpixel.Config) (unpixel.ImageVerdict, error) {
 	rb := redacted.Bounds()
+	dx, dy := rb.Dx(), rb.Dy()
+	target := image.Rect(0, 0, dx, dy)
 
-	rest := restored
-	if restored.Bounds() != rb {
-		scaled := image.NewRGBA(rb)
-		xdraw.CatmullRom.Scale(scaled, rb, restored, restored.Bounds(), xdraw.Over, nil)
-		rest = scaled
+	// Step 1: normalise redacted to zero-Min so Crop and Compare operate on a
+	// consistent rectangle regardless of the caller's image origin.
+	redZero := redacted
+	if rb.Min != (image.Point{}) {
+		redZero = imutil.Crop(redacted, 0, 0, dx, dy)
+	}
+
+	// Step 2: scale restored into target (dx×dy, zero-Min).
+	rest := image.NewRGBA(target)
+	if restored.Bounds() == target {
+		// Fast path: restored already has the right size and origin; copy to
+		// preserve the invariant that rest is always a fresh zero-Min image.
+		draw.Draw(rest, target, restored, image.Point{}, draw.Src)
+	} else {
+		xdraw.CatmullRom.Scale(rest, target, restored, restored.Bounds(), xdraw.Over, nil)
 	}
 
 	block := cfg.BlockSize
@@ -127,8 +152,11 @@ func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg un
 			if ctx.Err() != nil {
 				return unpixel.ImageVerdict{}, ctx.Err()
 			}
+			// Pixelate may pad reMosaic to a block multiple; crop it back to the
+			// real region so metric.Compare sees equal bounds on both sides.
 			reMosaic := cfg.Pixelator.Pixelate(rest, ox, oy)
-			if d := cfg.Metric.Compare(reMosaic, redacted); d < best {
+			reCropped := imutil.Crop(reMosaic, 0, 0, dx, dy)
+			if d := cfg.Metric.Compare(reCropped, redZero); d < best {
 				best = d
 			}
 		}
