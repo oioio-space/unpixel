@@ -55,7 +55,7 @@ func TestHistogram_ranksTrueFontTop3(t *testing.T) {
 	top1, top3 := 0, 0
 	for _, c := range cases {
 		img := mosaicOf(t, c.font, c.text, block)
-		ranked, err := fontprior.Default().Rank(t.Context(), img, block, fonts.All())
+		ranked, err := fontprior.Histogram{}.Rank(t.Context(), img, block, fonts.All())
 		if err != nil {
 			t.Fatalf("Rank(%q): %v", c.font, err)
 		}
@@ -73,7 +73,7 @@ func TestHistogram_ranksTrueFontTop3(t *testing.T) {
 }
 
 func TestHistogram_emptyFontsReturnsNil(t *testing.T) {
-	got, err := fontprior.Default().Rank(t.Context(), image.NewRGBA(image.Rect(0, 0, 10, 10)), 0, nil)
+	got, err := fontprior.Histogram{}.Rank(t.Context(), image.NewRGBA(image.Rect(0, 0, 10, 10)), 0, nil)
 	if err != nil {
 		t.Fatalf("Rank(nil fonts): %v", err)
 	}

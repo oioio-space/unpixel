@@ -2658,7 +2658,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		if p.fontPrior || p.fontPriorTopK > 0 {
 			if ranked, rankErr := fontprior.Default().Rank(ctx, img, cfg.BlockSize, fonts.All()); rankErr == nil {
 				cands = applyFontPrior(cands, ranked, p.fontPriorTopK)
-				if !p.quiet && p.format != "json" {
+				if !p.quiet && p.format != "json" && len(cands) > 0 {
 					fmt.Fprintf(os.Stderr, "Font prior: trying %s first\n", cands[0].display)
 				}
 			}
