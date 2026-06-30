@@ -396,7 +396,9 @@ type VerifyReport struct {
 	// Best is the text of the top-ranked candidate (lowest distance).
 	Best string `json:"best"`
 	// Margin is the distance gap between the 2nd-best and best candidates
-	// (0 when fewer than two candidates were provided).
+	// (0 when fewer than two candidates were provided). It may be ≤ 0 when
+	// rerank_weight > 0, because the language model can re-order candidates so
+	// ranked[0] carries a higher physical distance than ranked[1].
 	Margin float64 `json:"margin"`
 	// Pick is the lowest-distance candidate whose Match is true (a confident
 	// physical match per [unpixel.VerifyMatchThreshold]). Empty when no

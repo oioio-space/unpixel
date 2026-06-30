@@ -70,7 +70,7 @@ func TestLinguistic_empty(t *testing.T) {
 	}
 }
 
-func TestDefault_isLinguistic(t *testing.T) {
+func TestLinguistic_singleCandidate(t *testing.T) {
 	// Linguistic is the pure-Go reranker; verify it works regardless of build tag.
 	got, err := rerank.Linguistic{}.Rerank(t.Context(), nil,
 		[]unpixel.Verdict{vd("a", 0.1)}, func(string) float64 { return 0 }, 0)
@@ -79,6 +79,31 @@ func TestDefault_isLinguistic(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Text != "a" {
 		t.Errorf("Linguistic{}.Rerank = %+v; want single 'a'", got)
+	}
+}
+
+func TestLinguistic_allNegativeLMScores(t *testing.T) {
+	// When ALL LM scores are negative the i==0 seeding must initialise bestLM
+	// from the first score (not 0.0), otherwise bestLM stays at its zero value
+	// and the blended values are wrong.
+	//
+	// lm("m")=-1.0, lm("rn")=-5.0; bestLM must be -1.0.
+	// blended("m")  = 0.14 − 0.02·(−1−(−1)) = 0.14
+	// blended("rn") = 0.10 − 0.02·(−5−(−1)) = 0.10 + 0.08 = 0.18
+	// → "m" wins despite worse physical distance.
+	lm := func(s string) float64 {
+		if s == "m" {
+			return -1.0
+		}
+		return -5.0
+	}
+	in := []unpixel.Verdict{vd("rn", 0.10), vd("m", 0.14)}
+	got, err := rerank.Linguistic{}.Rerank(t.Context(), nil, in, lm, 0.02)
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if got[0].Text != "m" {
+		t.Errorf("all-negative LM: top = %q; want %q (LM rescue over physics)", got[0].Text, "m")
 	}
 }
 
