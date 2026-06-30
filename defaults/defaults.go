@@ -36,6 +36,8 @@ import (
 	"image"
 	"image/draw"
 
+	xdraw "golang.org/x/image/draw"
+
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/locate"
@@ -65,6 +67,7 @@ func init() {
 		return formatConstrainedStrategy{format: f}
 	}
 	unpixel.DefaultVerifyCore = verifyCore
+	unpixel.DefaultVerifyImageCore = verifyImageCore
 }
 
 // verifyCore implements the DefaultVerifyCore hook. It builds a CachingScorer
@@ -94,6 +97,42 @@ func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candi
 		}
 	}
 	return verdicts, nil
+}
+
+// verifyImageCore implements the DefaultVerifyImageCore hook. It re-applies the
+// forward operator (cfg.Pixelator) to the restored image and compares it to the
+// redaction (cfg.Metric), taking the minimum distance over grid phases — the
+// image analogue of verifyCore's best-offset search. restored is resized to the
+// redaction's bounds (pure-Go CatmullRom) when their sizes differ.
+func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg unpixel.Config) (unpixel.ImageVerdict, error) {
+	rb := redacted.Bounds()
+
+	rest := restored
+	if restored.Bounds().Dx() != rb.Dx() || restored.Bounds().Dy() != rb.Dy() {
+		scaled := image.NewRGBA(rb)
+		xdraw.CatmullRom.Scale(scaled, rb, restored, restored.Bounds(), xdraw.Over, nil)
+		rest = scaled
+	}
+
+	block := cfg.BlockSize
+	if block < 1 {
+		block = 1
+	}
+
+	best := 1.0
+	for oy := range block {
+		for ox := range block {
+			if ctx.Err() != nil {
+				return unpixel.ImageVerdict{}, ctx.Err()
+			}
+			reMosaic := cfg.Pixelator.Pixelate(rest, ox, oy)
+			if d := cfg.Metric.Compare(reMosaic, redacted); d < best {
+				best = d
+			}
+		}
+	}
+
+	return unpixel.ImageVerdict{Distance: best, Match: best < unpixel.VerifyMatchThreshold}, nil
 }
 
 // Wire fills any nil component fields in cfg with the standard implementations.
