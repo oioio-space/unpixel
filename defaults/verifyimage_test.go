@@ -82,7 +82,10 @@ func TestVerifyImage_resizesRestored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyImage(resized): %v", err)
 	}
-	if v.Distance > 0.5 {
+	// Observed distance after CatmullRom downscale of a 2× nearest-neighbour
+	// blow-up is 0.0000; threshold of 0.05 catches a broken resize path while
+	// leaving comfortable headroom for interpolation noise.
+	if v.Distance > 0.05 {
 		t.Errorf("resized true restoration distance %.4f too high (resize path broken?)", v.Distance)
 	}
 }

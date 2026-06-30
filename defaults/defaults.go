@@ -108,7 +108,7 @@ func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg un
 	rb := redacted.Bounds()
 
 	rest := restored
-	if restored.Bounds().Dx() != rb.Dx() || restored.Bounds().Dy() != rb.Dy() {
+	if restored.Bounds() != rb {
 		scaled := image.NewRGBA(rb)
 		xdraw.CatmullRom.Scale(scaled, rb, restored, restored.Bounds(), xdraw.Over, nil)
 		rest = scaled
@@ -119,6 +119,8 @@ func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg un
 		block = 1
 	}
 
+	// best starts at 1.0, the metric's maximum (all pixels differ); metrics
+	// return values in [0, 1] so any real comparison will drive it down.
 	best := 1.0
 	for oy := range block {
 		for ox := range block {
