@@ -29,6 +29,75 @@ const (
 	maxVerifyCandidates = 256
 )
 
+// prepareVerify runs the shared preparation prologue for the Verify family:
+// it resolves opts into a Config (enabling the auto path when neither a
+// Pixelator nor a block size is set), converts img to RGBA, auto-contrast /
+// deskews / crops it, infers the block size and forward operator, auto-calibrates
+// letter spacing, and wires the default components. It returns the prepped image
+// and resolved Config, or the error from DefaultComponents. It does not score
+// anything — Verify and VerifyImage supply their own scoring step.
+func prepareVerify(img image.Image, opts []Option) (*image.RGBA, Config, error) {
+	var cfg Config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	if cfg.Pixelator == nil && cfg.BlockSize <= 0 {
+		cfg.autoCrop = true
+		cfg.autoColorspace = true
+		cfg.autoBlur = true
+		cfg.autoCalibrate = true
+	}
+
+	rgba := imutil.ToRGBA(img)
+	if darkBackground(rgba) {
+		rgba = invertColors(rgba)
+	}
+
+	var grid BlockGrid
+	rgba, _, grid = detectAndDeskew(rgba)
+
+	if cfg.autoCrop && DefaultLocateMosaicBand != nil {
+		if band, ok := DefaultLocateMosaicBand(rgba); ok {
+			b := rgba.Bounds()
+			if band.Dx() < b.Dx() || band.Dy() < b.Dy() {
+				ox, oy := band.Min.X-b.Min.X, band.Min.Y-b.Min.Y
+				rgba = imutil.Crop(rgba, ox, oy, band.Dx(), band.Dy())
+				grid.Size = 0
+			}
+		}
+	}
+
+	if cfg.BlockSize <= 0 {
+		if grid.Size >= 2 {
+			cfg.BlockSize = grid.Size
+		} else if s := InferBlockSize(rgba); s >= 2 {
+			cfg.BlockSize = s
+		}
+	}
+	cfg = applyDefaults(cfg)
+
+	applyAutoFingerprint(&cfg, rgba)
+
+	if cfg.autoCalibrate && cfg.Style.LetterSpacing == 0 && cfg.BlockSize >= 2 && cfg.Style.FontSize > 0 {
+		if refW := int(cfg.Style.FontSize * 0.6); refW > 0 {
+			if stretch, ok := InferXStretch(rgba, cfg.BlockSize, refW); ok && (stretch < 0.98 || stretch > 1.02) {
+				cfg.Style.LetterSpacing = (stretch - 1) * float64(refW)
+			}
+		}
+	}
+
+	if cfg.Renderer == nil || cfg.Pixelator == nil || cfg.Metric == nil {
+		if DefaultComponents != nil {
+			if err := DefaultComponents(&cfg); err != nil {
+				return nil, cfg, err
+			}
+		}
+	}
+
+	return rgba, cfg, nil
+}
+
 // Verify scores each candidate against img using the engine's faithful forward
 // model (same render→operator→metric pipeline as Recover), evaluated at the
 // candidate's best grid offset. opts mirror Recover's options
@@ -52,88 +121,10 @@ func Verify(ctx context.Context, img image.Image, candidates []string, opts ...O
 	if DefaultVerifyCore == nil {
 		return nil, ErrNoComponents
 	}
-
-	// Build config from caller options, defaulting to the auto path.
-	var cfg Config
-	for _, opt := range opts {
-		opt(&cfg)
+	rgba, cfg, err := prepareVerify(img, opts)
+	if err != nil {
+		return nil, err
 	}
-
-	// Apply auto flags when the caller has not pinned a Pixelator and has not
-	// explicitly set a block size. This mirrors the "auto path" Recover uses when
-	// called with no options.
-	if cfg.Pixelator == nil && cfg.BlockSize <= 0 {
-		cfg.autoCrop = true
-		cfg.autoColorspace = true
-		cfg.autoBlur = true
-		cfg.autoCalibrate = true
-	}
-
-	// --- Replicate New's preparation prologue (additive; Recover is untouched) ---
-
-	rgba := imutil.ToRGBA(img)
-
-	// Auto-contrast: invert dark-background images to match the dark-on-light
-	// rendering pipeline.
-	if darkBackground(rgba) {
-		rgba = invertColors(rgba)
-	}
-
-	// Deskew: detect and correct grid rotation.
-	var grid BlockGrid
-	rgba, _, grid = detectAndDeskew(rgba)
-
-	// Auto-crop: locate the mosaic band and crop to it. Only fires when the
-	// DefaultLocateMosaicBand hook is wired and the band is smaller than the full
-	// image — byte-identical behaviour when the hook is absent or the crop is a no-op.
-	if cfg.autoCrop && DefaultLocateMosaicBand != nil {
-		if band, ok := DefaultLocateMosaicBand(rgba); ok {
-			b := rgba.Bounds()
-			if band.Dx() < b.Dx() || band.Dy() < b.Dy() {
-				ox, oy := band.Min.X-b.Min.X, band.Min.Y-b.Min.Y
-				rgba = imutil.Crop(rgba, ox, oy, band.Dx(), band.Dy())
-				grid.Size = 0
-			}
-		}
-	}
-
-	// Block-size inference: prefer the grid already computed by detectAndDeskew;
-	// fall back to InferBlockSize; applyDefaults provides DefaultBlockSize as the
-	// final backstop.
-	if cfg.BlockSize <= 0 {
-		if grid.Size >= 2 {
-			cfg.BlockSize = grid.Size
-		} else if s := InferBlockSize(rgba); s >= 2 {
-			cfg.BlockSize = s
-		}
-	}
-	cfg = applyDefaults(cfg)
-
-	// Auto-fingerprint: detect the forward operator (colorspace / blur family)
-	// and install the matching pixelator when confident.
-	applyAutoFingerprint(&cfg, rgba)
-
-	// Auto-calibrate: seed LetterSpacing from the inferred x-stretch.
-	if cfg.autoCalibrate && cfg.Style.LetterSpacing == 0 && cfg.BlockSize >= 2 && cfg.Style.FontSize > 0 {
-		if refW := int(cfg.Style.FontSize * 0.6); refW > 0 {
-			if stretch, ok := InferXStretch(rgba, cfg.BlockSize, refW); ok && (stretch < 0.98 || stretch > 1.02) {
-				cfg.Style.LetterSpacing = (stretch - 1) * float64(refW)
-			}
-		}
-	}
-
-	// Wire components (Renderer, Pixelator, Metric) via DefaultComponents when
-	// any required field is still nil.
-	if cfg.Renderer == nil || cfg.Pixelator == nil || cfg.Metric == nil {
-		if DefaultComponents != nil {
-			if err := DefaultComponents(&cfg); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	// Cap candidates and delegate the scoring work to the hook (which lives in
-	// the defaults package and can import internal/search without a cycle).
 	capped := candidates[:min(len(candidates), maxVerifyCandidates)]
 	return DefaultVerifyCore(ctx, rgba, cfg, capped)
 }

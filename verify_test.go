@@ -2,11 +2,16 @@ package unpixel_test
 
 import (
 	"errors"
+	"image"
 	"strings"
 	"testing"
 
 	"github.com/oioio-space/unpixel"
 	_ "github.com/oioio-space/unpixel/defaults" // wire DefaultComponents
+	"github.com/oioio-space/unpixel/fonts"
+	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/pixelate"
+	"github.com/oioio-space/unpixel/internal/render"
 )
 
 func TestVerify_decisive(t *testing.T) {
@@ -146,5 +151,70 @@ func TestVerify_autoPath(t *testing.T) {
 	}
 	if len(vs) != 2 {
 		t.Errorf("Verify(auto) = %d verdicts, want 2", len(vs))
+	}
+}
+
+// mosaicWord builds a self-consistent synthetic mosaic of text using the same
+// pipeline as PipelineScorer (render → BlueMargin → crop → pad → pixelate →
+// LeftEdge → vertical crop) with the default style (32 pt, 8 px padding) so
+// that Verify's re-render of the true text produces a distance ≈ 0. It returns
+// the mosaic image and the block size used.
+func mosaicWord(t *testing.T, text string) (image.Image, int) {
+	t.Helper()
+	r, err := render.NewXImageFromFonts(fonts.All()[0].Data, nil) // Liberation Sans
+	if err != nil {
+		t.Fatalf("renderer: %v", err)
+	}
+	// Use the same style that applyDefaults fills in so Verify's re-render matches.
+	style := unpixel.Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+	const block = 6
+	px := pixelate.NewBlockAverage(block)
+
+	img, sentinelX, err := r.Render(text, style)
+	if err != nil || sentinelX <= 0 {
+		t.Fatalf("render: %v sentinelX=%d", err, sentinelX)
+	}
+
+	// Mirror PipelineScorer's stageImage steps 2–7 with offset (0,0).
+	bm, imageCenter := imutil.BlueMargin(img)
+	if bm == 0 {
+		bm = sentinelX
+	}
+	img = imutil.Crop(img, 0, 0, bm, img.Bounds().Dy())
+	w := img.Bounds().Dx()
+	if rem := block - (w % block); rem < block {
+		img = imutil.PadWhite(img, w+rem, img.Bounds().Dy())
+	}
+	pixelated := px.Pixelate(img, 0, 0)
+	le := imutil.LeftEdge(pixelated)
+	adjustedCenter := imageCenter - (imageCenter % block) + 4
+	redactedH := 2 * adjustedCenter
+	mosaic := imutil.Crop(pixelated, le, 0, pixelated.Bounds().Dx()-le, pixelated.Bounds().Dy())
+	if mosaic.Bounds().Dy() < redactedH {
+		mosaic = imutil.PadWhite(mosaic, mosaic.Bounds().Dx(), redactedH)
+	}
+	return mosaic, block
+}
+
+// TestVerify_unchangedAfterRefactor confirms that extracting prepareVerify did
+// not alter Verify's observable behaviour: the true text matches and a clearly
+// wrong candidate does not.
+func TestVerify_unchangedAfterRefactor(t *testing.T) {
+	// Build an in-memory mosaic of "the" and confirm Verify still ranks the true
+	// text below the match threshold and a wrong candidate above it.
+	img, block := mosaicWord(t, "the")
+	verdicts, err := unpixel.Verify(t.Context(), img, []string{"the", "xyz"},
+		unpixel.WithBlockSize(block), unpixel.WithCharset("abcdefghijklmnopqrstuvwxyz"))
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if len(verdicts) != 2 {
+		t.Fatalf("verdicts len = %d; want 2", len(verdicts))
+	}
+	if !verdicts[0].Match {
+		t.Errorf("true text %q not a Match (distance %.3f)", verdicts[0].Text, verdicts[0].Distance)
+	}
+	if verdicts[1].Match {
+		t.Errorf("wrong text %q unexpectedly Match (distance %.3f)", verdicts[1].Text, verdicts[1].Distance)
 	}
 }
