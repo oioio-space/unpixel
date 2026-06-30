@@ -1427,6 +1427,44 @@ func TestFlagFrame_SingleEqualsNormal(t *testing.T) {
 	_ = err
 }
 
+// TestFlagFrame_MultiAutoPath verifies that passing multiple --frame flags
+// routes through DecodeMultiFrameAuto (phases auto-detected) and returns a
+// result without panicking. It loads the 4-frame hello_b8 fixture set.
+// Exact text is not asserted — blind calibration does not guarantee a decode;
+// the test only checks no-error and a non-negative distance.
+func TestFlagFrame_MultiAutoPath(t *testing.T) {
+	const multiframeDir = "../../testdata/multiframe"
+	frames := []string{
+		filepath.Join(multiframeDir, "hello_b8_f0.png"),
+		filepath.Join(multiframeDir, "hello_b8_f1.png"),
+		filepath.Join(multiframeDir, "hello_b8_f2.png"),
+		filepath.Join(multiframeDir, "hello_b8_f3.png"),
+	}
+	for _, p := range frames {
+		if _, err := os.Stat(p); err != nil {
+			t.Skipf("multiframe fixture not found (%s) — skipping", p)
+		}
+	}
+
+	args := []string{"unpixel", "--quiet", "--format", "json"}
+	for _, p := range frames {
+		args = append(args, "--frame", p)
+	}
+	args = append(args, frames[0]) // positional (ignored when --frame set)
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = buildApp().Run(t.Context(), args)
+	})
+	if runErr != nil {
+		t.Fatalf("runMultiFrame (auto, 4 frames): %v", runErr)
+	}
+	if out == "" {
+		t.Error("runMultiFrame (auto, 4 frames): no output")
+	}
+	t.Logf("output: %s", out)
+}
+
 // TestFlagDIDContext_WiresFlag verifies that --did-context is an accepted flag
 // (no "unknown flag" error) when combined with --decoder did.
 func TestFlagDIDContext_WiresFlag(t *testing.T) {

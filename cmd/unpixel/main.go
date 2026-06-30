@@ -1258,11 +1258,10 @@ func runEnsemble(ctx context.Context, imgPath string, p flagParams) error {
 }
 
 // runMultiFrame runs the multi-frame IBP fusion decoder when one or more
-// --frame flags are provided. Each --frame path is loaded as a
-// mosaictext.Frame with (OffsetX=0, OffsetY=0); the grid phase is then
-// inferred per-frame by DecodeMultiFrame's fusion path. When exactly one
-// --frame is given the result is identical to calling Decode on that image
-// directly.
+// --frame flags are provided. Grid phases are auto-detected per frame via
+// luma-variance minimisation; the caller does not need to supply offsets.
+// When exactly one --frame is given the result is byte-identical to calling
+// Decode on that image directly.
 //
 // The positional image argument is still required (for consistency with other
 // decoders) but is ignored when --frame paths are provided; the frames take
@@ -1280,22 +1279,22 @@ func runMultiFrame(ctx context.Context, framePaths []string, p flagParams) error
 		defer cancel()
 	}
 
-	frames := make([]mosaictext.Frame, len(framePaths))
+	imgs := make([]image.Image, len(framePaths))
 	for i, path := range framePaths {
 		img, err := loadImage(path)
 		if err != nil {
 			return fmt.Errorf("--frame %q: %w", path, err)
 		}
-		frames[i] = mosaictext.Frame{Img: img}
+		imgs[i] = img
 	}
 
 	if !p.quiet && p.format != "json" {
-		fmt.Fprintf(os.Stderr, "Decoder: multi-frame IBP fusion (%d frames)\n", len(frames))
+		fmt.Fprintf(os.Stderr, "Decoder: multi-frame IBP fusion (%d frames, phases auto-detected)\n", len(imgs))
 	}
 
-	res, err := mosaictext.DecodeMultiFrame(ctx, frames)
+	res, err := mosaictext.DecodeMultiFrameAuto(ctx, imgs)
 	if err != nil {
-		return fmt.Errorf("DecodeMultiFrame: %w", err)
+		return fmt.Errorf("DecodeMultiFrameAuto: %w", err)
 	}
 
 	if !p.quiet && p.format != "json" {
@@ -1316,7 +1315,7 @@ func runMultiFrame(ctx context.Context, framePaths []string, p flagParams) error
 			Font:       res.Font,
 			Linear:     res.Linear,
 			BlockSize:  res.BlockSize,
-			FrameCount: len(frames),
+			FrameCount: len(imgs),
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -2147,9 +2146,9 @@ Examples:
 			&cli.StringSliceFlag{
 				Name: "frame",
 				Usage: "path to a mosaic-pixelated image for multi-frame IBP fusion; repeat to add more frames " +
-					"(e.g. --frame a.png --frame b.png). Each frame is assumed offset (0,0) — the decoder " +
-					"infers sub-block phase from the image geometry. A single --frame is byte-identical to " +
-					"a normal decode on that image. Requires the positional image argument too (it is ignored " +
+					"(e.g. --frame a.png --frame b.png). Grid phases are auto-detected per frame via " +
+					"luma-variance minimisation — no manual offsets required. A single --frame is byte-identical " +
+					"to a normal decode on that image. Requires the positional image argument too (it is ignored " +
 					"when --frame is set).",
 			},
 			&cli.BoolFlag{

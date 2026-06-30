@@ -80,10 +80,16 @@ var toolDecode = &mcpsdk.Tool{
 }
 
 // FrameInput is one additional frame for the multi-frame decoder. Each frame
-// is a same-content mosaic captured at a different grid phase. OffsetX and
-// OffsetY are the pixel-level grid phase shifts relative to the primary image;
-// omitting them (or supplying 0) means the phase is unknown and the decoder
-// will attempt to determine it automatically.
+// is a same-content mosaic captured at a different grid phase.
+//
+// OffsetX and OffsetY are the pixel-level grid phase shifts relative to the
+// primary image. When ALL frames (including every entry in the Frames slice)
+// carry zero offsets — the "unknown/auto" sentinel — the decoder routes to
+// [mosaictext.DecodeMultiFrameAuto], which infers each frame's phase via
+// luma-variance minimisation. When any frame carries a non-zero offset the
+// caller's explicit phases are honoured and [mosaictext.DecodeMultiFrame] is
+// used instead. Omit the offsets (or leave them zero) unless you have measured
+// them; auto-detection is accurate for typical block-grid mosaics.
 type FrameInput struct {
 	// Path is the filesystem path to the frame PNG or JPEG image.
 	Path string `json:"path" jsonschema:"Filesystem path to the additional frame PNG/JPEG"`
@@ -899,8 +905,51 @@ func decodeEnsemble(ctx context.Context, img image.Image, in decodeInput) (Decod
 	return DecodeResult{}, mosaictext.ErrNoContent
 }
 
+// allOffsetsZero reports whether every FrameInput in fis has both offsets zero,
+// which is the "unknown/auto" sentinel meaning the caller has not supplied
+// explicit grid phases.
+func allOffsetsZero(fis []FrameInput) bool {
+	for _, fi := range fis {
+		if fi.OffsetX != 0 || fi.OffsetY != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func decodeMultiFrame(ctx context.Context, img image.Image, in decodeInput) (DecodeResult, error) {
-	frames := []mosaictext.Frame{{Img: img}}
+	// When all per-frame offsets are zero (the "unknown/auto" sentinel), use
+	// DecodeMultiFrameAuto so phases are inferred from each frame's pixel data.
+	// When any non-zero offset is present the caller has supplied explicit phases
+	// and we honour them via DecodeMultiFrame.
+	if allOffsetsZero(in.Frames) {
+		imgs := make([]image.Image, 1, 1+len(in.Frames))
+		imgs[0] = img
+		for _, fi := range in.Frames {
+			frameImg, err := loadImage(fi.Path)
+			if err != nil {
+				return DecodeResult{}, fmt.Errorf("load frame %q: %w", fi.Path, err)
+			}
+			imgs = append(imgs, frameImg)
+		}
+		res, err := mosaictext.DecodeMultiFrameAuto(ctx, imgs)
+		if err != nil {
+			return DecodeResult{}, err
+		}
+		return DecodeResult{
+			Text:       res.Text,
+			Distance:   res.Distance,
+			Fidelity:   clampFidelity(res.Distance),
+			Font:       res.Font,
+			BlockSize:  res.BlockSize,
+			MethodUsed: "multi-frame",
+			Notes:      []string{fmt.Sprintf("fused %d frames (phases auto-detected)", len(imgs))},
+		}, nil
+	}
+
+	// Explicit offsets: pass frames verbatim to DecodeMultiFrame.
+	frames := make([]mosaictext.Frame, 1, 1+len(in.Frames))
+	frames[0] = mosaictext.Frame{Img: img}
 	for _, fi := range in.Frames {
 		frameImg, err := loadImage(fi.Path)
 		if err != nil {
@@ -923,7 +972,7 @@ func decodeMultiFrame(ctx context.Context, img image.Image, in decodeInput) (Dec
 		Font:       res.Font,
 		BlockSize:  res.BlockSize,
 		MethodUsed: "multi-frame",
-		Notes:      []string{fmt.Sprintf("fused %d frames", len(frames))},
+		Notes:      []string{fmt.Sprintf("fused %d frames (explicit phases)", len(frames))},
 	}, nil
 }
 
