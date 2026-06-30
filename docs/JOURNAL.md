@@ -1653,3 +1653,92 @@ are capped to the first 4 sick images (noted in the Subset column).
 | 2026-06-28 | v0.17.0+dev | 6ecdcbd | perspective | perspective | 3/3/3/100% | 4 |  |
 | 2026-06-28 | v0.17.0+dev | 6ecdcbd | perspective-auto | perspective | 2/3/2/87% | 4 |  |
 
+## #8 — Information-leak feasibility study (2026-06-30)
+
+### What was measured and why
+
+A block-average mosaic replaces every N×N pixel tile with its mean colour. The only
+signal recoverable by the engine is the block values themselves — the generate-and-test
+loop already exploits this fully (render candidate → re-mosaic → compare block means).
+Two additional channels were hypothesised as potential sub-block information leaks:
+(1) anti-aliased rendering might leave sub-pixel edge fractions that survive the
+block average and discriminate confusable glyph pairs better than a hard-edge render
+would; (2) JPEG compression of the captured screenshot might introduce DCT artifacts
+that encode extra per-block information. This study quantifies both effects with the
+`internal/infoleak` package (`MeasureAALeak` / `MeasureJPEGImpact`) to determine
+whether any specialised exploiter (AA-aware forward model, DCT decoder) is justified.
+
+### AA result
+
+`MeasureAALeak` renders 7 confusable pairs ("rn"/"m", "cl"/"d", "vv"/"w", "nn"/"m",
+"0"/"O", "8"/"B", "I"/"l") at block=6, fontSize=28 for all 9 bundled fonts, and
+compares Separability (mean per-pixel absolute luminance difference, normalised to
+[0,1]) after block-averaging under AA versus hard-edge (binarised) rendering.
+`Gain = AASep − HardSep` — positive would mean AA adds discriminability.
+
+| Font              | meanAASep | meanHardSep | meanGain |
+|-------------------|-----------|-------------|----------|
+| Liberation Sans   | 0.1450    | 0.1635      | -0.0185  |
+| Liberation Serif  | 0.1456    | 0.1672      | -0.0216  |
+| Liberation Mono   | 0.2483    | 0.2872      | -0.0389  |
+| Carlito           | 0.1203    | 0.1414      | -0.0211  |
+| Caladea           | 0.1161    | 0.1356      | -0.0195  |
+| Source Code Pro   | 0.2518    | 0.2852      | -0.0335  |
+| JetBrains Mono    | 0.2482    | 0.2822      | -0.0340  |
+| Adwaita Mono      | 0.2476    | 0.2788      | -0.0312  |
+| Noto Sans Mono    | 0.2521    | 0.2862      | -0.0341  |
+
+**Conclusion:** `meanGain` is negative for all 9 fonts (range −0.0185 to −0.0389).
+Anti-aliasing softens glyph edges: the fractional coverage values that AA introduces
+are smoothed away by the block average, making AA-rendered confusable pairs *more*
+similar after mosaicing than hard-edge pairs. In other words, AA carries no exploitable
+sub-pixel discrimination signal post-mosaic — if anything, hard-edge renders are
+more separable. Three individual pairs showed a marginally positive gain
+(Liberation Mono 0/O: +0.0012; Source Code Pro 8/B: +0.0027; JetBrains Mono 8/B:
++0.0004; JetBrains Mono I/l: +0.0030; Adwaita Mono 0/O: +0.0000; Noto Sans Mono
+8/B: +0.0020) but these are on the order of 0.001–0.003 — well below any meaningful
+threshold. No AA-aware forward model is justified.
+
+### JPEG result
+
+`MeasureJPEGImpact` renders "the" (true) and "tho" (confusable wrong), block-averages
+both, then JPEG-round-trips the true mosaic at qualities 95, 75, 50, 30, 10 and
+measures Drift (Separability between compressed and clean mosaic) plus whether the
+compressed observation still resolves to the true candidate (TrueStillWins).
+
+| Quality | Drift  | TrueStillWins |
+|---------|--------|---------------|
+| 95      | 0.0029 | true          |
+| 75      | 0.0085 | true          |
+| 50      | 0.0124 | true          |
+| 30      | 0.0196 | true          |
+| 10      | 0.0335 | true          |
+
+**Conclusion:** Drift grows monotonically as quality drops (0.003 at q=95 → 0.034 at
+q=10), confirming JPEG introduces increasing noise on the block values. However, the
+true candidate still wins at all tested quality levels — even severely compressed
+captures (q=10) remain closer to the true candidate's clean mosaic than to the
+confusable wrong candidate. JPEG is a robustness cost on the already-known block
+values, not a source of additional sub-block information. No DCT-aware decoder is
+warranted.
+
+### Multi-offset (idea 1)
+
+Already shipped: `internal/multiframe` IBP fusion (`DecodeMultiFrame`) is the only
+real super-resolution lever for block-average mosaics and is not re-measured here.
+
+### Verdict
+
+The information wall stands for block-average mosaics. Both candidate sub-block
+channels were measured and found to add nothing exploitable:
+- AA: universally negative gain across 9 fonts — AA *hurts* separability post-mosaic.
+- JPEG: small monotonically-growing robustness cost; true candidate always wins on
+  a clean confusable at any tested quality.
+
+The criterion that would have warranted building a specialised exploiter — a large
+positive AA gain (e.g. meanGain ≥ +0.05) indicating that sub-pixel fractions survive
+block-averaging and discriminate confusable pairs — was not observed. Sub-project #8
+closes as a documented, quantified boundary. The existing generate-and-test engine
+already exploits the only signal a block-average mosaic provides: the block values
+themselves.
+
