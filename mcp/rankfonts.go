@@ -21,7 +21,7 @@ var toolRankFonts = &mcpsdk.Tool{
 	Description: "Ranks all bundled fonts by how well their glyph metrics match a mosaic-pixelated image. " +
 		"Use it as a fast pre-filter before a full decode to find the most likely font (top-1 or top-3), " +
 		"then pass that font name to unpixel_decode via a subsequent call with method=mosaic or method=mono-hmm. " +
-		"Requires a known_text string whose glyphs appear in the image. " +
+		"Optionally takes a known_text string; without it, ranks blind by pixelated-signature histogram. " +
 		"NOT a full decode — it does not recover the hidden text. " +
 		"Latency: fast (< 500 ms for all bundled fonts).",
 }
@@ -31,7 +31,8 @@ type rankFontsInput struct {
 	// ImagePath is the filesystem path of the pixelated image.
 	ImagePath string `json:"image_path" jsonschema:"Filesystem path to the pixelated PNG or JPEG image"`
 	// KnownText is cleartext whose glyphs are visible in the image (or a close approximation).
-	KnownText string `json:"known_text" jsonschema:"Known cleartext string whose glyphs appear in the image"`
+	// When empty, ranking falls back to blind histogram-only mode (no glyph fingerprint).
+	KnownText string `json:"known_text,omitzero" jsonschema:"Known cleartext whose glyphs appear in the image; omit for blind histogram ranking"`
 }
 
 // FontRankEntry is one ranked result in RankFontsReport.
@@ -52,13 +53,25 @@ type RankFontsReport struct {
 
 // RankFonts scores every bundled font against img using glyph-metric
 // fingerprinting and histogram comparison, returning them ranked best-first.
-// knownText must contain glyphs that appear in the image. It is the testable
-// core of the unpixel_rank_fonts MCP tool.
+// When knownText is empty, ranking uses histogram-only blind mode (no glyph
+// fingerprint). It is the testable core of the unpixel_rank_fonts MCP tool.
 func RankFonts(ctx context.Context, img image.Image, knownText string) (RankFontsReport, error) {
-	if knownText == "" {
-		return RankFontsReport{}, fmt.Errorf("unpixel_rank_fonts: known_text must not be empty")
+	all := fonts.All()
+	named := make([]fontrank.NamedFont, len(all))
+	for i, f := range all {
+		named[i] = fontrank.NamedFont{Name: f.Name, Data: f.Data}
 	}
 
+	// Blind mode: no known text → histogram-only ranking (no glyph fingerprint).
+	if knownText == "" {
+		histScores, err := fontrank.RankFonts(ctx, img, named)
+		if err != nil {
+			return RankFontsReport{}, fmt.Errorf("unpixel_rank_fonts: rank fonts: %w", err)
+		}
+		return reportFromScores(histScores), nil
+	}
+
+	// Known-text mode: blend histogram + glyph-metric fingerprint.
 	r, err := render.NewXImage()
 	if err != nil {
 		return RankFontsReport{}, fmt.Errorf("unpixel_rank_fonts: build renderer: %w", err)
@@ -72,11 +85,6 @@ func RankFonts(ctx context.Context, img image.Image, knownText string) (RankFont
 		return RankFontsReport{}, fmt.Errorf("unpixel_rank_fonts: fingerprint: %w", err)
 	}
 
-	all := fonts.All()
-	named := make([]fontrank.NamedFont, len(all))
-	for i, f := range all {
-		named[i] = fontrank.NamedFont{Name: f.Name, Data: f.Data}
-	}
 	histScores, err := fontrank.RankFonts(ctx, img, named)
 	if err != nil {
 		return RankFontsReport{}, fmt.Errorf("unpixel_rank_fonts: rank fonts: %w", err)
@@ -88,19 +96,29 @@ func RankFonts(ctx context.Context, img image.Image, knownText string) (RankFont
 		fpDist[e.Name] = e.Dist
 	}
 
-	ranked := make([]FontRankEntry, len(histScores))
+	blended := make([]fontrank.FontScore, len(histScores))
 	for i, hs := range histScores {
 		score := hs.Score
 		if fpScore, ok := fpDist[hs.Name]; ok {
 			score = (hs.Score + fpScore) / 2
 		}
-		ranked[i] = FontRankEntry{Font: hs.Name, Score: score}
+		blended[i] = fontrank.FontScore{Name: hs.Name, Score: score}
+	}
+	return reportFromScores(blended), nil
+}
+
+// reportFromScores converts a slice of FontScore into a RankFontsReport, setting
+// Best to the first entry's font name (which is already ranked best-first).
+func reportFromScores(scores []fontrank.FontScore) RankFontsReport {
+	ranked := make([]FontRankEntry, len(scores))
+	for i, s := range scores {
+		ranked[i] = FontRankEntry{Font: s.Name, Score: s.Score}
 	}
 	best := ""
 	if len(ranked) > 0 {
 		best = ranked[0].Font
 	}
-	return RankFontsReport{Ranked: ranked, Best: best}, nil
+	return RankFontsReport{Ranked: ranked, Best: best}
 }
 
 // handleRankFonts is the tool handler for unpixel_rank_fonts.
