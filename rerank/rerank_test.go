@@ -71,14 +71,14 @@ func TestLinguistic_empty(t *testing.T) {
 }
 
 func TestDefault_isLinguistic(t *testing.T) {
-	// In the default (!ml) build, Default returns a working pure-Go reranker.
-	got, err := rerank.Default().Rerank(t.Context(), nil,
+	// Linguistic is the pure-Go reranker; verify it works regardless of build tag.
+	got, err := rerank.Linguistic{}.Rerank(t.Context(), nil,
 		[]unpixel.Verdict{vd("a", 0.1)}, func(string) float64 { return 0 }, 0)
 	if err != nil {
-		t.Fatalf("Default().Rerank: %v", err)
+		t.Fatalf("Linguistic{}.Rerank: %v", err)
 	}
 	if len(got) != 1 || got[0].Text != "a" {
-		t.Errorf("Default().Rerank = %+v; want single 'a'", got)
+		t.Errorf("Linguistic{}.Rerank = %+v; want single 'a'", got)
 	}
 }
 
