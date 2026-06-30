@@ -1365,3 +1365,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `1beb4a3` 2026-06-30 — feat(campaign): MCP decode campaign harness + measured lessons _(3 fichiers)_
 - `d07d034` 2026-06-30 — docs(plan): wall-breakers v0.18 spec + implementation plan _(2 fichiers)_
 - `ddd4916` 2026-06-30 — feat(multiframe): add DiscoverPhases for automatic grid-phase detection _(4 fichiers)_
+- `c457210` 2026-06-30 — feat(multiframe): add DiscoverPhases for automatic grid-phase detection _(4 fichiers)_
