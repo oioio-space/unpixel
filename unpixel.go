@@ -195,6 +195,14 @@ type Config struct {
 	// result, so it is opt-in.
 	FontPriorTopK int
 
+	// RerankWeight, when > 0, enables the post-search re-rank stage in the rerank
+	// package: candidate ordering blends physical Verify distance with a language
+	// score (blended = distance − RerankWeight·(lmScore − bestLM)). 0 (default)
+	// means physical order only. It is inert in the core search (Recover/Verify/
+	// RankFinal ignore it); only rerank.Rerank reads it. A conservative starting
+	// value is ~0.05–0.1; too high lets the language model override correct physics.
+	RerankWeight float64
+
 	// normalize, when non-nil, enables input normalisation before blur recovery.
 	// Set via WithNormalize; never set directly (unexported so external struct
 	// literals cannot accidentally include it, keeping the zero Config clean).
@@ -1957,6 +1965,13 @@ func WithFontPriorTopK(k int) Option {
 		c.FontPrior = true // honour the "implies the font prior" contract
 	}
 }
+
+// WithRerankWeight sets Config.RerankWeight, the weight the rerank package uses
+// to blend a candidate's language score into its physical distance when
+// re-ordering the top-K. 0 (default) leaves candidates in physical-distance
+// order. Higher values let a strong language preference override a small physical
+// distance gap; keep it small (~0.05–0.1). See [github.com/oioio-space/unpixel/rerank.Rerank].
+func WithRerankWeight(w float64) Option { return func(c *Config) { c.RerankWeight = w } }
 
 // WithAuto enables the full zero-config real-world recovery path in one call:
 // it combines [WithAutoCrop], [WithAutoColorspace], [WithAutoBlur], and
