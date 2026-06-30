@@ -3,6 +3,10 @@ package infoleak
 import (
 	"image"
 	"testing"
+
+	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/fonts"
+	"github.com/oioio-space/unpixel/internal/render"
 )
 
 // solid returns a w×h RGBA filled with the given gray level.
@@ -77,4 +81,34 @@ func TestBinarizeHardEdge_twoLevels(t *testing.T) {
 func imLum(img *image.RGBA, x, y int) int {
 	o := img.PixOffset(x, y)
 	return (299*int(img.Pix[o]) + 587*int(img.Pix[o+1]) + 114*int(img.Pix[o+2])) / 1000
+}
+
+func testRenderer(t *testing.T) unpixel.Renderer {
+	t.Helper()
+	r, err := render.NewXImageFromFonts(fonts.All()[0].Data, nil) // Liberation Sans
+	if err != nil {
+		t.Fatalf("renderer: %v", err)
+	}
+	return r
+}
+
+func TestMeasureAALeak_runsAndAggregates(t *testing.T) {
+	r := testRenderer(t)
+	rep, err := MeasureAALeak(r, "Liberation Sans", [][2]string{{"rn", "m"}, {"0", "O"}}, 6, 28)
+	if err != nil {
+		t.Fatalf("MeasureAALeak: %v", err)
+	}
+	if len(rep.Pairs) != 2 {
+		t.Fatalf("pairs = %d; want 2", len(rep.Pairs))
+	}
+	// Aggregates are the means of the per-pair values.
+	if rep.MeanGain != (rep.Pairs[0].Gain+rep.Pairs[1].Gain)/2 {
+		t.Errorf("MeanGain %v != mean of pair gains", rep.MeanGain)
+	}
+	// Separabilities are in [0,1].
+	for _, p := range rep.Pairs {
+		if p.AASep < 0 || p.AASep > 1 || p.HardSep < 0 || p.HardSep > 1 {
+			t.Errorf("pair %q/%q separabilities out of [0,1]: %+v", p.A, p.B, p)
+		}
+	}
 }

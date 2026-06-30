@@ -12,7 +12,9 @@ import (
 	"image"
 	"image/jpeg"
 
+	unpixel "github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/pixelate"
 )
 
 // Separability is the mean per-pixel absolute luminance difference between a and
@@ -56,6 +58,57 @@ func JPEGRoundTrip(img *image.RGBA, quality int) (*image.RGBA, error) {
 		return nil, err
 	}
 	return imutil.ToRGBA(decoded), nil
+}
+
+// PairResult is the separability of one confusable pair under AA vs hard-edge
+// rendering. Gain = AASep − HardSep is how much sub-pixel anti-aliasing adds to
+// the pair's distinguishability after block-averaging.
+type PairResult struct {
+	A, B                 string
+	AASep, HardSep, Gain float64
+}
+
+// AAReport aggregates MeasureAALeak over a set of confusable pairs for one font.
+type AAReport struct {
+	Font                             string
+	Pairs                            []PairResult
+	MeanAASep, MeanHardSep, MeanGain float64
+}
+
+// MeasureAALeak renders each confusable pair with renderer r at fontSize,
+// block-averages at block, and reports the pair's separability under
+// anti-aliased rendering (AASep) versus a hard-edge (binarised) render
+// (HardSep). A positive mean Gain means anti-aliasing leaves more sub-pixel
+// signal in the mosaic that distinguishes the pair. It returns an error if
+// rendering fails.
+func MeasureAALeak(r unpixel.Renderer, fontName string, pairs [][2]string, block int, fontSize float64) (AAReport, error) {
+	pix := pixelate.NewBlockAverage(block)
+	rep := AAReport{Font: fontName, Pairs: make([]PairResult, 0, len(pairs))}
+	var sumAA, sumHard, sumGain float64
+	for _, p := range pairs {
+		aImg, _, err := r.Render(p[0], unpixel.Style{FontSize: fontSize})
+		if err != nil {
+			return AAReport{}, err
+		}
+		bImg, _, err := r.Render(p[1], unpixel.Style{FontSize: fontSize})
+		if err != nil {
+			return AAReport{}, err
+		}
+		aaSep := Separability(pix.Pixelate(aImg, 0, 0), pix.Pixelate(bImg, 0, 0))
+		hardSep := Separability(
+			pix.Pixelate(binarizeHardEdge(aImg, 128), 0, 0),
+			pix.Pixelate(binarizeHardEdge(bImg, 128), 0, 0),
+		)
+		pr := PairResult{A: p[0], B: p[1], AASep: aaSep, HardSep: hardSep, Gain: aaSep - hardSep}
+		rep.Pairs = append(rep.Pairs, pr)
+		sumAA += aaSep
+		sumHard += hardSep
+		sumGain += pr.Gain
+	}
+	if n := float64(len(pairs)); n > 0 {
+		rep.MeanAASep, rep.MeanHardSep, rep.MeanGain = sumAA/n, sumHard/n, sumGain/n
+	}
+	return rep, nil
 }
 
 // binarizeHardEdge thresholds an anti-aliased render to two luminance levels —
