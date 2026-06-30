@@ -182,6 +182,7 @@ func TestSummariseCorporaSignals(t *testing.T) {
 			}
 			if cs == nil {
 				t.Fatal("summariseCorpora: no summary for corpus \"fix\"")
+				return // unreachable after Fatal; satisfies staticcheck SA5011
 			}
 
 			if got, want := cs.BestOK, tc.wantBestOK; got != want {

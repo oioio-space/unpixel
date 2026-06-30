@@ -201,6 +201,7 @@ func TestContextCorpus_CrossImageCalibration(t *testing.T) {
 	}
 	if crossSpec == nil {
 		t.Skip("no cross-image (font_sample) fixture in manifest — regenerate corpus")
+		return // unreachable after Skip; satisfies staticcheck SA5011
 	}
 	t.Logf("cross-image fixture %q (wght=%.0f, sample=%q, secret=%q)",
 		crossSpec.Name, crossSpec.VarWght, crossSpec.FontSample.SampleText, crossSpec.Secret)
@@ -330,6 +331,7 @@ func TestContextCorpus_CalibrateFromVisible(t *testing.T) {
 	}
 	if vfSpec == nil {
 		t.Skip("no var_font fixture in manifest")
+		return // unreachable after Skip; satisfies staticcheck SA5011
 	}
 	t.Logf("calibrating on fixture %q (wght=%.0f, visible=%q)", vfSpec.Name, vfSpec.VarWght, vfSpec.VisibleText)
 
