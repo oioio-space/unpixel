@@ -69,10 +69,14 @@ func nelderMead(
 		copy(v[i], start)
 	}
 	for i := range n {
-		perturbed := clampAxis(start[i]+initStep, specs[i].Min, specs[i].Max)
-		if perturbed == start[i] {
+		// si and mi are hoisted to give gosec a single indexed access per
+		// variable rather than three; i < n == len(specs) == len(start).
+		si := start[i] // #nosec G602 -- i < n == len(start); caller-guaranteed
+		mi := specs[i] // #nosec G602 -- i < n == len(specs); caller-guaranteed
+		perturbed := clampAxis(si+initStep, mi.Min, mi.Max)
+		if perturbed == si {
 			// At max boundary — try perturbing down instead.
-			perturbed = clampAxis(start[i]-initStep, specs[i].Min, specs[i].Max)
+			perturbed = clampAxis(si-initStep, mi.Min, mi.Max)
 		}
 		v[i+1][i] = perturbed
 	}

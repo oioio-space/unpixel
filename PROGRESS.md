@@ -1370,3 +1370,5 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `9f635e1` 2026-06-30 — test(multiframe): genuine sharp-source fixtures + mfmeasure observational gate _(17 fichiers)_
 - `67911bd` 2026-06-30 — docs(design): multi-frame generate-and-test scoring (replaces fuse-then-decode) _(1 fichiers)_
 - `850d981` 2026-06-30 — feat(mosaictext): multi-frame generate-and-test scoring via decodeFrames _(7 fichiers)_
+- `843fc3d` 2026-06-30 — fix(mosaictext): normalize multi-frame phase deltas to non-negative _(3 fichiers)_
+- `07625c8` 2026-06-30 — feat(cli,mcp): wire DecodeMultiFrameAuto into --frame and multi-frame MCP path _(4 fichiers)_
