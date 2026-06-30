@@ -73,7 +73,7 @@ func TestVerifyCandidates_noMatch(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 	// "xy" and "ab" are both wrong for "go" — neither should match.
-	rep, err := mcp.VerifyCandidates(t.Context(), img, []string{"xy", "ab"}, 8, "abcdefghijklmnopqrstuvwxyz ")
+	rep, err := mcp.VerifyCandidates(t.Context(), img, []string{"xy", "ab"}, 8, "abcdefghijklmnopqrstuvwxyz ", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}

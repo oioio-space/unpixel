@@ -14,7 +14,7 @@ func TestVerifyCandidates_decisivePick(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	rep, err := mcp.VerifyCandidates(t.Context(), img, []string{"go", "ab", "xy"}, 8, "go abcde")
+	rep, err := mcp.VerifyCandidates(t.Context(), img, []string{"go", "ab", "xy"}, 8, "go abcde", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}

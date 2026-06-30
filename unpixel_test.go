@@ -66,3 +66,11 @@ func TestEventKind_consts(t *testing.T) {
 		t.Errorf("EventDone = %d, want 3", unpixel.EventDone)
 	}
 }
+
+func TestWithRerankWeight(t *testing.T) {
+	var c unpixel.Config
+	unpixel.WithRerankWeight(0.1)(&c)
+	if c.RerankWeight != 0.1 {
+		t.Errorf("RerankWeight = %v; want 0.1", c.RerankWeight)
+	}
+}

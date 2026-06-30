@@ -59,8 +59,10 @@ import (
 	_ "github.com/oioio-space/unpixel/defaults" // wire standard components
 	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/rectify"
+	"github.com/oioio-space/unpixel/rerank"
 )
 
 // NewServer builds an MCP server with all UnPixel tools and resources
@@ -111,7 +113,8 @@ var toolVerify = &mcpsdk.Tool{
 		"decisive pick: the lowest-distance candidate whose distance is below " +
 		"VerifyMatchThreshold (a confident physical match). Pick is empty when no candidate " +
 		"meets the threshold. Supply charset and block_size from unpixel_propose_hints or " +
-		"unpixel_analyze to sharpen discrimination.",
+		"unpixel_analyze to sharpen discrimination. " +
+		"Set rerank_weight>0 to blend a language prior into the ranking (Pick stays a physical match).",
 }
 
 // analyzeInput is the JSON-decoded input for unpixel_analyze.
@@ -368,6 +371,11 @@ type verifyInput struct {
 	// (forwarded as WithCharset). Empty = engine default. Supplying the charset
 	// from analyze/propose_hints sharpens the decisive match.
 	Charset string `json:"charset,omitzero" jsonschema:"Charset forwarded to the scoring model to restrict the rendering alphabet (empty = default)"`
+	// RerankWeight, when > 0, re-orders the ranked candidates by blending the
+	// physical distance with a language score (English prior). 0 (default) keeps
+	// pure physical-distance order. Pick always remains the lowest-distance
+	// physical match regardless of this value.
+	RerankWeight float64 `json:"rerank_weight,omitzero" jsonschema:"Blend weight for language re-ranking of candidates (0 = physical order only; ~0.05–0.1 to enable)"`
 }
 
 // RankedCandidate is one scored entry in VerifyReport.Ranked.
@@ -388,7 +396,9 @@ type VerifyReport struct {
 	// Best is the text of the top-ranked candidate (lowest distance).
 	Best string `json:"best"`
 	// Margin is the distance gap between the 2nd-best and best candidates
-	// (0 when fewer than two candidates were provided).
+	// (0 when fewer than two candidates were provided). It may be ≤ 0 when
+	// rerank_weight > 0, because the language model can re-order candidates so
+	// ranked[0] carries a higher physical distance than ranked[1].
 	Margin float64 `json:"margin"`
 	// Pick is the lowest-distance candidate whose Match is true (a confident
 	// physical match per [unpixel.VerifyMatchThreshold]). Empty when no
@@ -407,7 +417,7 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 		return errResult(fmt.Errorf("unpixel_verify_candidates: load image: %w", err)), VerifyReport{}, nil
 	}
 
-	report, err := VerifyCandidates(ctx, img, in.Candidates, in.BlockSize, in.Charset)
+	report, err := VerifyCandidates(ctx, img, in.Candidates, in.BlockSize, in.Charset, in.RerankWeight)
 	if err != nil {
 		return errResult(fmt.Errorf("unpixel_verify_candidates: %w", err)), VerifyReport{}, nil
 	}
@@ -425,9 +435,11 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 // non-zero/non-empty, so the LLM propose→verify flow can pass the block and
 // charset discovered by unpixel_analyze / unpixel_propose_hints.
 //
-// Pick is set to the lowest-distance candidate whose [unpixel.Verdict.Match] is
-// true; it is empty when no candidate meets [unpixel.VerifyMatchThreshold].
-func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, blockSize int, charset string) (VerifyReport, error) {
+// When rerankWeight > 0, candidates are re-ordered by blending physical distance
+// with an English language prior; Best and Margin follow that fused order.
+// Pick is always the lowest-distance candidate whose [unpixel.Verdict.Match] is
+// true — a physical decision independent of any language re-ranking.
+func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, blockSize int, charset string, rerankWeight float64) (VerifyReport, error) {
 	var opts []unpixel.Option
 	if blockSize > 0 {
 		opts = append(opts, unpixel.WithBlockSize(blockSize))
@@ -442,12 +454,24 @@ func VerifyCandidates(ctx context.Context, img image.Image, candidates []string,
 	}
 
 	ranked := make([]RankedCandidate, len(verdicts))
-	for i, v := range verdicts {
-		ranked[i] = RankedCandidate{Text: v.Text, Distance: v.Distance, Match: v.Match}
+	if rerankWeight > 0 {
+		// Fused order: blend physical distance with the English language prior.
+		rr, rerr := rerank.Default().Rerank(ctx, img, verdicts, lang.PriorFor(lang.English), rerankWeight)
+		if rerr != nil {
+			return VerifyReport{}, fmt.Errorf("rerank candidates: %w", rerr)
+		}
+		for i, r := range rr {
+			ranked[i] = RankedCandidate{Text: r.Text, Distance: r.Distance, Match: r.Distance < unpixel.VerifyMatchThreshold}
+		}
+	} else {
+		// Physical order (unchanged behaviour).
+		for i, v := range verdicts {
+			ranked[i] = RankedCandidate{Text: v.Text, Distance: v.Distance, Match: v.Match}
+		}
+		slices.SortFunc(ranked, func(a, b RankedCandidate) int {
+			return cmp.Compare(a.Distance, b.Distance)
+		})
 	}
-	slices.SortFunc(ranked, func(a, b RankedCandidate) int {
-		return cmp.Compare(a.Distance, b.Distance)
-	})
 
 	report := VerifyReport{Ranked: ranked}
 	if len(ranked) > 0 {
@@ -456,14 +480,24 @@ func VerifyCandidates(ctx context.Context, img image.Image, candidates []string,
 	if len(ranked) >= 2 {
 		report.Margin = ranked[1].Distance - ranked[0].Distance
 	}
-	// Pick: lowest-distance candidate with a confident physical match.
-	for _, rc := range ranked {
-		if rc.Match {
-			report.Pick = rc.Text
-			break
+	// Pick: lowest-distance candidate with a confident physical match — always a
+	// physical decision, independent of any language re-ranking.
+	report.Pick = lowestDistanceMatch(verdicts)
+	return report, nil
+}
+
+// lowestDistanceMatch returns the Text of the verdict with the smallest Distance
+// among those whose Match is true, or "" when none match.
+func lowestDistanceMatch(verdicts []unpixel.Verdict) string {
+	best := ""
+	bestDist := 0.0
+	for _, v := range verdicts {
+		if v.Match && (best == "" || v.Distance < bestDist) {
+			best = v.Text
+			bestDist = v.Distance
 		}
 	}
-	return report, nil
+	return best
 }
 
 // ---- helpers ----
