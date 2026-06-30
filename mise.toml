@@ -241,6 +241,10 @@ run = "./scripts/gotest-caged.sh go test -tags journal -run TestJournal -v -time
 description = "Information-leak feasibility study (#8): AA / JPEG / multi-offset measurement, memory-caged"
 run = "./scripts/gotest-caged.sh go test -tags infoleak -run InfoLeak -v ./internal/infoleak/"
 
+[tasks.campaign]
+description = "MCP decode campaign: exercise the opt-in features (#4 font-prior, #5 rerank, #6 expected_format, engine best-config) over testdata and derive lessons, memory-caged"
+run = "./scripts/gotest-caged.sh go test -tags mcpcampaign -run Campaign -v -timeout 30m ./mcp/"
+
 [tasks."trend:check"]
 description = "Compare the two most recent docs/JOURNAL.md évolution rows; fail on any per-corpus exact/≥70% regression across the full testdata set (warn on mean drop). Runs automatically after `journal`; STRICT=1 also fails on a mean drop > MEAN_DROP_PP."
 run = "./scripts/journal-trend-check.sh"

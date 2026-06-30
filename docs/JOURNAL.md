@@ -1996,3 +1996,52 @@ closes as a documented, quantified boundary. The existing generate-and-test engi
 already exploits the only signal a block-average mosaic provides: the block values
 themselves.
 
+## Decode campaign — opt-in feature impact via MCP (2026-06-30)
+
+Exercised the #1–#8 opt-in features over representative testdata through the MCP
+decode cores (`mcp/campaign_test.go`, `mise run campaign`), each image treated as
+the LLM propose→verify loop would. Measured findings & lessons:
+
+**D. The engine method closes the prior "MCP can't reach best-config" gap.** The
+earlier campaign capped fixtures at 6/17 because it drove `auto`/`mosaic`. With
+`Decode(method=engine, charset_preset=…)` the hard fixtures recover: Go2 (alnum),
+hello/admin (lower), 1234 (digits) all exact — **4/5**; only `azerty` came back
+`azert` (5/6 chars) under auto block/font, which the manifest's `block_size`/
+`font_size` would close. Lesson: the 6/17 cap was an interface-usage gap, not a
+capability one — route hard fixtures to `engine` + `charset_preset` (+ block/font
+when known), never `auto`/`mosaic`.
+
+**A. `rerank_weight` (#5) is double-edged on attacker-dict confusables.**
+`verify_candidates` Best over [truth + plausible distractors]:
+
+| fixture | gt | physics best (w=0) | rerank best (w≥0.1) | verdict |
+|---------|----|--------------------|--------------------|---------|
+| secret_admin   | admin  | secret | **admin** | FIXED |
+| secret_pin1234 | 1234   | 1111   | **1234**  | FIXED |
+| secret_azerty  | azerty | secret | secret/access | still wrong (truth less plausible to the LM) |
+| text_hello     | hello  | **hello** | house  | BROKEN (distractor a more common word) |
+| text_cat       | cat    | cat    | cat       | already correct |
+
+Rerank promotes the truth when it is linguistically plausible and physics is
+near-tied, but **demotes a correct physics pick when a distractor is a more common
+word**. Throughout, `Pick` stayed empty (no candidate met τ=0.10), vindicating
+#5's "Pick stays physical": treat the fused `Best` as advisory, decide on `Pick`,
+keep the weight small (~0.05–0.1).
+
+**B. `expected_format=digits` (#6) does not rescue long digit strings.** The sick
+digit images (7–10 digits) collapse to a 1–2 digit guess with OR without
+`expected_format=digits` — the bottleneck is the per-position search/scoring length
+wall, not the charset. `expected_format`'s value is short KNOWN-LENGTH checksummed
+secrets (cards: Luhn last-position), not free long digit runs.
+
+**C. `font_prior` (#4) cannot help non-bundled real fonts.** The real images stay
+garbage with or without `font_prior_top_k=3`; the prior orders the 9 bundled fonts
+and the real fonts are not among them (the documented #4 limit).
+
+**Net.** The opt-in features sharpen specific regimes — engine+charset for hard
+fixtures (a real recovery gain), rerank for plausible-distractor ranking — but do
+not move the needle on the hard real/sick corpora, consistent with the measured
+information wall (§#8). Recorded follow-up: rerank can break a correct physics
+result, so a future safer default could bound the LM's influence to a
+physical-distance tie-break band rather than an unbounded weight.
+
