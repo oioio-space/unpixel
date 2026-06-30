@@ -1361,3 +1361,7 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `0076fe2` 2026-06-30 — feat(mcp): unpixel_verify_image — physics-gate a restored image _(3 fichiers)_
 - `10ba766` 2026-06-30 — docs(sidecar): external-restorer protocol + VerifyImage identity test _(2 fichiers)_
 - `d32f2fc` 2026-06-30 — fix(defaults): align reMosaic to redacted bounds in verifyImageCore (close C1 false-accept) _(2 fichiers)_
+- `d54ed50` 2026-06-30 — docs(journal): second run @e5a09b1 — recovery is deterministic _(1 fichiers)_
+- `1beb4a3` 2026-06-30 — feat(campaign): MCP decode campaign harness + measured lessons _(3 fichiers)_
+- `d07d034` 2026-06-30 — docs(plan): wall-breakers v0.18 spec + implementation plan _(2 fichiers)_
+- `ddd4916` 2026-06-30 — feat(multiframe): add DiscoverPhases for automatic grid-phase detection _(4 fichiers)_
