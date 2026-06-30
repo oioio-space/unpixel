@@ -136,6 +136,7 @@ See [decoders](../concepts/decoders.md) for when to use which.
 | `mosaictext.DecodeWindowHMM(ctx, img, ...WHMMOption)` | `window-hmm` — proportional-font grid-window beam |
 | `mosaictext.DecodeTrainedHMM(ctx, img, ...THMMOption)` | `trained-hmm` — learned-emission Viterbi (constrained alphabets) |
 | `mosaictext.DecodeDID(ctx, img, ...DIDOption)` | `did` — boundary-free DP trellis |
+| `mosaictext.DecodeMultiFrameAuto(ctx, imgs []image.Image, ...Option) (Result, error)` | multi-frame auto-phase — decodes from several phase-diverse mosaics of the same content; auto-detects per-frame grid phase and scores each candidate against all frames |
 | `mosaictext.DecodeVarFont(ctx, img, ...VarFontOption) (VarFontResult, error)` | `varfont` — variable-font axis fitting + calibration |
 | `mosaictext.DecodePerspective(ctx, img, ...PerspectiveOption) (PerspectiveResult, error)` | perspective — forward-model beam decode of an angled photo; `WithPerspectiveQuad` corners or `WithPerspectiveAutoQuad` |
 
@@ -175,6 +176,39 @@ FR/US/E164, digits) and drops complete-but-invalid candidates. Strictly opt-in
 (`FormatNone`/unset is byte-identical). Because the `Format` enum lives in
 `internal/secrets`, external callers reach it through the **MCP** `unpixel_decode`
 `expected_format` field rather than the Go option directly.
+
+## Variable-font geometry calibration (`varfont`)
+
+Recover exact font size and horizontal stretch from a sharp visible region before decoding:
+
+```go
+import "github.com/oioio-space/unpixel/mosaictext"
+
+// Calibrate from visible text and region
+result, _ := mosaictext.DecodeVarFont(ctx, redactedImg,
+	mosaictext.WithVarFontCalibrateGeometry(),
+	mosaictext.WithVarFontVisibleText("Sample"),
+	mosaictext.WithVarFontVisibleRegion(image.Rect(10, 10, 100, 40)),
+)
+
+// Or use a separate font sample
+result, _ := mosaictext.DecodeVarFont(ctx, redactedImg,
+	mosaictext.WithVarFontCalibrateGeometry(),
+	mosaictext.WithVarFontSampleImage(sampleImg),
+	mosaictext.WithVarFontSampleText("The quick brown fox"),
+)
+```
+
+| Symbol | Purpose |
+|--------|---------|
+| `mosaictext.WithVarFontCalibrateGeometry()` | Enable geometry calibration (font size + x-stretch) from visible text |
+| `mosaictext.WithVarFontVisibleText(string)` | Visible text for calibration |
+| `mosaictext.WithVarFontVisibleRegion(image.Rectangle)` | Bounding box of visible text |
+| `mosaictext.WithVarFontSampleImage(image.Image)` | Font sample image (alternative to visible region) |
+| `mosaictext.WithVarFontSampleText(string)` | Text content in the sample image |
+| `varfont.CalibrateGeometry(cfg GeometryConfig) (GeometryResult, error)` | Low-level geometry optimizer; returns `{FontSizePx, XStretch, Distance}` |
+
+**Caveat:** geometry calibration requires an ink-tight visible crop with sufficient text width. Large white margins or very short text degrade the fit; aim for ≥20–30 pixels of rendered text width.
 
 ## See also
 

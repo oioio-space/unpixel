@@ -5,6 +5,8 @@ guess prints to **stdout** (so it pipes cleanly); the ranked table and live prog
 to **stderr**. `--format json` emits a stable schema (`best_guess`, `confidence`,
 `total_score`, `top`, and a ranked `fonts` array when sweeping).
 
+Multi-frame decoding auto-detects the grid phase of each frame (luma-variance grid-phase detection) when frame offsets are not supplied.
+
 Run `unpixel --help` for the authoritative, version-specific list.
 
 ## Examples
@@ -62,6 +64,10 @@ unpixel --l0-deblur image.png                                            # non-b
 unpixel --decoder varfont --varfont-axes "wght:200:900:500" image.png    # sweep weight axis
 unpixel --thmm-lang en --thmm-jpeg 85 image.png                          # trained-HMM + JPEG aug
 
+# Geometry calibration (font size + x-stretch from visible text)
+unpixel --calibrate-geometry --visible-text "Example" --visible-region "10,10,100,40" redacted.png
+unpixel --calibrate-geometry --font-sample sample.png --font-sample-text "Sample" redacted.png
+
 # Re-mosaic error correction (Hill–Zhou–Saul–Shacham, PETS-2016 §4)
 unpixel --remosaic --redaction blur blurred.png
 unpixel --remosaic-grid 4 --redaction blur image.png                     # pin the remosaic grid
@@ -92,6 +98,7 @@ unpixel --remosaic-linear --redaction blur gimp-output.png               # linea
 | `--varfont-text` | — | Known text for variable-font calibration mode (bypasses blind search) |
 | `--varfont-axes` | — | Variable-font axis bounds, e.g. `wght:200:900:500` (axis:min:max:step) |
 | `--varfont-linear` | off | Use linear-light rendering for variable-font fitting |
+| `--calibrate-geometry` | off | Recover exact font size and horizontal x-stretch from visible text (requires `--visible-text` + `--visible-region`, or `--font-sample` + `--font-sample-text`) |
 | `--thmm-lang` | off | Language-structure training for trained-HMM (`en` or `fr`) |
 | `--thmm-jpeg` | `0` | JPEG quality augmentation for trained-HMM emissions (e.g. `85`) |
 | `--remosaic` | off | Hill–Zhou–Saul–Shacham PETS-2016 §4 composite blur→remosaic error correction |

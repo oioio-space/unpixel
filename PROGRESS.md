@@ -137,6 +137,16 @@ et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (
   plutôt que la mémoire (directive complète 1×/session puis nudge). Politique : `CLAUDE.md`.
 - Tracking commits : ce fichier + hook `.githooks/post-commit`
 
+### 🧱 Programme « wall-breakers v0.18 » — multi-frame automatique + calibrage géométrique (2026-06-30)
+
+Deux nouvelles capacités opt-in délivrées, toutes deux visant des cas réels/multi-capture sans configu manuelle :
+
+**(A) Décodage multi-frame automatique.** Paquet `mosaictext` + CLI/MCP `--frame a.png --frame b.png …` (répétable) remplacent le « fuse-then-decode » par generate-and-test scorant chaque candidat contre **tous** les frames (découverte automatique de phase par frame, sans l'appelant). `mosaictext.DecodeMultiFrameAuto(ctx, imgs []image.Image, opts...)` : auto-détecte les phases grille par luma-variance (DiscoverPhases) et évalue chaque candidat sur la fusion, gardant le meilleur. MCP `unpixel_decode` `method: multi-frame` accepte `frame_offsets: [0, 0, 0]` → auto-détection quand tous 0. **Caveat honnête** : le gain est modeste sur les mosaïques synthétiques à frame unique ; la vraie valeur est sur les redactions multi-captures/vidéo (jitter sub-pixel) où la fusion de plusieurs phases améliore le signal par-bloc. Panel 17/17 byte-identical (single-frame == plain Decode).
+
+**(B) Calibrage géométrique.** API `mosaictext.WithVarFontCalibrateGeometry()` + `varfont.CalibrateGeometry(cfg) (GeometryResult{FontSizePx, XStretch, Distance}, error)` ; optimiseur Nelder-Mead sans-gradient sur la région visible pour retrouver les **paramètres exacts de rendu** (taille police + x-stretch) avant le décodage de la redaction. CLI `--calibrate-geometry` usable avec `--visible-text + --visible-region` ou `--font-sample + --font-sample-text`. Améliore la fidélité du modèle direct quand il y a du texte clair. **Caveat honnête** : cas nécessitant une region visible bien serrée et assez large (~20–30 px de texte), sans marges blanches massives (sinon l'optimiseur ne converge pas bien) — dégrade le fit si la région est bruitée ou minuscule. Mesuré sur synthétique : distance −7 % (régression) sur mismatch géométrie extrême (font 28 vs 32 px) ; sur cas juste distance ≈0. Pas activé par défaut ; opt-in strict. Panel 17/17 byte-identical.
+
+**Nouveau testdata** : `testdata/multiframe/` (frames jitterées), `testdata/geometry/` (régions visibles + redactions), `testdata/largeblock/` (blocs larges bénéficiant du multi-frame). Tâches : `mise run mfmeasure` (multi-frame), `mise run didmeasure` (DID context-aware), `mise run bench:panel` (panel 17/17 inchangé, qualité mesurée). **Décisions** : (1) DID trellis complet ne casse **pas** le mur long-digit (not built ; dérisé futur) ; (2) ML deferred behind `//go:build ml` (pas de training/poids) ; (3) chemin par défaut byte-identical, tous les deux opt-in. CI verte, couverture ≥85 %.
+
 ### 📉 Analyse de tendance du journal (v0.10.0 → v0.16.0, 2026-06-26)
 
 Lecture de toute la table `## Évolution` de `docs/JOURNAL.md` (pas seulement le panel
@@ -1376,3 +1386,6 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `410f801` 2026-06-30 — feat(varfont): wire geometry calibration into visible-calibration decode path _(4 fichiers)_
 - `b9badf5` 2026-06-30 — chore(tracking): record quality panel + progress after geometry-calibration feat _(3 fichiers)_
 - `c66bd16` 2026-06-30 — test(mosaictext): observational DID-vs-engine measurement on digit fixtures _(3 fichiers)_
+- `b6cb518` 2026-06-30 — feat(fixture): add geometry-calibration and large-block committed testdata _(20 fichiers)_
+- `db90f0b` 2026-06-30 — test(mosaictext): make multi-frame single-frame-equivalence test cheap _(1 fichiers)_
+- `5fb175a` 2026-06-30 — docs(journal): wall-breakers v0.18 analysis — multi-frame scoring, geometry, digit probe _(1 fichiers)_

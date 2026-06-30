@@ -74,7 +74,7 @@ unpixel --redaction blur redacted.png
 unpixel --decoder ensemble redacted.png
 ```
 
-**5. Multi-frame decode** — combine sub-pixel-jittered frames of the same redaction:
+**5. Multi-frame decode** — combine sub-pixel-jittered frames of the same redaction. When frame offsets are unknown, they are auto-detected per-frame (luma-variance grid-phase detection):
 
 ```bash
 unpixel --frame frame1.png --frame frame2.png --frame frame3.png redacted.png
@@ -144,6 +144,7 @@ unpixel --prefix "admin" --visible-region redacted.png  # known prefix + calibra
 
 ```bash
 unpixel --visible-text "Username:" --visible-region "50,50,150,70" redacted.png  # text + bbox
+unpixel --calibrate-geometry --visible-text "Login" --visible-region "10,10,80,30" redacted.png  # recover font size + x-stretch
 ```
 
 **Calibration from a separate font sample** (when a clean sample of the target font exists elsewhere):
@@ -151,6 +152,14 @@ unpixel --visible-text "Username:" --visible-region "50,50,150,70" redacted.png 
 ```bash
 unpixel --font-sample sample.png --font-sample-text "The quick brown fox" redacted.png
 ```
+
+**Geometry calibration** (recover exact font size and horizontal stretch before decoding):
+
+```bash
+unpixel --calibrate-geometry --visible-text "Sample text" --visible-region "x,y,w,h" redacted.png  # requires a sharp visible crop with enough text
+```
+
+*Caveat:* `--calibrate-geometry` needs an ink-tight visible crop with sufficient text width (large white margins or very short text degrade the fit).
 
 In Go, pass options to `unpixel.Recover`:
 
@@ -177,7 +186,7 @@ unpixel-mcp   # speaks MCP over stdio; point your MCP client at it
 ```
 
 Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` (13 methods
-behind one `method` enum; async for long runs), `unpixel_verify_candidates` (LLM proposes
+behind one `method` enum; async for long runs; `multi-frame` auto-detects per-frame phase when offsets are 0), `unpixel_verify_candidates` (LLM proposes
 strings, UnPixel scores them by physical re-pixelation; now accepts optional `rerank_weight` to blend
 a language prior into candidate ranking, with 0 = physical order and `Pick` staying a pure physical match),
 `unpixel_verify_image` (physics-verifies a restored image against a redaction by re-applying the forward
