@@ -1297,3 +1297,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `b378bce` 2026-06-29 — test(format): t.Context + coverage buffer for secrets validators _(2 fichiers)_
 - `87256d2` 2026-06-29 — test(format): t.Context + coverage buffer for secrets validators _(2 fichiers)_
 - `bc60de9` 2026-06-29 — fix(secrets): prune dead date branches; clarify MCP expected_format scope _(3 fichiers)_
+- `f901915` 2026-06-30 — docs(spec): #4 blind font prior design (heuristic now, ML-ready seam) _(1 fichiers)_
