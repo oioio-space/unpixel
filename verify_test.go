@@ -210,7 +210,7 @@ func TestVerifyImage_nilImages(t *testing.T) {
 
 // TestVerify_unchangedAfterRefactor confirms that extracting prepareVerify did
 // not alter Verify's observable behaviour: the true text matches and a clearly
-// wrong candidate does not.
+// wrong candidate does not, and candidate text is preserved verbatim.
 func TestVerify_unchangedAfterRefactor(t *testing.T) {
 	// Build an in-memory mosaic of "the" and confirm Verify still ranks the true
 	// text below the match threshold and a wrong candidate above it.
@@ -223,10 +223,88 @@ func TestVerify_unchangedAfterRefactor(t *testing.T) {
 	if len(verdicts) != 2 {
 		t.Fatalf("verdicts len = %d; want 2", len(verdicts))
 	}
+	if verdicts[0].Text != "the" {
+		t.Errorf("verdicts[0].Text = %q; want %q", verdicts[0].Text, "the")
+	}
+	if verdicts[1].Text != "xyz" {
+		t.Errorf("verdicts[1].Text = %q; want %q", verdicts[1].Text, "xyz")
+	}
 	if !verdicts[0].Match {
 		t.Errorf("true text %q not a Match (distance %.3f)", verdicts[0].Text, verdicts[0].Distance)
 	}
 	if verdicts[1].Match {
 		t.Errorf("wrong text %q unexpectedly Match (distance %.3f)", verdicts[1].Text, verdicts[1].Distance)
+	}
+}
+
+// mosaicWordWithClean is like mosaicWord but also returns the clean (pre-mosaic)
+// image so it can be passed directly to VerifyImage. The clean image is the
+// block-padded, left-trimmed render whose re-pixelation produces exactly the
+// returned mosaic (distance ≈ 0) — a pixel-faithful fixture.
+func mosaicWordWithClean(t *testing.T, text string) (clean *image.RGBA, mosaic image.Image, block int) {
+	t.Helper()
+	r, err := render.NewXImageFromFonts(fonts.All()[0].Data, nil)
+	if err != nil {
+		t.Fatalf("renderer: %v", err)
+	}
+	style := unpixel.Style{FontSize: 32, PaddingTop: 8, PaddingLeft: 8}
+	const blk = 6
+	px := pixelate.NewBlockAverage(blk)
+
+	img, sentinelX, err := r.Render(text, style)
+	if err != nil || sentinelX <= 0 {
+		t.Fatalf("render: %v sentinelX=%d", err, sentinelX)
+	}
+
+	bm, imageCenter := imutil.BlueMargin(img)
+	if bm == 0 {
+		bm = sentinelX
+	}
+	img = imutil.Crop(img, 0, 0, bm, img.Bounds().Dy())
+	w := img.Bounds().Dx()
+	if rem := blk - (w % blk); rem < blk {
+		img = imutil.PadWhite(img, w+rem, img.Bounds().Dy())
+	}
+
+	pixelated := px.Pixelate(img, 0, 0)
+	le := imutil.LeftEdge(pixelated)
+	adjustedCenter := imageCenter - (imageCenter % blk) + 4
+	redactedH := 2 * adjustedCenter
+	m := imutil.Crop(pixelated, le, 0, pixelated.Bounds().Dx()-le, pixelated.Bounds().Dy())
+	if m.Bounds().Dy() < redactedH {
+		m = imutil.PadWhite(m, m.Bounds().Dx(), redactedH)
+	}
+
+	// Mirror the same left-trim and vertical pad on the clean image so clean and
+	// mosaic share the exact same bounds: verifyImageCore resizes restored to
+	// redacted.Bounds() before re-pixelating, so any geometry mismatch distorts
+	// the comparison and produces a falsely high distance.
+	clean = imutil.Crop(img, le, 0, img.Bounds().Dx()-le, img.Bounds().Dy())
+	if clean.Bounds().Dy() < redactedH {
+		clean = imutil.PadWhite(clean, clean.Bounds().Dx(), redactedH)
+	}
+	return clean, m, blk
+}
+
+// TestVerifyImage_isVerifyLowerHalf asserts that VerifyImage and Verify agree
+// when given the same true text: both must report Match=true for the faithful
+// clean render of the mosaic's source text.
+func TestVerifyImage_isVerifyLowerHalf(t *testing.T) {
+	clean, mosaic, block := mosaicWordWithClean(t, "the")
+
+	// VerifyImage on the true clean render and Verify on the true string should
+	// AGREE that the true text is a confident physical match.
+	vi, err := unpixel.VerifyImage(t.Context(), mosaic, clean, unpixel.WithBlockSize(block))
+	if err != nil {
+		t.Fatalf("VerifyImage: %v", err)
+	}
+	vs, err := unpixel.Verify(t.Context(), mosaic, []string{"the"},
+		unpixel.WithBlockSize(block), unpixel.WithCharset("abcdefghijklmnopqrstuvwxyz"))
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !vi.Match || !vs[0].Match {
+		t.Errorf("disagreement: VerifyImage.Match=%v (d=%.4f), Verify.Match=%v (d=%.4f)",
+			vi.Match, vi.Distance, vs[0].Match, vs[0].Distance)
 	}
 }
