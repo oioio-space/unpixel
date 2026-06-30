@@ -32,7 +32,13 @@ func TestVerifyCandidates_rerankReordersByLM(t *testing.T) {
 	if len(fused.Ranked) != 2 {
 		t.Fatalf("fused ranked len = %d; want 2", len(fused.Ranked))
 	}
-	// Pick (if any) must be a physical Match, never invented by the LM.
+	// Pick is a physical decision: it must be identical whether or not the LM
+	// re-ranks the candidates (rerank_weight must not change which candidate is
+	// the lowest-distance physical match).
+	if fused.Pick != base.Pick {
+		t.Errorf("Pick changed under rerank: weight 0 = %q, weight 0.1 = %q (Pick must stay physical)", base.Pick, fused.Pick)
+	}
+	// And when a Pick exists it must be a physical Match present in Ranked.
 	if fused.Pick != "" {
 		var matched bool
 		for _, rc := range fused.Ranked {

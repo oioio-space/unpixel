@@ -1,7 +1,6 @@
 package rerank_test
 
 import (
-	"image"
 	"testing"
 
 	"github.com/oioio-space/unpixel"
@@ -109,6 +108,3 @@ func TestLinguistic_allNegativeLMScores(t *testing.T) {
 
 // Compile-time check that Linguistic satisfies Reranker.
 var _ rerank.Reranker = rerank.Linguistic{}
-
-// Compile-time check that image.Image is accepted (nil ok for Linguistic).
-var _ image.Image = nil
