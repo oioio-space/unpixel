@@ -24,7 +24,8 @@ const (
 // fonts and prints a report. Run it with: mise run infoleak
 // (or: scripts/gotest-caged.sh go test -tags infoleak -run InfoLeak ./internal/infoleak/).
 func TestInfoLeakStudy(t *testing.T) {
-	for _, f := range fonts.All() {
+	allFonts := fonts.All()
+	for i, f := range allFonts {
 		r, err := render.NewXImageFromFonts(f.Data, nil)
 		if err != nil {
 			t.Fatalf("renderer %s: %v", f.Name, err)
@@ -46,7 +47,7 @@ func TestInfoLeakStudy(t *testing.T) {
 		}
 
 		// --- JPEG impact (one representative font is enough; do Liberation Sans only) ---
-		if f.Name == fonts.All()[0].Name {
+		if i == 0 {
 			jp, err := MeasureJPEGImpact(r, "the", "tho", studyBlock, studyFontSize, []int{95, 75, 50, 30, 10})
 			if err != nil {
 				t.Fatalf("MeasureJPEGImpact: %v", err)

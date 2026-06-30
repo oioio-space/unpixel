@@ -25,6 +25,26 @@ func TestSeparability_identicalIsZero(t *testing.T) {
 	}
 }
 
+// TestSeparability_nonZeroMin pins the PixOffset arithmetic for sub-images whose
+// Bounds().Min is non-zero — a regression guard for the ab.Min.X+x / ab.Min.Y+y
+// access pattern.
+func TestSeparability_nonZeroMin(t *testing.T) {
+	// Build a 13×13 image and take a sub-image with a non-zero origin.
+	full := solid(13, 13, 200)
+	sub := full.SubImage(image.Rect(5, 5, 13, 13)).(*image.RGBA)
+
+	// A sub-image compared to itself is identical — Separability must be 0.
+	if got := Separability(sub, sub); got != 0 {
+		t.Errorf("Separability(sub,sub) = %v; want 0", got)
+	}
+
+	// A different-valued same-size sub-image must yield positive separability.
+	other := solid(8, 8, 50) // same dims as sub (8×8), zero origin
+	if got := Separability(sub, other); got <= 0 {
+		t.Errorf("Separability(gray200-sub, gray50) = %v; want > 0", got)
+	}
+}
+
 func TestSeparability_differsIsPositive(t *testing.T) {
 	a := solid(8, 8, 0)
 	b := solid(8, 8, 255)
