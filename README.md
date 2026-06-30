@@ -180,6 +180,9 @@ Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` 
 behind one `method` enum; async for long runs), `unpixel_verify_candidates` (LLM proposes
 strings, UnPixel scores them by physical re-pixelation; now accepts optional `rerank_weight` to blend
 a language prior into candidate ranking, with 0 = physical order and `Pick` staying a pure physical match),
+`unpixel_verify_image` (physics-verifies a restored image against a redaction by re-applying the forward
+operator; anti-hallucination gate for external diffusion restorers; see library entry `unpixel.VerifyImage` and
+`docs/sidecar-protocol.md` for the restorer contract),
 `unpixel_render`, `unpixel_rank_fonts`
 (now supports blind histogram ranking without `known_text`), `unpixel_calibrate`; resources 
 `unpixel://{fonts,charsets,methods,operating-envelope}`. Custom fonts upload via 

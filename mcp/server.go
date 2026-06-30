@@ -10,6 +10,10 @@
 //     is now decisive: each candidate carries a Match flag (distance <
 //     [unpixel.VerifyMatchThreshold]) and Pick is set to the lowest-distance
 //     confident match, or empty when no candidate meets the threshold.
+//   - unpixel_verify_image — physically verifies a proposed restored image against a
+//     redaction by re-applying the forward operator (re-pixelate→metric). Returns a
+//     distance in [0,1] and a match flag; use as an anti-hallucination gate for
+//     image-level restorers (diffusion models, inpainting tools).
 //   - unpixel_propose_hints — aggregates hints for the LLM propose→physics-verify
 //     loop: estimated character count, detected block size and font size, optional
 //     redaction bounding box, a coarse charset suggestion, and any plaintext leaked
@@ -77,6 +81,7 @@ func NewServer(version string) *mcpsdk.Server {
 	// Tools.
 	mcpsdk.AddTool(srv, toolAnalyze, handleAnalyze)
 	mcpsdk.AddTool(srv, toolVerify, handleVerify)
+	mcpsdk.AddTool(srv, toolVerifyImage, handleVerifyImage)
 	mcpsdk.AddTool(srv, toolDecode, handleDecode)
 	mcpsdk.AddTool(srv, toolJobResult, handleJobResult)
 	mcpsdk.AddTool(srv, toolJobCancel, handleJobCancel)
