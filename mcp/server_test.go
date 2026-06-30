@@ -83,7 +83,7 @@ func TestVerifyCandidates_ranking(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy", "zz"}, 8, "")
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy", "zz"}, 8, "", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestVerifyCandidates_discrimination(t *testing.T) {
 			}
 
 			all := append([]string{tc.correct}, tc.decoys...)
-			report, err := mcpserver.VerifyCandidates(ctx, img, all, tc.block, tc.charset)
+			report, err := mcpserver.VerifyCandidates(ctx, img, all, tc.block, tc.charset, 0)
 			if err != nil {
 				t.Fatalf("VerifyCandidates: %v", err)
 			}
@@ -182,7 +182,7 @@ func TestVerifyCandidates_digits(t *testing.T) {
 	candidates := []string{"1234567", "7654321", "0000000", "9999999"}
 	// block=8 and charset from the fixture manifest; auto-detection is weak on
 	// small sick-caption images and the faithful model needs the hint to discriminate.
-	report, err := mcpserver.VerifyCandidates(ctx, img, candidates, 8, "0123456789")
+	report, err := mcpserver.VerifyCandidates(ctx, img, candidates, 8, "0123456789", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestVerifyCandidates_margin(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy"}, 8, "")
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go", "xy"}, 8, "", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestVerifyCandidates_singleCandidate(t *testing.T) {
 		t.Fatalf("load fixture: %v", err)
 	}
 
-	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go"}, 8, "")
+	report, err := mcpserver.VerifyCandidates(ctx, img, []string{"go"}, 8, "", 0)
 	if err != nil {
 		t.Fatalf("VerifyCandidates: %v", err)
 	}
