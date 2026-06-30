@@ -367,8 +367,21 @@ Tier 2 — ML opt-in (build tag ONNX OU sidecar), défaut reste pur-Go :
       top-3 (3/3 fixtures render→pixelise) ; réordonnancement byte-identique (panel 17/17). Limite :
       9 polices ; histogram bruité court/peu-encré (top-K k≥3 absorbe) ; police inconnue = mur.
       Additif, pas de cycle, pur-Go. CI verte, cover 85.2 %.
-- [ ] **#5 Re-ranker CTC-logprob** — tête CRNN-CTC PP-OCRv4/v5 ou OnnxTR (Apache/MIT) → log-proba
-      CTC de toute chaîne candidate sur le top-K. Mur : police, digits.
+- [x] **#5 Re-ranker CTC-logprob** ✅ *(spec/plan : `docs/superpowers/{specs,plans}/2026-06-30-candidate-rerank*.md`)* —
+      Découverte clé : un CRNN-CTC pré-entraîné (PP-OCRv4/OnnxTR) est triplement inadapté — entraîné sur texte
+      LISIBLE (ne transfère pas à la mosaïque, cf #4), CGO/ONNX interdits, et sa part linguistique DOUBLE
+      l'existant (moteur fusionne déjà LM in-beam + départage RankFinal, et `Verify` #3 donne déjà la distance).
+      Livré : package public `rerank` (cycle-safe : importe `unpixel` + `internal/lang`) : interface `Reranker`
+      + impl pur-Go `Linguistic` qui mélange distance physique `Verify` avec score LM — `blended = distance − poids·(lmScore − bestLM)`
+      sur top-K. `poids 0 ⇒ ordre physique` (byte-identique). `rerank.Rerank(ctx,img,candidats,opts...)` réutilise
+      `Verify` (#3) + `lang.PriorFor` (aucun nouveau scoreur). Option racine `WithRerankWeight` (inerte cœur).
+      MCP `verify_candidates` gagne `rerank_weight` (ordre fusionné ; `Pick` reste décision PHYSIQUE = plus petite
+      distance avec match). Couture CTC futur derrière `//go:build ml` (stub `ErrCTCNotBuilt`, zéro modèle/poids/gonum) :
+      futur CRNN entraîné sur domaine render→pixelise pourra s'y brancher, seule valeur nouvelle réelle = reconnaître
+      polices hors des 9 empaquetées. Généralise départage LM étroit `RankFinal` en composant réglable/inspectable
+      premier ordre. Additif (cœur/`Verify`/panel 17/17 intouchés, hook `DefaultRerankCore` pas de cycle). CI verte,
+      cover 85.2 %. Limites honnêtes : réordonne candidats (ne génère pas) ; chiffres non structurés = aucun signal
+      LM (relève #6) ; poids élevé peut supplanter physique correcte (défaut 0).
 
 Tier 3 — moonshots (haut plafond, coût élevé) :
 - [ ] **#7 Restaurateur diffusion fine-tuné sur la dégradation de caviardage** (sidecar Python) —

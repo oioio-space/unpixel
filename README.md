@@ -178,7 +178,9 @@ unpixel-mcp   # speaks MCP over stdio; point your MCP client at it
 
 Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` (13 methods
 behind one `method` enum; async for long runs), `unpixel_verify_candidates` (LLM proposes
-strings, UnPixel scores them by physical re-pixelation), `unpixel_render`, `unpixel_rank_fonts`
+strings, UnPixel scores them by physical re-pixelation; now accepts optional `rerank_weight` to blend
+a language prior into candidate ranking, with 0 = physical order and `Pick` staying a pure physical match),
+`unpixel_render`, `unpixel_rank_fonts`
 (now supports blind histogram ranking without `known_text`), `unpixel_calibrate`; resources 
 `unpixel://{fonts,charsets,methods,operating-envelope}`. Custom fonts upload via 
 `font_path`/`font_base64`. `unpixel_decode` accepts `font_prior_top_k` to run a blind font-prior 
