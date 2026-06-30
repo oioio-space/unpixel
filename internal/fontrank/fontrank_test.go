@@ -284,17 +284,33 @@ func TestRankFontsAt_zeroBlockAutoDetects(t *testing.T) {
 	}
 }
 
-// TestRankFontsAt_positiveBlockSkipsDetection verifies that a positive blockSize
-// is used directly without auto-detection, and returns one score per font.
+// TestRankFontsAt_positiveBlockSkipsDetection verifies that the blockSize
+// argument is actually used by RankFontsAt. It calls RankFontsAt on the same
+// image with blockSize=8 and blockSize=1 and asserts the top scores differ.
+//
+// blockSize=1 partitions the column histogram into single-pixel columns,
+// producing a categorically different luminance profile from blockSize=8 (which
+// merges 8×h pixels into one bucket). If blockSize were ignored — i.e. always
+// auto-detected or hard-coded — both calls would return identical score vectors
+// and the assertion would fire.
 func TestRankFontsAt_positiveBlockSkipsDetection(t *testing.T) {
-	img := makeMosaic(t, "Liberation Mono", "ABC123", 8)
+	// Use a wider text so block=8 and block=1 histograms are genuinely distinct.
+	img := makeMosaic(t, "Liberation Mono", "Hello World 1234", 8)
 	named := namedFonts()
-	got, err := fontrank.RankFontsAt(t.Context(), img, named, 8)
+
+	got8, err := fontrank.RankFontsAt(t.Context(), img, named, 8)
 	if err != nil {
 		t.Fatalf("RankFontsAt(8): %v", err)
 	}
-	if len(got) != len(named) {
-		t.Errorf("got %d scores, want %d", len(got), len(named))
+	got1, err := fontrank.RankFontsAt(t.Context(), img, named, 1)
+	if err != nil {
+		t.Fatalf("RankFontsAt(1): %v", err)
+	}
+	if len(got8) == 0 || len(got1) == 0 {
+		t.Fatal("empty scores")
+	}
+	if got8[0].Score == got1[0].Score {
+		t.Error("blockSize=8 and blockSize=1 produced identical top score; blockSize argument may be ignored")
 	}
 }
 
