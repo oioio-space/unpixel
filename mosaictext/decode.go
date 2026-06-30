@@ -290,39 +290,32 @@ func decodeFrames(ctx context.Context, imgs []image.Image, phases [][2]int, opts
 
 	// buildFrames constructs the []scoreFrame for a decoder at a given block size
 	// and downscale factor df (1 for hi-res, f for coarse). Each frame's phase
-	// delta Δ_i is computed relative to the minimum phase across all frames
-	// (not frame 0), then normalized to a non-negative representative modulo
-	// blockHiBase. This is semantics-preserving because the pixelation grid
-	// repeats with period blockHiBase: any non-negative mod-equivalent delta
-	// produces the same block-aligned phase in placed2. Dividing by df scales
-	// to the coarse resolution; we round to nearest so small deltas are not
-	// silently zeroed by integer truncation.
+	// delta Δ_i is computed RELATIVE TO FRAME 0, normalized to a non-negative
+	// representative modulo blockHiBase. Anchoring to frame 0 guarantees
+	// sfs[0].pox == 0 && sfs[0].poy == 0, which is required because the sweep
+	// variable pox is calibrated against frame 0 (d.target = imgs[0]/hiTargets[0]):
+	// dist places frame i at (pox + f.pox), so a nonzero frame-0 delta would
+	// misalign the anchor frame with the calibrated sweep. The modulo keeps all
+	// deltas non-negative (avoiding the malformed-canvas bug in placed2) while
+	// preserving the pixel-grid semantics (the grid repeats with period blockHiBase).
+	// Dividing by df scales to the coarse resolution; we round to nearest so that a
+	// delta of 1 hi-res pixel is not silently truncated to 0 at coarse.
 	buildFrames := func(pix unpixel.Pixelator, targets []*image.RGBA, df int) []scoreFrame {
 		if !multiFrame {
 			return nil
 		}
-		// Use the minimum X and Y phase across all frames as the baseline so
-		// that every delta is non-negative before the mod step. This is equivalent
-		// to (and safer than) using phases[0] as the baseline when phases[0] is
-		// not the minimum.
-		minX, minY := phases[0][0], phases[0][1]
-		for _, ph := range phases[1:] {
-			minX = min(minX, ph[0])
-			minY = min(minY, ph[1])
-		}
 		b := blockHiBase
 		sfs := make([]scoreFrame, len(imgs))
 		for i := range imgs {
-			// Raw delta is non-negative (minX/minY are the minimums) but may
-			// exceed one block period; normalize to [0, b) so that placed2
-			// always receives a canvas offset that is both non-negative and
-			// within one period of the grid.
-			rawDx := phases[i][0] - minX
-			rawDy := phases[i][1] - minY
-			normDx := rawDx % b
-			normDy := rawDy % b
-			// Scale to the current resolution, rounding to nearest so that a
-			// delta of 1 hi-res pixel is not silently truncated to 0 at coarse.
+			// Frame-0-relative delta, modulo-normalized to [0, b) so that:
+			//   (1) sfs[0].pox == 0 && sfs[0].poy == 0 always (frame 0 anchors the sweep),
+			//   (2) all deltas are non-negative (placed2 canvas size = st + pox ≥ 0),
+			//   (3) the periodic equivalence class is preserved (grid period = blockHiBase).
+			rawDx := phases[i][0] - phases[0][0]
+			rawDy := phases[i][1] - phases[0][1]
+			normDx := ((rawDx % b) + b) % b
+			normDy := ((rawDy % b) + b) % b
+			// Scale to the current resolution, rounding to nearest.
 			dx := (normDx*2 + df) / (2 * df)
 			dy := (normDy*2 + df) / (2 * df)
 			sfs[i] = scoreFrame{target: targets[i], pixelate: pix, pox: dx, poy: dy}
