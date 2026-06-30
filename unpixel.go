@@ -182,6 +182,19 @@ type Config struct {
 	// of Workers, so this affects throughput only, never the output.
 	Workers int
 
+	// FontPrior, when true, signals callers (CLI, MCP) to route a multi-font
+	// recovery through the blind font prior in the fontprior package, which
+	// reorders the sweep so the likeliest font is tried first. It is inert in the
+	// core search (Recover/RecoverMultiFont ignore it); fontprior.RecoverWithPrior
+	// reorders unconditionally regardless of this flag. Default false.
+	FontPrior bool
+
+	// FontPriorTopK, when > 0, prunes the prior-ordered multi-font sweep to the K
+	// best-ranked fonts (see fontprior.RecoverWithPrior). 0 (default) or a value
+	// >= the font count means reorder-only (no truncation). Pruning can change the
+	// result, so it is opt-in.
+	FontPriorTopK int
+
 	// normalize, when non-nil, enables input normalisation before blur recovery.
 	// Set via WithNormalize; never set directly (unexported so external struct
 	// literals cannot accidentally include it, keeping the zero Config clean).
@@ -1924,6 +1937,21 @@ func WithPrefix(prefix string) Option { return func(c *Config) { c.prefix = pref
 func WithExpectedFormat(f secrets.Format) Option {
 	return func(c *Config) { c.expectedFormat = f }
 }
+
+// WithFontPrior enables the blind font prior for multi-font recovery: callers
+// such as the CLI and MCP server route the sweep through
+// [github.com/oioio-space/unpixel/fontprior.RecoverWithPrior], which ranks the
+// bundled fonts by how well each explains the redaction and tries the likeliest
+// first. Reordering alone does not change the result (the sweep still ranks by
+// whole-image distance); it only speeds up the common case. Combine with
+// [WithFontPriorTopK] to also prune the sweep.
+func WithFontPrior() Option { return func(c *Config) { c.FontPrior = true } }
+
+// WithFontPriorTopK prunes the prior-ordered multi-font sweep to the k
+// best-ranked fonts. k <= 0 or k >= the font count means reorder-only. Pruning
+// is faster but can drop the true font when k is too small, so it is opt-in;
+// k >= 3 is recommended. Implies the font prior.
+func WithFontPriorTopK(k int) Option { return func(c *Config) { c.FontPriorTopK = k } }
 
 // WithAuto enables the full zero-config real-world recovery path in one call:
 // it combines [WithAutoCrop], [WithAutoColorspace], [WithAutoBlur], and
