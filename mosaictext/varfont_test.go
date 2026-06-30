@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"image"
+	"math"
 	"testing"
+
+	xdraw "golang.org/x/image/draw"
 
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/varfont"
@@ -385,4 +388,142 @@ func BenchmarkDecodeVarFont(b *testing.B) {
 	}
 	b.ReportMetric(float64(totalEvals)/float64(b.N), "evals/fit")
 	_ = sinkResult
+}
+
+// makeVarFontStretchedCrop renders text at the given font size and x-stretch
+// using the bundled Nunito variable font and returns the resulting sharp RGBA.
+// The stretch is applied with CatmullRom bicubic scaling — the same kernel
+// used by [varfont.CalibrateGeometry] and [mosaictext.stretchPixelator] —
+// so the test target and implementation pipelines are pixel-consistent.
+//
+// It is a private helper for this test file; it lives here rather than in a
+// shared helpers_test.go to keep the geometry-calibration test self-contained.
+func makeVarFontStretchedCrop(t *testing.T, text string, fontSize, xStretch float64) *image.RGBA {
+	t.Helper()
+
+	r, err := varfont.NewVarRenderer(bytes.NewReader(vfembed.NunitoVFWght), nil)
+	if err != nil {
+		t.Fatalf("makeVarFontStretchedCrop: NewVarRenderer: %v", err)
+	}
+	style := varfont.DefaultStyle()
+	style.FontSize = fontSize
+
+	img, sx, err := r.Render(text, style)
+	if err != nil {
+		t.Fatalf("makeVarFontStretchedCrop: Render: %v", err)
+	}
+
+	// Crop to the ink bounding box (sentinel-bounded), matching geometry.go's
+	// inkBoundsGeom logic so target and candidate crops are consistent.
+	const inkCut = uint8(244)
+	b := img.Bounds()
+	minX, minY := b.Max.X, b.Max.Y
+	maxX, maxY := b.Min.X, b.Min.Y
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < min(b.Max.X, sx); x++ {
+			c := img.RGBAAt(x, y)
+			if c.R < inkCut || c.G < inkCut || c.B < inkCut {
+				minX = min(minX, x)
+				minY = min(minY, y)
+				maxX = max(maxX, x+1)
+				maxY = max(maxY, y+1)
+			}
+		}
+	}
+	if minX >= maxX || minY >= maxY {
+		t.Fatal("makeVarFontStretchedCrop: empty ink bounds")
+	}
+	ink := image.NewRGBA(image.Rect(0, 0, maxX-minX, maxY-minY))
+	xdraw.Draw(ink, ink.Bounds(), img, image.Pt(minX, minY), xdraw.Src)
+
+	nw := int(math.Round(float64(ink.Bounds().Dx()) * xStretch))
+	if nw < 1 {
+		nw = 1
+	}
+	if nw == ink.Bounds().Dx() {
+		return ink
+	}
+	stretched := image.NewRGBA(image.Rect(0, 0, nw, ink.Bounds().Dy()))
+	xdraw.CatmullRom.Scale(stretched, stretched.Bounds(), ink, ink.Bounds(), xdraw.Over, nil)
+	return stretched
+}
+
+// TestDecodeVarFont_GeometryCalibration demonstrates that geometry calibration
+// (WithVarFontCalibrateGeometry) strictly improves decode quality when the true
+// font size and x-stretch differ from the defaults.
+//
+// Construction:
+//  1. Render a sharp visible crop of "Hello" at 24 px / x-stretch 1.25 —
+//     deliberately far from the default 32 px / 1.0 so the size mismatch is
+//     salient in the mosaic objective.
+//  2. Render "world" at the same 24 px / 1.25 and pixelate it — the redaction.
+//  3. WITHOUT geometry calibration: DecodeVarFont uses default 32 px / no
+//     stretch ⇒ wrong scale ⇒ higher distance.
+//  4. WITH geometry calibration: CalibrateGeometry recovers ~24 px / ~1.25
+//     from the visible crop ⇒ correct scale ⇒ strictly lower distance.
+//
+// The assertion is strictly ordered: with-calibration distance < without-calibration
+// distance. A tolerance of 0.01 is applied to avoid flakiness from rounding at
+// the block boundary.
+func TestDecodeVarFont_GeometryCalibration(t *testing.T) {
+	const (
+		trueFontSize = 24.0 // non-default (default is 32)
+		trueStretch  = 1.25 // non-default (default is 1.0)
+		blockSize    = 8
+		visText      = "Hello"
+		decText      = "world"
+	)
+
+	font, err := varfont.ParseFont(bytes.NewReader(vfembed.NunitoVFWght))
+	if err != nil {
+		t.Fatalf("ParseFont: %v", err)
+	}
+	axes := []varfont.AxisSpec{{Tag: "wght", Min: 200, Max: 900, Start: 400}}
+	pix := pixelate.NewLinearBlockAverage(blockSize)
+
+	// Build sharp visible crop at true geometry.
+	visSharp := makeVarFontStretchedCrop(t, visText, trueFontSize, trueStretch)
+
+	// Build stretched-then-pixelated redaction at true geometry.
+	decSharp := makeVarFontStretchedCrop(t, decText, trueFontSize, trueStretch)
+	redaction := pix.Pixelate(decSharp, 0, 0)
+
+	commonOpts := []mosaictext.VarFontOption{
+		mosaictext.WithVarFont(font),
+		mosaictext.WithVarFontBlockSize(blockSize),
+		mosaictext.WithVarFontLinear(true),
+		mosaictext.WithVarFontText(decText),
+		mosaictext.WithVarFontAxes(axes),
+		mosaictext.WithVarFontVisible(visSharp, visText),
+	}
+
+	// WITHOUT geometry calibration: decoder uses default style (32 px, no stretch).
+	defaultStyle := varfont.DefaultStyle() // FontSize = 32, no stretch
+	withoutOpts := append([]mosaictext.VarFontOption{
+		mosaictext.WithVarFontStyle(defaultStyle),
+	}, commonOpts...)
+	without, err := mosaictext.DecodeVarFont(t.Context(), redaction, withoutOpts...)
+	if err != nil {
+		t.Fatalf("DecodeVarFont (without geometry): %v", err)
+	}
+
+	// WITH geometry calibration: CalibrateGeometry recovers font size + stretch.
+	withOpts := append([]mosaictext.VarFontOption{
+		mosaictext.WithVarFontStyle(defaultStyle), // same starting point
+		mosaictext.WithVarFontCalibrateGeometry(),
+	}, commonOpts...)
+	with, err := mosaictext.DecodeVarFont(t.Context(), redaction, withOpts...)
+	if err != nil {
+		t.Fatalf("DecodeVarFont (with geometry): %v", err)
+	}
+
+	t.Logf("WITHOUT geometry calibration: text=%q dist=%.4f evals=%d", without.Text, without.Distance, without.Evals)
+	t.Logf("WITH    geometry calibration: text=%q dist=%.4f evals=%d", with.Text, with.Distance, with.Evals)
+
+	// Geometry calibration must strictly improve the match.
+	// A tolerance of 0.01 allows for rounding at the block boundary.
+	if with.Distance >= without.Distance-0.01 {
+		t.Errorf("geometry calibration did not help:\n  without dist=%.4f\n  with    dist=%.4f\n  want with < without by >0.01",
+			without.Distance, with.Distance)
+	}
 }

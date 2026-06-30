@@ -129,6 +129,7 @@ type flagParams struct {
 	fontSampleRegion    string   // --font-sample-region: optional "x,y,w,h" sub-rect of the sample image
 	visibleText         string   // --visible-text: cleartext of the sharp region IN the target image (C1a)
 	visibleRegion       string   // --visible-region: optional "x,y,w,h" sub-rect for --visible-text
+	calibrateGeometry   bool     // --calibrate-geometry: recover font size + x-stretch from visible crop (varfont only)
 	rectify             string   // --rectify: "x0,y0 x1,y1 x2,y2 x3,y3" quad for perspective decode
 	autoCrop            bool     // --auto-crop: locate mosaic band and crop before search
 	autoColorspace      bool     // --auto-colorspace: detect linear vs sRGB and pick pixelator
@@ -1848,9 +1849,14 @@ func runVarFont(ctx context.Context, imgPath string, p flagParams) error {
 		calSource = "visible-region"
 		calText = p.visibleText
 	}
+	if p.calibrateGeometry && calSource != "" {
+		opts = append(opts, mosaictext.WithVarFontCalibrateGeometry())
+	}
 
 	mode := "blind"
 	switch {
+	case calSource != "" && p.calibrateGeometry:
+		mode = fmt.Sprintf("calibration-from-visible+geometry (source=%s text=%q)", calSource, calText)
 	case calSource != "":
 		mode = fmt.Sprintf("calibration-from-visible (source=%s text=%q)", calSource, calText)
 	case p.varfontText != "":
@@ -2324,6 +2330,14 @@ Examples:
 				Usage: `varfont decoder: sub-rect of the target image containing the sharp visible text, "x,y,w,h" (used with --visible-text)`,
 				Value: "",
 			},
+			&cli.BoolFlag{
+				Name: "calibrate-geometry",
+				Usage: "varfont decoder: recover exact font size and x-stretch from the visible crop " +
+					"(--visible-text or --font-sample) before axis fitting. " +
+					"Use when the redaction font size differs from the default 32 pt or when the text " +
+					"was rendered with a non-unity horizontal scale. Requires --visible-text or " +
+					"--font-sample. Default off; no effect without a visible calibration source.",
+			},
 			&cli.StringFlag{
 				Name: "rectify",
 				Usage: `perspective decode: four corners of the redaction quadrilateral in photo pixels,
@@ -2453,6 +2467,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		fontSampleRegion:    cmd.String("font-sample-region"),
 		visibleText:         cmd.String("visible-text"),
 		visibleRegion:       cmd.String("visible-region"),
+		calibrateGeometry:   cmd.Bool("calibrate-geometry"),
 		rectify:             cmd.String("rectify"),
 		autoCrop:            cmd.Bool("auto-crop") || cmd.Bool("auto"),
 		autoColorspace:      cmd.Bool("auto-colorspace") || cmd.Bool("auto"),

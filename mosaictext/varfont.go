@@ -48,6 +48,8 @@ import (
 	"image"
 	"math"
 
+	xdraw "golang.org/x/image/draw"
+
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/internal/metric"
 	"github.com/oioio-space/unpixel/internal/pixelate"
@@ -101,16 +103,17 @@ type VarFontResult struct {
 type VarFontOption func(*varFontConfig)
 
 type varFontConfig struct {
-	font        *varfont.Font
-	style       unpixel.Style
-	blockSize   int
-	linear      bool
-	knownText   string // empty → blind mode
-	axes        []varfont.AxisSpec
-	charset     string
-	visibleCrop *image.RGBA // sharp crop for calibration; nil → skip
-	visibleText string      // cleartext matching visibleCrop
-	optimizer   varfont.OptimizerKind
+	font              *varfont.Font
+	style             unpixel.Style
+	blockSize         int
+	linear            bool
+	knownText         string // empty → blind mode
+	axes              []varfont.AxisSpec
+	charset           string
+	visibleCrop       *image.RGBA // sharp crop for calibration; nil → skip
+	visibleText       string      // cleartext matching visibleCrop
+	calibrateGeometry bool        // recover font size + x-stretch from visibleCrop
+	optimizer         varfont.OptimizerKind
 }
 
 // WithVarFont sets the parsed variable font to use. Required; DecodeVarFont
@@ -182,6 +185,22 @@ func WithVarFontVisible(visibleCrop *image.RGBA, visibleText string) VarFontOpti
 	}
 }
 
+// WithVarFontCalibrateGeometry enables geometry calibration from the visible
+// crop supplied via [WithVarFontVisible]. When set, [DecodeVarFont] calls
+// [varfont.CalibrateGeometry] on the visible crop before axis fitting, and
+// feeds the recovered font size and x-stretch into the decode pipeline so the
+// forward model matches the exact physical rendering parameters of the source.
+//
+// Geometry calibration runs BEFORE axis fitting: it resolves scale first, then
+// the axis fitter works on a geometry-correct render, which improves convergence
+// when the true font size differs significantly from [varfont.DefaultStyle].
+//
+// Requires [WithVarFontVisible] to be set; the option is ignored otherwise.
+// Non-regressive: absent this option, behaviour is unchanged.
+func WithVarFontCalibrateGeometry() VarFontOption {
+	return func(c *varFontConfig) { c.calibrateGeometry = true }
+}
+
 // WithVarFontOptimizer selects the search strategy used by FitAxes (and the
 // calibration step when [WithVarFontVisible] is supplied). The default
 // ([varfont.OptimizerCoordDescent]) is stable and fast for a single axis;
@@ -190,6 +209,49 @@ func WithVarFontVisible(visibleCrop *image.RGBA, visibleText string) VarFontOpti
 // default (coordinate descent).
 func WithVarFontOptimizer(opt varfont.OptimizerKind) VarFontOption {
 	return func(c *varFontConfig) { c.optimizer = opt }
+}
+
+// wrapStretch returns a [stretchPixelator] when stretch ≠ 1.0, or inner
+// unchanged when stretch is unity (no-op fast path).
+func wrapStretch(inner unpixel.Pixelator, stretch float64) unpixel.Pixelator {
+	if stretch == 1.0 {
+		return inner
+	}
+	return stretchPixelator{inner: inner, stretch: stretch}
+}
+
+// stretchPixelator wraps an [unpixel.Pixelator] and applies a horizontal
+// x-stretch to every rendered image before pixelating. It is used when
+// geometry calibration has recovered a non-unity x-stretch: the forward
+// model must replicate the stretch so that axis fitting operates on
+// geometry-correct candidates.
+//
+// The stretch is applied using CatmullRom bicubic interpolation — the same
+// kernel used by [varfont.CalibrateGeometry] — so the two pipelines are
+// pixel-consistent.
+type stretchPixelator struct {
+	inner   unpixel.Pixelator
+	stretch float64 // > 0; 1.0 = no-op
+}
+
+// Pixelate applies the x-stretch and then delegates to the inner pixelator.
+func (s stretchPixelator) Pixelate(img *image.RGBA, originX, originY int) *image.RGBA {
+	if s.stretch == 1.0 {
+		return s.inner.Pixelate(img, originX, originY)
+	}
+	b := img.Bounds()
+	nw := int(math.Round(float64(b.Dx()) * s.stretch))
+	if nw < 1 {
+		nw = 1
+	}
+	var scaled *image.RGBA
+	if nw == b.Dx() {
+		scaled = img
+	} else {
+		scaled = image.NewRGBA(image.Rect(0, 0, nw, b.Dy()))
+		xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), img, b, xdraw.Over, nil)
+	}
+	return s.inner.Pixelate(scaled, originX, originY)
 }
 
 // DecodeVarFont recovers text from a mosaic-pixelated redaction using a
@@ -262,14 +324,35 @@ func DecodeVarFont(ctx context.Context, img image.Image, opts ...VarFontOption) 
 	m := metric.NewPixelmatchFast(0.1)
 
 	// Calibration-from-visible: when the caller supplies a sharp visible crop
-	// alongside its known text, run CalibrateFromVisible first to warm-start
-	// the axis values before fitting the redaction.
+	// alongside its known text, optionally run CalibrateGeometry first (to
+	// recover exact font size and x-stretch), then run CalibrateFromVisible to
+	// warm-start the axis values. Both steps are non-fatal: a failure falls
+	// through to the original style / axes.
 	axes := cfg.axes
+	style := cfg.style // local copy so geometry updates don't mutate cfg
+	xStretch := 1.0
 	if cfg.visibleCrop != nil && cfg.visibleText != "" {
+		// Step 1 (opt-in): geometry calibration — recover FontSizePx + XStretch.
+		if cfg.calibrateGeometry {
+			geomResult, geomErr := varfont.CalibrateGeometry(varfont.GeometryConfig{
+				Font:   font,
+				Text:   cfg.visibleText,
+				Style:  style,
+				Target: cfg.visibleCrop,
+				Metric: m,
+			})
+			if geomErr == nil {
+				style.FontSize = geomResult.FontSizePx
+				xStretch = geomResult.XStretch
+			}
+			// Non-fatal: failed geometry calibration → keep original style.
+		}
+
+		// Step 2: axis calibration on the geometry-corrected render.
 		calResult, calErr := varfont.CalibrateFromVisible(varfont.CalibrateConfig{
 			Font:      font,
 			Text:      cfg.visibleText,
-			Style:     cfg.style,
+			Style:     style,
 			Target:    cfg.visibleCrop,
 			Pixelator: nil, // sharp text — compare directly
 			Metric:    m,
@@ -288,10 +371,20 @@ func DecodeVarFont(ctx context.Context, img image.Image, opts ...VarFontOption) 
 		// Non-fatal: if calibration fails we fall through with the original axes.
 	}
 
-	if cfg.knownText != "" {
-		return fitKnownText(ctx, font, cfg, axes, target, pix, m, blockSize)
+	// When geometry calibration recovered a non-unity x-stretch, wrap the
+	// pixelator so the FitAxes forward model stretches candidates before
+	// pixelating — matching the physical rendering pipeline.
+	activePix := wrapStretch(pix, xStretch)
+
+	// Pass the (possibly geometry-updated) style down to the fit functions via
+	// a shallow config copy so the original cfg is not mutated.
+	fitCfg := cfg
+	fitCfg.style = style
+
+	if fitCfg.knownText != "" {
+		return fitKnownText(ctx, font, fitCfg, axes, target, activePix, m, blockSize)
 	}
-	return fitBlind(ctx, font, cfg, axes, target, pix, m, blockSize)
+	return fitBlind(ctx, font, fitCfg, axes, target, activePix, m, blockSize)
 }
 
 // mkFitConfig builds a varfont.FitConfig from the shared decoder inputs.
