@@ -2094,9 +2094,9 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 	//
 	// Guard 2 — high-confidence threshold: Conf.Kind must reach metaBandHigh (0.95)
 	// before confident delegation. The sharp surround of a raw screenshot depresses
-	// Conf.Kind (hello-world: 0.587, marx: 0.867). True Gaussian-blur fixtures
+	// Conf.Kind (hello-world: 0.587). True Gaussian-blur fixtures
 	// consistently score 1.00, well above the gate. This guard catches JPEG-
-	// compressed mosaics whose grid is undetectable by Guard 1 alone.
+	// compressed or rotated mosaics whose grid is undetectable by Guard 1 alone.
 	//
 	// Recursion safety: RecoverBlurred → recoverAtSigma → Recover(WithPixelator)
 	// enters Recover with cfg.Pixelator != nil, so this block is skipped and the

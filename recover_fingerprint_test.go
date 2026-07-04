@@ -163,9 +163,9 @@ func TestRecover_autoDoesNotMisrouteMosaicScreenshot(t *testing.T) {
 		},
 		{
 			path:        "testdata/real/marx.png",
-			wantGridOK:  false,
+			wantGridOK:  true,
 			liveRecover: false,
-			description: "JPEG-compressed mosaic — Guard 2 (Conf < 0.95) must veto blur delegation",
+			description: "partial-edge-block mosaic — Guard 1 (exact grid, fixed for non-zero phase) must veto blur delegation",
 		},
 	}
 

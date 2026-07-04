@@ -1,5 +1,5 @@
 {
-  "timestamp": "20260704T125846",
+  "timestamp": "20260704T141622",
   "results": [
     {
       "corpus": "real",
@@ -72,11 +72,11 @@
       "localize_w": 1045,
       "localize_h": 57,
       "image_w": 1450,
-      "grid_ok": false,
-      "grid_size": 0,
-      "grid_phase_x": 0,
-      "grid_phase_y": 0,
-      "grid_conf": 0,
+      "grid_ok": true,
+      "grid_size": 19,
+      "grid_phase_x": 8,
+      "grid_phase_y": 10,
+      "grid_conf": 0.9913793103448276,
       "robust_size": 19,
       "robust_support": 0.5398708250396096,
       "gt_block": 19,
@@ -84,18 +84,18 @@
       "gt_offset_y": 5,
       "gt_lines": 2,
       "gt_font": "Noto Sans",
-      "err_size": 19,
-      "err_phase_x": 5,
+      "err_size": 0,
+      "err_phase_x": 3,
       "err_phase_y": 5,
       "seg_lines": 2,
       "lines_match": true,
       "font_top3": [
-        "Liberation Mono",
         "Source Code Pro",
+        "Noto Sans Mono",
         "JetBrains Mono"
       ],
       "gt_font_in_top3": false,
-      "first_fail_stage": "grid"
+      "first_fail_stage": "font"
     },
     {
       "corpus": "wild",
@@ -169,10 +169,10 @@
       "localize_h": 10,
       "image_w": 98,
       "grid_ok": true,
-      "grid_size": 5,
+      "grid_size": 10,
       "grid_phase_x": 3,
-      "grid_phase_y": 0,
-      "grid_conf": 1,
+      "grid_phase_y": 5,
+      "grid_conf": 0.763157894736842,
       "robust_size": 10,
       "robust_support": 0.9964114832535885,
       "gt_block": 0,
@@ -188,7 +188,7 @@
       "font_top3": [
         "Carlito",
         "Liberation Sans",
-        "Liberation Mono"
+        "Liberation Serif"
       ],
       "gt_font_in_top3": false,
       "first_fail_stage": "unknown"

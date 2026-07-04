@@ -3,7 +3,9 @@ package unpixel_test
 import (
 	"image"
 	"image/color"
+	_ "image/png"
 	"math"
+	"os"
 	"testing"
 
 	xdraw "golang.org/x/image/draw"
@@ -258,5 +260,190 @@ func TestInferBlockSize_unchanged(t *testing.T) {
 	}
 	if got := unpixel.InferBlockSize(uniform); got != 0 {
 		t.Errorf("InferBlockSize(uniform) = %d after refactor, want 0", got)
+	}
+}
+
+// partialEdgeMosaic builds a w×h mosaic image that simulates a pixelated text
+// region sitting inside a white canvas. The white margin occupies the first
+// marginW columns. A partial block of width partialW follows, then full blocks
+// of width blockSize each. Every block (partial and full) is assigned a distinct
+// non-white colour so that all transitions are detectable.
+//
+// This replicates the situation in marx.png, where GIMP's Pixelize was applied
+// to a text selection with an internal x-offset that creates a narrow leading
+// partial block at the edge of the pixelated region.
+func partialEdgeMosaic(w, h, blockSize, marginW, partialW int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	// White margin.
+	for y := range h {
+		for x := range marginW {
+			img.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	// Partial leading block.
+	if partialW > 0 {
+		for y := range h {
+			for x := marginW; x < marginW+partialW; x++ {
+				img.SetRGBA(x, y, color.RGBA{R: 200, G: 200, B: 200, A: 255})
+			}
+		}
+	}
+	// Full blocks.
+	for blockIdx := range (w - marginW - partialW + blockSize - 1) / blockSize {
+		startX := marginW + partialW + blockIdx*blockSize
+		endX := min(startX+blockSize, w)
+		r := uint8(50 + (blockIdx*73)%150)
+		g := uint8(50 + (blockIdx*97)%130)
+		b := uint8(50 + (blockIdx*113)%110)
+		for y := range h {
+			for x := startX; x < endX; x++ {
+				img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
+			}
+		}
+	}
+	return img
+}
+
+// subHarmonicMosaic builds a w×h image with true structural block period trueP
+// but with a small colour variation at trueP/2 within each block. Inter-block
+// contrast is large (≥ 80 units per channel), while intra-block sub-variation
+// is 3 units — deliberately below robustBoundaryThreshold (5) so the robust
+// boundary detector ignores intra-block transitions while the exact detector
+// fires at every trueP/2 pixels.
+//
+// This causes gcdOfGaps to return trueP/2 (a sub-harmonic), while the robust
+// autocorrelation correctly identifies trueP as the dominant structural period.
+func subHarmonicMosaic(w, h, trueP int) *image.RGBA {
+	subP := trueP / 2
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			blockX := x / trueP
+			blockY := y / trueP
+			subBlockX := (x % trueP) / subP
+			// Large inter-block variation — adjacent blocks differ by ≥ 83 units in R
+			// and ≥ 83 in G, well above the robust threshold (5).
+			baseR := uint8(50 + (blockX*83+blockY*67)%180)
+			baseG := uint8(50 + (blockX*97+blockY*53)%180)
+			// Small intra-block sub-variation: +3 in the second sub-block of each
+			// true block. 3 < robustBoundaryThreshold(5), so robust detector ignores
+			// these transitions; exact detector fires at them (3 > 0).
+			var delta uint8
+			if subBlockX == 1 {
+				delta = 3
+			}
+			img.SetRGBA(x, y, color.RGBA{
+				R: baseR + delta,
+				G: baseG + delta,
+				B: 100,
+				A: 255,
+			})
+		}
+	}
+	return img
+}
+
+// TestInferBlockGrid_marxPng verifies that InferBlockGrid correctly detects the
+// 19-pixel block grid on testdata/real/marx.png, which previously returned
+// Size=0 due to a partial 5-pixel edge block poisoning the GCD computation.
+//
+// Ground truth: block=19, offset=(5,5) relative to the text selection
+// (manifest: testdata/real/manifest.json, entry "marx").
+func TestInferBlockGrid_marxPng(t *testing.T) {
+	const marxPath = "testdata/real/marx.png"
+	f, err := os.Open(marxPath) // #nosec G304 -- controlled fixture path
+	if err != nil {
+		t.Skipf("skipping: cannot open %s: %v", marxPath, err)
+	}
+	img, _, err := image.Decode(f)
+	if cerr := f.Close(); cerr != nil && err == nil {
+		t.Fatalf("close %s: %v", marxPath, cerr)
+	}
+	if err != nil {
+		t.Fatalf("decode %s: %v", marxPath, err)
+	}
+
+	grid, ok := unpixel.InferBlockGrid(img)
+	if !ok {
+		t.Fatalf("InferBlockGrid returned ok=false on marx.png (got %+v); want size≈19", grid)
+	}
+	const wantSize = 19
+	if diff := grid.Size - wantSize; diff < -1 || diff > 1 {
+		t.Errorf("Size = %d, want %d ±1", grid.Size, wantSize)
+	}
+	if grid.Confidence < 0.5 {
+		t.Errorf("Confidence = %.3f, want ≥ 0.50 for marx.png", grid.Confidence)
+	}
+}
+
+// TestInferBlockGrid_partialEdgeBlock verifies that InferBlockGrid returns the
+// correct block size on a synthetic mosaic with a partial leading block — the
+// same structural pattern that defeats the plain GCD approach on marx.png.
+func TestInferBlockGrid_partialEdgeBlock(t *testing.T) {
+	const (
+		blockSize = 19
+		marginW   = 80 // white columns before the pixelated region
+		partialW  = 5  // partial leading block (= grid offset)
+		imgW      = marginW + partialW + 30*blockSize
+		imgH      = 120
+	)
+	img := partialEdgeMosaic(imgW, imgH, blockSize, marginW, partialW)
+
+	grid, ok := unpixel.InferBlockGrid(img)
+	if !ok {
+		t.Fatalf("InferBlockGrid returned ok=false on partial-edge mosaic (got %+v)", grid)
+	}
+	if grid.Size != blockSize {
+		t.Errorf("Size = %d, want %d", grid.Size, blockSize)
+	}
+	if grid.Confidence < 0.8 {
+		t.Errorf("Confidence = %.3f, want ≥ 0.80 for a clean partial-edge mosaic", grid.Confidence)
+	}
+}
+
+// TestInferBlockGrid_subHarmonicPrefersFundamental verifies that when the exact
+// GCD of boundary gaps yields a sub-harmonic (trueP/2) but the robust
+// autocorrelation strongly supports the fundamental period (trueP), InferBlockGrid
+// returns trueP rather than the sub-harmonic.
+func TestInferBlockGrid_subHarmonicPrefersFundamental(t *testing.T) {
+	const (
+		trueP = 20 // true structural block period
+		imgW  = trueP * 12
+		imgH  = trueP * 6
+	)
+	img := subHarmonicMosaic(imgW, imgH, trueP)
+
+	grid, ok := unpixel.InferBlockGrid(img)
+	if !ok {
+		t.Fatalf("InferBlockGrid returned ok=false on sub-harmonic mosaic (got %+v)", grid)
+	}
+	if grid.Size != trueP {
+		t.Errorf("Size = %d (sub-harmonic?), want fundamental period %d", grid.Size, trueP)
+	}
+}
+
+// TestInferBlockGrid_regressionAxisAligned guards that the axis-aligned fixtures
+// used in prior tests return byte-identical results after the partial-edge and
+// sub-harmonic fixes are applied.
+func TestInferBlockGrid_regressionAxisAligned(t *testing.T) {
+	for _, block := range []int{4, 8, 16} {
+		img := pixelatedGrid(8*block, 4*block, block)
+		grid, ok := unpixel.InferBlockGrid(img)
+		if !ok {
+			t.Errorf("block=%d: InferBlockGrid returned ok=false", block)
+			continue
+		}
+		if grid.Size != block {
+			t.Errorf("block=%d: Size = %d, want %d", block, grid.Size, block)
+		}
+		if grid.PhaseX != 0 {
+			t.Errorf("block=%d: PhaseX = %d, want 0", block, grid.PhaseX)
+		}
+		if grid.PhaseY != 0 {
+			t.Errorf("block=%d: PhaseY = %d, want 0", block, grid.PhaseY)
+		}
+		if grid.Confidence < 0.9 {
+			t.Errorf("block=%d: Confidence = %.3f, want ≥ 0.90", block, grid.Confidence)
+		}
 	}
 }
