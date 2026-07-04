@@ -1394,3 +1394,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `27846f5` 2026-06-30 — test(mosaictext): measure multi-frame rank improvement over confusable candidates _(2 fichiers)_
 - `080ff01` 2026-06-30 — docs(journal): record journal run + correct the multi-frame claim honestly _(1 fichiers)_
 - `3b029e2` 2026-07-04 — feat(diag): geometry isolation harness (P2) — localize the failing stage before decode _(6 fichiers)_
+- `2a45144` 2026-07-05 — feat(render): model anisotropic x-stretch via Style.XScale (P3a) _(5 fichiers)_

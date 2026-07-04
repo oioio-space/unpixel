@@ -89,6 +89,25 @@ que le modèle direct atteint l'image), séparé du câblage auto-calibration (f
 varfont existant). Un premier essai a churné le hot-path sans vérification → **jeté** ; ré-abordé
 en pass minimale vérifiée.
 
+### P3b — décodage blind de hello-world (déféré, statut honnête)
+Le modèle direct est **vérifié** : `TestRealMosaic_HelloWorld` (linear=0.0000, sRGB=0.2986)
+et `TestXScale_HelloWorld_directModel` (XScale=1.06 → 0.0000, XScale=1.0 → 0.0972) passent
+réellement — le modèle reproduit la redaction ET **discrimine** (bonne config=0, mauvais
+stretch=0.097). Donc le décodage blind n'est **pas** un mur fondamental : c'est un problème de
+**câblage best-config** (linéaire + Noto Sans Mono + XScale=1.06 + crop correct) + **convergence
+de recherche**, pas un mismatch de modèle.
+
+⚠️ **Faux finding écarté** : une sonde a conclu à un « mur de style de renderer » (encre
+x/image sombre R≈50 vs GIMP claire R≈200 empêchant tout match). C'est **contredit** par l'oracle
+qui atteint 0.0000 avec exactement le même `defaults.RendererFromFonts` — la sonde utilisait un
+wrapper `inkAlignRenderer` biaisé. Conclusion et fichiers de sonde jetés (non committés).
+
+Reste à faire (P3b, non churné) : câbler {LinearBlockAverage, Noto Sans Mono, XScale, autoCrop}
+dans le best-config du corpus real (le best-config a le droit d'utiliser les hints du manifeste
+— c'est la borne-haute atteignable) et vérifier que le DFS/monospace converge sur les 13 glyphes.
+Cible : premier exact-match real. À faire en une passe contrôlée dédiée (pas d'exploration
+tentaculaire du hot path).
+
 ## Règle transverse
 
 Chaque item : TDD → implémentation (go-dev/algo-architect) → benchstat (si perf) → doc →
