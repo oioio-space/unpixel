@@ -108,6 +108,33 @@ dans le best-config du corpus real (le best-config a le droit d'utiliser les hin
 Cible : premier exact-match real. À faire en une passe contrôlée dédiée (pas d'exploration
 tentaculaire du hot path).
 
+## État du programme (2026-07-05)
+
+Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
+
+| # | Point | Statut | Commit |
+|---|-------|--------|--------|
+| P2 | Harnais d'isolation géométrique | ✅ livré | `3b029e2` |
+| P2b | Robustesse détection grille (marx + sous-harmonique) | ✅ livré (+2 tests réparés) | `9e0c2e9` |
+| P3a | Primitive anisotropie `Style.XScale` | ✅ livré, vérifié 0.0000 | `2a45144` |
+| P3b | Décodage blind hello-world | 🔬 modèle direct prouvé ; blind = câblage/recherche (déféré) | `384213d` (doc) |
+| P21 | Anti-régression full-testdata | ⚠️ gap : journal couvre 5-6/10 corpora ; `perspective` non gaté |
+| P1,P4,P5,P6,P7,P8,P9,P10-P20 | — | ⏳ non commencés (échelle recherche pour la plupart) |
+
+Enseignements clés de l'exécution :
+1. **Mesurer d'abord paie** : le diagnostic P2 a corrigé l'hypothèse (real casse à la grille,
+   pas d'abord la police), débloquant un fix qui a aussi réparé 2 tests cassés.
+2. **Ne jamais commiter du churn non vérifié** : 2 tentatives d'agents ont churné le hot path
+   sans vérifier (panel/benchstat) et abouti à une conclusion fausse (« mur de renderer »
+   contredit par l'oracle 0.0000) → **jetées**. La discipline « vérifie ou rapporte » tient.
+3. **Le vrai plafond real reste la fidélité du modèle + la convergence de recherche**, pas la
+   géométrie (désormais saine sur marx). Les gains décisifs restants sont à l'échelle recherche
+   (ML-emissions entraînées, LLM-propose/vérifie, décodage joint proportionnel).
+
+Prochaines passes contrôlées recommandées (une par commit, vérifiées) : P3b (câbler best-config
+XScale/linear/font/crop + convergence), P6 (fixture sample-starved + super-résolution multi-frame),
+P9 (PGO borné), P21 (ajouter perspective/context au gate journal).
+
 ## Règle transverse
 
 Chaque item : TDD → implémentation (go-dev/algo-architect) → benchstat (si perf) → doc →
