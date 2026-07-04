@@ -57,6 +57,38 @@ Causes-racines mesurées (table `Évolution`) :
 - **P19/P20/P21** Operating-envelope comme contrat produit ; réallouer le budget hors
   fixtures/blur/hot-path ; étendre le gate anti-régression aux ~75 images.
 
+## Journal des findings (exécution)
+
+### P2 / P2b — grille (livré, commits 3b029e2, 9e0c2e9)
+Le harnais `geomeasure` a **corrigé l'hypothèse de départ** : real ne casse pas d'abord à la
+police mais à la **grille** (marx : `InferBlockGrid` → Size=0 sur bloc 19px proportionnel à
+offset (5,5)). Fix livré (garde sous-harmonique + phase non-nulle) → marx passe grille→police,
+panel 17/17 byte-identique, et **2 tests mono-digits pré-existants réparés** (window-hmm timeout
+300s, trained-hmm ErrNoContent). Wild n'est PAS un échec de localisation.
+
+### P3a — pourquoi `real/hello-world.png` échoue en aveugle (root-cause, investigation)
+Image la plus tractable (« Hello World ! », 13 glyphes monospace) : géométrie+police saines, le
+**modèle direct** la reproduit à pixelmatch 0.0000, mais zéro/best-config ne l'atteint pas. **5
+bloqueurs cumulés** identifiés (aucun résoluble par plus de recherche — l'élagage tue avant la
+profondeur 1) :
+1. **Pas de crop du contenu** — marges blanches → score trivial 0.0 à x=0, `DiscoverOffsets`
+   laisse tout passer, le DFS cherche du bruit.
+2. **Police par défaut fausse** — Liberation Sans ≠ Noto Sans Mono (formes de bols divergentes).
+3. **Mode de pixelisation** — GEGL moyenne en **lumière linéaire**, le défaut moyenne en gamma.
+4. **XScale 1.06 non modélisé** — GIMP a appliqué ~6 % d'étirement horizontal *au niveau pixel*
+   avant mosaïque ; `LetterSpacing` ajoute de l'espace inter-glyphe mais **ne redistribue pas
+   l'encre intra-glyphe** → le score du 'H' (~0.375) dépasse le seuil (0.25), DFS élague tout.
+   **C'est la primitive réellement manquante** du modèle direct (aucun des 14 décodeurs ne
+   modélise l'anisotropie), et le vrai levier pour atteindre le 0.0000 en aveugle.
+5. **PaddingLeft** — mauvaise phase d'encre dans le bloc 0.
+
+Conséquence : hello-world blind exige (a) la capacité `Style.XScale` (anisotropie) + (b) le
+câblage best-config (crop/police/linéaire/padding auto). Prochaine action contrôlée : lander
+`Style.XScale` proprement (gated byte-identique sur zéro-value, benchstat, test oracle prouvant
+que le modèle direct atteint l'image), séparé du câblage auto-calibration (futur, via l'axe
+varfont existant). Un premier essai a churné le hot-path sans vérification → **jeté** ; ré-abordé
+en pass minimale vérifiée.
+
 ## Règle transverse
 
 Chaque item : TDD → implémentation (go-dev/algo-architect) → benchstat (si perf) → doc →

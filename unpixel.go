@@ -96,6 +96,13 @@ type Style struct {
 	// default 0 leaves glyph advances untouched and preserves kerning; a
 	// non-zero value renders glyph-by-glyph without kerning.
 	LetterSpacing float64
+	// XScale is a horizontal stretch factor applied to the rendered text raster
+	// after glyph drawing and before pixelation. A value of 1.06 stretches
+	// the text 6% wider, matching screenshots produced by anisotropic scaling
+	// (e.g. GIMP layer scale where x and y zoom differ). The zero value and
+	// exactly 1.0 both mean no stretch: the renderer takes the identical code
+	// path as without XScale, producing byte-identical output.
+	XScale float64
 }
 
 // Config holds all tunable parameters for an Engine. Every field is optional:

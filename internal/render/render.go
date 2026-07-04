@@ -13,6 +13,7 @@ import (
 	"math"
 	"sync"
 
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
@@ -287,6 +288,26 @@ func (r *XImage) Render(text string, style unpixel.Style) (*image.RGBA, int, err
 	// We use paddingLeft + textW (the measured advance) so that it tracks
 	// font.MeasureString exactly.
 	sentinelX := paddingLeft + textW
+
+	// Horizontal stretch: when XScale is non-zero and not 1, rescale the text
+	// raster region by XScale via CatmullRom before placing the sentinel. This
+	// models anisotropic screenshot scaling (e.g. GIMP layer scale with unequal
+	// x/y zoom). The gate is strict — zero value and exactly 1.0 skip this
+	// block entirely so the isotropic path is byte-identical to before.
+	if xs := style.XScale; xs != 0 && xs != 1 {
+		newTextW := int(math.Round(float64(textW) * xs))
+		newImgW := paddingLeft + newTextW + sentinelWidth + 8
+		newImg := image.NewRGBA(image.Rect(0, 0, newImgW, imgH))
+		imutil.FillWhite(newImg)
+		// Scale only the text region; left padding is already white in newImg.
+		xdraw.CatmullRom.Scale(
+			newImg, image.Rect(paddingLeft, 0, paddingLeft+newTextW, imgH),
+			img, image.Rect(paddingLeft, 0, paddingLeft+textW, imgH),
+			xdraw.Over, nil,
+		)
+		img = newImg
+		sentinelX = paddingLeft + newTextW
+	}
 
 	// Draw the blue sentinel block from sentinelX to sentinelX+sentinelWidth,
 	// spanning the full height of the text (ascent+descent), vertically centred
