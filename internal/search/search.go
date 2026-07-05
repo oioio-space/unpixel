@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"unicode"
 
 	"github.com/oioio-space/unpixel"
 )
@@ -566,10 +567,40 @@ func (ts trackingScorer) Eval(ctx context.Context, guess, prevGuess string, offs
 	return res
 }
 
+// inkFilteredCharset returns the subset of charset that excludes whitespace
+// runes (unicode.IsSpace). A whitespace glyph renders as an all-white image
+// and therefore scores ≈0 at every grid origin, destroying phase
+// discrimination on margined images: including it drives the per-origin
+// bestScore to 0 everywhere so the true phase cannot be identified.
+//
+// Filtering by codepoint is free — no render pre-pass. If generalising to
+// also exclude font-missing glyphs is ever needed, a render-based ink
+// check would catch those too, but at the cost of one render per charset
+// entry; that is deferred until a concrete need arises.
+//
+// When every rune in charset is whitespace (degenerate), the full charset is
+// returned so DiscoverOffsets degrades gracefully.
+func inkFilteredCharset(charset string) string {
+	inked := make([]rune, 0, len(charset)) // byte length is a safe upper bound on rune count
+	for _, ch := range charset {
+		if !unicode.IsSpace(ch) {
+			inked = append(inked, ch)
+		}
+	}
+	if len(inked) == 0 {
+		return charset
+	}
+	return string(inked)
+}
+
 // DiscoverOffsets probes all blockSize² grid origins and returns those whose
 // best single-character score is below cfg.Threshold, sorted ascending.
 // emit is called with an EventOffsetProbed event after each origin is scored;
 // pass nil to suppress progress events.
+//
+// Whitespace runes are excluded from the per-origin probe: a whitespace glyph
+// renders blank, scores ≈0 at every origin, and destroys phase discrimination.
+// Only non-whitespace glyphs carry phase information.
 //
 // faithful: preload.ts offset discovery loop — 8×8=64 origins, keep best < threshold.
 func DiscoverOffsets(ctx context.Context, scorer Scorer, cfg unpixel.Config, emit func(unpixel.Progress)) []unpixel.Offset {
@@ -579,6 +610,11 @@ func DiscoverOffsets(ctx context.Context, scorer Scorer, cfg unpixel.Config, emi
 	if total == 0 {
 		return nil
 	}
+
+	// Exclude whitespace runes before the probe loop. A whitespace glyph renders
+	// as an all-white image and scores ≈0 at every origin, so including one
+	// drives bestScore to 0 everywhere and the true grid phase is indistinguishable.
+	probeCharset := inkFilteredCharset(cfg.Charset)
 
 	// One slot per grid origin, indexed i = y*bs + x, so concurrent probes write
 	// disjoint storage and the survivor scan stays deterministic.
@@ -594,7 +630,7 @@ func DiscoverOffsets(ctx context.Context, scorer Scorer, cfg unpixel.Config, emi
 		offset := unpixel.Offset{X: x, Y: y}
 		bestScore := 1.0
 		evaluated := 0
-		for _, ch := range cfg.Charset {
+		for _, ch := range probeCharset {
 			if ctx.Err() != nil {
 				return
 			}

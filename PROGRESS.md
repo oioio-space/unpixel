@@ -1398,3 +1398,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `384213d` 2026-07-05 — docs(plan): record P3b honest status — direct model verified, blind gap is config/search _(2 fichiers)_
 - `42de670` 2026-07-05 — docs(plan): program status checkpoint — 4 points shipped, remaining sequenced _(2 fichiers)_
 - `d98323e` 2026-07-05 — docs(plan): P3b measured — engine decodes "H", convergence needs coordinated work _(2 fichiers)_
+- `919b79f` 2026-07-05 — docs(limits): keep the operating-envelope contract current (P19/P20) _(2 fichiers)_
