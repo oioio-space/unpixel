@@ -26,13 +26,13 @@ The answer is grounded in the actual CPU profile, the project's constraints, and
 
 `go test ./internal/search -bench BenchmarkDiscoverOffsets/workers_1 -cpuprofile`:
 
-| Function | flat | cum |
-|----------|------|-----|
+| Function                           | flat  | cum   |
+|------------------------------------|-------|-------|
 | `colorDelta` (YIQ per-pixel delta) | 12.8% | 24.4% |
 | `isAntiAliased` (3×3 neighborhood) | 12.2% | 27.6% |
-| `pixelate.BlockAverage.Pixelate` | 6.7% | 9.3% |
-| YIQ conversions (`rgbaToY/I/Q`) | ~5% | — |
-| GC / runtime | ~8% | — |
+| `pixelate.BlockAverage.Pixelate`   | 6.7%  | 9.3%  |
+| YIQ conversions (`rgbaToY/I/Q`)    | ~5%   | —     |
+| GC / runtime                       | ~8%   | —     |
 
 The per-candidate **compare** dominates. It splits into a **vectorizable** part
 (`colorDelta`: pure arithmetic) and a **branchy** part (`isAntiAliased`: data-dependent
@@ -107,10 +107,59 @@ many-small-comparisons, sequential, branch-heavy workload it is not a straightfo
 gain — it requires an algorithmic rearchitecture and a runtime native dependency, whereas
 the CPU path remains fastest today with neither cost.
 
+## Profile-Guided Optimization (PGO)
+
+`cmd/unpixel/default.pgo` is a CPU profile committed to the main package directory.
+Go 1.21+ auto-detects it and applies PGO when building the binary (`go build ./cmd/unpixel`)
+— no flags needed. The profile was captured by running the hot-path benchmarks
+(BenchmarkGuidedSearch + BenchmarkDiscoverOffsets) for 20 s each on a representative
+machine, generating a pprof-format file that the compiler uses to guide inlining and
+other decisions.
+
+### Measured gain (benchstat, -count 10, i7-1370P)
+
+```
+pkg: github.com/oioio-space/unpixel/internal/search
+BenchmarkGuidedSearch              -3.83%  (p=0.002)
+BenchmarkDiscoverOffsets/workers_1 -4.79%  (p=0.011)
+BenchmarkDiscoverOffsets/workers_max -11.25% (p=0.000)
+geomean (search)                   -5.69%
+
+pkg: github.com/oioio-space/unpixel/internal/metric
+Pixelmatch_Distance/10pct_different -10.80% (p=0.000)
+Pixelmatch_Distance/gradient        -6.37%  (p=0.000)
+geomean (metric)                    -8.15%
+
+pkg: github.com/oioio-space/unpixel/internal/pixelate
+BlockAverage_Pixelate               -5.16%  (p=0.035)
+BlockAverage_Pixelate_Padded        -3.85%  (p=0.043)
+geomean (pixelate)                  -4.51%
+```
+
+No allocation regressions. Output is byte-identical (PGO is a pure compiler optimization).
+
+### Regenerating the profile
+
+Run `mise run pgo:update` to re-capture the profile from the current codebase and overwrite
+`cmd/unpixel/default.pgo`. Do this after a significant hot-path refactor — PGO profiles
+age gracefully (a stale profile rarely regresses; it just applies less benefit), but
+re-profiling after major structural changes keeps the gain current. Commit the updated file.
+
+The command is:
+
+```bash
+scripts/gotest-caged.sh go test -run '^$' \
+  -bench 'BenchmarkGuidedSearch$|BenchmarkGuidedSearch_bounded|BenchmarkDiscoverOffsets' \
+  -benchmem -benchtime=20s \
+  -cpuprofile=cmd/unpixel/default.pgo \
+  ./internal/search/
+```
+
 ## Where the wins actually came from
 
 The shipped speedups are algorithmic and structural, not SIMD: render LRU + prefix
 memoization, pooled font faces, metric early-exit, parallel offset discovery and
-intra-node search with a deterministic merge, FastBlur, and the monospace fast-path.
+intra-node search with a deterministic merge, FastBlur, and the monospace fast-path,
+and now PGO on the production binary (~5–11% on the hot loop).
 See [`PROGRESS.md`](../PROGRESS.md) and [`benchmarks/quality-history.md`](../benchmarks/quality-history.md)
 for the version-by-version record.

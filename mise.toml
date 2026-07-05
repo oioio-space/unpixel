@@ -225,6 +225,10 @@ exit 0
 description = "GitHub CLI via mise + rtk (use: mise run gh -- pr list)"
 run = "./scripts/ghx.sh"
 
+[tasks."pgo:update"]
+description = "Regenerate cmd/unpixel/default.pgo from hot-path benchmarks (commit the result)"
+run = "./scripts/gotest-caged.sh go test -run '^$' -bench 'BenchmarkGuidedSearch$|BenchmarkGuidedSearch_bounded|BenchmarkDiscoverOffsets' -benchmem -benchtime=20s -cpuprofile=cmd/unpixel/default.pgo ./internal/search/"
+
 [tasks."cgo:check"]
 description = "Absolute rule gate: fail if any package uses CGO (project is pure Go)"
 run = "./scripts/cgo-check.sh"
