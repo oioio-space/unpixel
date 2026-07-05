@@ -108,6 +108,16 @@ dans le best-config du corpus real (le best-config a le droit d'utiliser les hin
 Cible : premier exact-match real. À faire en une passe contrôlée dédiée (pas d'exploration
 tentaculaire du hot path).
 
+**Mesure directe (un test moteur ciblé, non committé) :** avec la config oracle
+(`Recover` + notoMonoRenderer + LinearBlockAverage(32) + Style{FontSize:124, XScale:1.06} +
+MonospaceStrategy + CharsetASCII), le moteur décode **"H"** (cellule 0 correcte : anisotropie +
+police + linéaire + crop bons) puis s'arrête. Loosening le seuil ne débloque pas : `th=0.35` →
+`"O,U"` (total 0.6354, garbage), seuils ≥0.5 → explosion combinatoire (timeout 8 min). Donc la
+convergence exige un travail **coordonné** (crop de bande + segmentation en 13 cellules +
+avance-cellule cohérente avec XScale + seuil), pas un réglage à un bouton. Confirmé : P3b est un
+effort dédié, pas un quick-win. Le modèle direct atteignant 0.0000, la limite est bien la
+**recherche/segmentation**, pas le modèle.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
