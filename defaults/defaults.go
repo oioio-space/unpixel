@@ -58,7 +58,10 @@ import (
 // sub-block phase (measured: recovers the block=8 sick digit fixtures).
 func alignPhaseStep(block int) int { return max(1, block/4) }
 
-// alignPosStep is the pixel-position slide increment used by alignedDist.
+// alignPosStep is the coarse pixel-position slide increment used by alignedDist's
+// position search. alignedDist refines to single-pixel accuracy around the coarse
+// optimum (see minPositionDist), so this is a coarse-sweep granularity, not the
+// final resolution.
 const alignPosStep = 4
 
 // alignPosRange is the maximum slide distance (inclusive) in each axis.
@@ -109,9 +112,10 @@ const alignTolerance = 0.10
 // compares our renderer against a real external image, where cross-renderer
 // colour differences require a looser per-pixel tolerance.
 //
-// Cost is bounded: ceil(block/alignPhaseStep)² × ceil(alignPosRange/alignPosStep)²
-// comparisons per candidate — at block=32 that is 16 × 289 = 4 624 metric calls,
-// each operating on a canvas of target.Bounds() pixels.
+// Cost is bounded per candidate: for each of the ~(block/alignPhaseStep)² phase
+// samples, the coarse-to-fine position search does ~(alignPosRange/alignPosStep)²
+// coarse probes plus a small (≤(2·alignPosStep-1)²) refinement window — at block=32
+// that is 16 × (289 + 49) ≈ 5 400 metric calls, each on a canvas of target pixels.
 //
 // alignedDist returns 1.0 (worst) if cfg.Renderer or cfg.Pixelator is absent
 // or if rendering fails.
@@ -155,23 +159,57 @@ func alignedDist(ctx context.Context, cand string, target *image.RGBA, cfg unpix
 			imutil.Compose(pad, ink, px, py)
 
 			cPx := cfg.Pixelator.Pixelate(pad, 0, 0)
-			cw := cPx.Bounds().Dx()
-			ch := cPx.Bounds().Dy()
-			if cw > tw || ch > th {
+			if cPx.Bounds().Dx() > tw || cPx.Bounds().Dy() > th {
 				continue
 			}
+			if d := minPositionDist(ctx, canvas, cPx, target, m); d < best {
+				best = d
+			}
+		}
+	}
+	return best
+}
 
-			for ox := 0; ox+cw <= tw && ox <= alignPosRange; ox += alignPosStep {
-				for oy := 0; oy+ch <= th && oy <= alignPosRange; oy += alignPosStep {
-					if ctx.Err() != nil {
-						return best
-					}
-					imutil.FillWhite(canvas)
-					imutil.Compose(canvas, cPx, ox, oy)
-					if d := m.Compare(canvas, target); d < best {
-						best = d
-					}
-				}
+// minPositionDist slides the pixelated candidate cPx over the top-left region of
+// target (within alignPosRange) and returns the smallest metric distance found,
+// using a coarse-to-fine search: a full sweep at alignPosStep, then a single-pixel
+// refinement in a ±(alignPosStep-1) window around the coarse optimum. This reaches
+// single-pixel alignment — needed when a candidate's ink sits between coarse grid
+// samples (e.g. an odd-pixel offset) — at roughly coarse-sweep cost, instead of the
+// ~4× cost of a single-pixel sweep everywhere. canvas is a reusable scratch buffer
+// the size of target, overwritten on each probe.
+func minPositionDist(ctx context.Context, canvas, cPx, target *image.RGBA, m unpixel.Metric) float64 {
+	tw, th := target.Bounds().Dx(), target.Bounds().Dy()
+	cw, ch := cPx.Bounds().Dx(), cPx.Bounds().Dy()
+
+	probe := func(ox, oy int) float64 {
+		imutil.FillWhite(canvas)
+		imutil.Compose(canvas, cPx, ox, oy)
+		return m.Compare(canvas, target)
+	}
+
+	// Coarse sweep: record both the best distance and where it occurred.
+	best, bx, by := 1.0, 0, 0
+	for ox := 0; ox+cw <= tw && ox <= alignPosRange; ox += alignPosStep {
+		for oy := 0; oy+ch <= th && oy <= alignPosRange; oy += alignPosStep {
+			if ctx.Err() != nil {
+				return best
+			}
+			if d := probe(ox, oy); d < best {
+				best, bx, by = d, ox, oy
+			}
+		}
+	}
+
+	// Fine refinement: every integer offset in a ±(alignPosStep-1) window around the
+	// coarse optimum, so the true sub-coarse-step alignment is not missed.
+	for ox := max(0, bx-alignPosStep+1); ox <= bx+alignPosStep-1 && ox+cw <= tw && ox <= alignPosRange; ox++ {
+		for oy := max(0, by-alignPosStep+1); oy <= by+alignPosStep-1 && oy+ch <= th && oy <= alignPosRange; oy++ {
+			if ctx.Err() != nil {
+				return best
+			}
+			if d := probe(ox, oy); d < best {
+				best = d
 			}
 		}
 	}

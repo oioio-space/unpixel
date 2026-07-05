@@ -7,7 +7,7 @@ substitutions) and calls `unpixel.Verify` with the image's calibrated config.
 A **win** = truth is rank 1 AND Match=true. Machine-readable counterpart:
 `benchmarks/verify/run-*.json`.
 
-## Verify spike run 20260705T114519
+## Verify spike run 20260705T120756
 
 ### sick corpus
 
@@ -28,7 +28,7 @@ Win rate: **10 / 10** (truth rank-1 AND Match=true)
 
 ### context corpus
 
-Win rate: **5 / 9** (truth rank-1 AND Match=true)
+Win rate: **6 / 9** (truth rank-1 AND Match=true)
 
 | image | truth | truthDist | Match | rank | bestDecoyDist | margin | win | note |
 |---|---|---|---|---|---|---|---|---|
@@ -39,12 +39,12 @@ Win rate: **5 / 9** (truth rank-1 AND Match=true)
 | ctx_label_secret | `X7kQ9m` | 0.0030 | true | 1 | 0.0030 | 0.0000 | **true** |  |
 | ctx_varfont_wght600 | `Tr0ub4dor` | 0.0535 | true | 3 | 0.0401 | -0.0134 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
 | ctx_varfont_wght750 | `G4te2024` | 0.5123 | false | 6 | 0.4982 | -0.0140 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
-| ctx_sameline_block10 | `r00t` | 0.0714 | true | 2 | 0.0417 | -0.0298 | **false** |  |
+| ctx_sameline_block10 | `r00t` | 0.0000 | true | 1 | 0.0000 | 0.0000 | **true** |  |
 | ctx_crossimg_wght700 | `Secret7` | 0.0636 | true | 1 | 0.0636 | 0.0000 | **true** | font "Nunito" not bundled → Liberation Sans fallback |
 
 ### Conclusions
 
 **sick** (10 images): win-rate = 10/10 → propose/verify CAN discriminate on ALL images.
 
-**context** (9 images): win-rate = 5/9 → propose/verify CAN discriminate on 5/9 images.
+**context** (9 images): win-rate = 6/9 → propose/verify CAN discriminate on 6/9 images.
 

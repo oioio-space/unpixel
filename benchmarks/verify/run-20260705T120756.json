@@ -1,5 +1,5 @@
 {
-  "timestamp": "20260705T114519",
+  "timestamp": "20260705T120756",
   "results": [
     {
       "corpus": "sick",
@@ -194,12 +194,12 @@
       "corpus": "context",
       "image": "ctx_sameline_block10",
       "truth": "r00t",
-      "truth_dist": 0.07142857142857142,
+      "truth_dist": 0,
       "truth_match": true,
-      "truth_rank": 2,
-      "best_decoy_dist": 0.041666666666666664,
-      "margin": -0.02976190476190476,
-      "win": false
+      "truth_rank": 1,
+      "best_decoy_dist": 0,
+      "margin": 0,
+      "win": true
     },
     {
       "corpus": "context",

@@ -259,15 +259,22 @@ ne le touche pas, donc **panel 17/17 inaffecté par construction**. Coût : le f
 fait plus d'itérations de phase à bloc≤16 (bloc=8 : ×16 sur la boucle de phase), payé seulement
 quand le chemin pipeline manque ; hot-path Recover intact. Real hello-world (bloc 32) inchangé.
 
-**Levier suivant mesuré, NON retenu (coût) — position fine + coarse-to-fine.** J'ai testé
-`alignPosStep` 4→2 (glissement de position plus fin) : `verifymeasure` montre **context 5/9 → 6/9**
-(`ctx_sameline_block10` « r00t » 0.0714→**0.0000** rang-1, gain strict, zéro régression), MAIS le
-verify réel bloc-32 passe de ~8 s à ~26 s (positions 289→1089, ~3× sur CHAQUE candidat du fallback).
-**Reverté** : une taxe ×3 permanente sur tout verify d'image réelle pour +1 fixture n'est pas un bon
-défaut. La bonne solution (à implémenter proprement) est un **alignement coarse-to-fine** : balayage
-grossier (step 4) puis raffinement ±3 px (step 1) autour du meilleur — précision step-1 au coût
-≈step-4, récupérant r00t sans la taxe. Documenté comme optimisation suivante ; r00t est récupérable,
-juste pas au prix d'un step-2 global.
+### Alignement position coarse-to-fine — MUR CASSÉ à coût quasi-nul ✅
+
+Le glissement de position d'`alignedDist` (`alignPosStep=4`) manquait les optima sur offset
+sous-grille (comme le fix de phase, mais pour la position). Un `alignPosStep=2` global récupérait
+`ctx_sameline_block10` « r00t » (0.0714→0.0000) mais **triplait** la latence verify (positions
+289→1089 par candidat : hello-world 8 s→26 s). Retenu à la place : **recherche coarse-to-fine**
+(`minPositionDist`) — balayage grossier au pas 4, puis raffinement pixel-par-pixel dans une fenêtre
+±3 autour de l'optimum grossier. **Précision sous-pixel au coût ≈ balayage grossier** (289+49 vs
+1089 sondes/phase).
+
+**Mesuré** : `verifymeasure` **context 5/9 → 6/9** (r00t 0.0000 rang-1, gain strict, zéro régression,
+sick 10/10 conservé) ET hello-world verify **8.6 s** (vs 26 s en step-2 global — la latence step-4 est
+préservée). Le meilleur des deux : +1 récup ET pas de taxe perf. Gardé par
+`TestMinPositionDist_RefinesOddOffset` (prouve que le raffinement atteint un optimum hors-grille).
+Technique standard (pyramide/coarse-to-fine) appliquée à l'alignement — amélioration sur le
+balayage-grille brute-force.
 
 ## État du programme (2026-07-05)
 

@@ -1413,3 +1413,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `4e79e5b` 2026-07-05 — refactor(verify): lift real-redaction crop into unpixel.WithCrop _(7 fichiers)_
 - `18b47a3` 2026-07-05 — docs(plan): wild Depix mosaics are a forward-model fidelity wall, not search _(2 fichiers)_
 - `a549abe` 2026-07-05 — fix(verify): sub-block phase alignment for small blocks — sick 8/10 to 10/10 _(7 fichiers)_
+- `11c95d7` 2026-07-05 — docs(plan): finer position alignment recovers r00t but taxes verify 3x — coarse-to-fine follow-up _(2 fichiers)_

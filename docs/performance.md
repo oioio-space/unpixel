@@ -160,6 +160,9 @@ scripts/gotest-caged.sh go test -run '^$' \
 The shipped speedups are algorithmic and structural, not SIMD: render LRU + prefix
 memoization, pooled font faces, metric early-exit, parallel offset discovery and
 intra-node search with a deterministic merge, FastBlur, and the monospace fast-path,
-and now PGO on the production binary (~5–11% on the hot loop).
+PGO on the production binary (~5–11% on the hot loop), and a **coarse-to-fine
+position search** in the verify-time alignment (`minPositionDist`) that reaches
+single-pixel alignment accuracy at coarse-sweep cost — recovering off-grid
+redactions without the ~3× cost of a full fine sweep.
 See [`PROGRESS.md`](../PROGRESS.md) and [`benchmarks/quality-history.md`](../benchmarks/quality-history.md)
 for the version-by-version record.
