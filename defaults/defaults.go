@@ -49,6 +49,18 @@ import (
 	"github.com/oioio-space/unpixel/internal/secrets"
 )
 
+// alignPhaseStep is the sub-block phase increment used by alignedDist. Matches
+// the bestDistance test sweep: at block=32 this gives 4 phase values per axis
+// (0, 8, 16, 24); at block ≤ 8 only phase 0 is tried.
+const alignPhaseStep = 8
+
+// alignPosStep is the pixel-position slide increment used by alignedDist.
+const alignPosStep = 4
+
+// alignPosRange is the maximum slide distance (inclusive) in each axis.
+// Matches the bestDistance test sweep: ox/oy ∈ {0, 4, 8, …, 64}.
+const alignPosRange = 64
+
 // blurDefaultBeamWidth is the beam width RecoverBlurred uses when the caller
 // has not supplied WithStrategy or WithBeamWidth. 32 comfortably exceeds the
 // typical blur charset (~10–27 chars), giving full per-level coverage for
@@ -71,9 +83,112 @@ func init() {
 	unpixel.DefaultVerifyImageCore = verifyImageCore
 }
 
-// verifyCore implements the DefaultVerifyCore hook. It builds a CachingScorer
-// from the already-prepped rgba and cfg, discovers valid grid offsets, and
-// scores each candidate at its best (minimum-distance) offset.
+// alignTolerance is the per-pixel YIQ colour-difference threshold used by
+// alignedDist. It matches the reference bestDistance test metric
+// (metric.NewPixelmatch(0.1)) — lenient enough to tolerate the small
+// floating-point rounding differences that arise when comparing our renderer's
+// linear-light block averages to a GIMP/GEGL-generated target. The in-pipeline
+// metric (PixelmatchFast at 0.02) is too strict for this cross-renderer context.
+const alignTolerance = 0.10
+
+// alignedDist renders cand with cfg's renderer and style, crops to its tight
+// ink bounds, then sweeps sub-block phase shifts and pixel-position slides,
+// returning the minimum metric distance found. It mirrors the exhaustive
+// alignment used by the direct model (see bestDistance in real_mosaic_test.go)
+// so that verifyCore can confirm candidates on real redactions whose block-grid
+// origin and text position differ from the engine's default pipeline geometry.
+//
+// The metric used is metric.NewPixelmatch(alignTolerance) — the faithful
+// AA-excluding comparison at a threshold matched to the reference implementation.
+// This is intentionally independent of cfg.Metric: the configured metric is
+// tuned for in-pipeline comparison (our renderer against itself); alignedDist
+// compares our renderer against a real external image, where cross-renderer
+// colour differences require a looser per-pixel tolerance.
+//
+// Cost is bounded: ceil(block/alignPhaseStep)² × ceil(alignPosRange/alignPosStep)²
+// comparisons per candidate — at block=32 that is 16 × 289 = 4 624 metric calls,
+// each operating on a canvas of target.Bounds() pixels.
+//
+// alignedDist returns 1.0 (worst) if cfg.Renderer or cfg.Pixelator is absent
+// or if rendering fails.
+func alignedDist(ctx context.Context, cand string, target *image.RGBA, cfg unpixel.Config) float64 {
+	if cfg.Renderer == nil || cfg.Pixelator == nil {
+		return 1.0
+	}
+
+	img, sentinelX, err := cfg.Renderer.Render(cand, cfg.Style)
+	if err != nil {
+		return 1.0
+	}
+
+	// Crop to tight ink bounds so that padding added by applyDefaults (PaddingTop,
+	// PaddingLeft) does not inflate the candidate dimensions.
+	bb := imutil.InkBounds(img, sentinelX)
+	ink := imutil.Crop(img, bb.Min.X, bb.Min.Y, bb.Dx(), bb.Dy())
+
+	block := max(1, cfg.BlockSize)
+	tw := target.Bounds().Dx()
+	th := target.Bounds().Dy()
+
+	// Fixed metric for cross-renderer comparison: lenient AA-excluding pixelmatch,
+	// same as the reference bestDistance implementation.
+	m := metric.NewPixelmatch(alignTolerance)
+
+	// Allocate the canvas once; reuse it across all (phase, position) pairs.
+	canvas := image.NewRGBA(image.Rect(0, 0, tw, th))
+
+	best := 1.0
+	for px := 0; px < block; px += alignPhaseStep {
+		for py := 0; py < block; py += alignPhaseStep {
+			if ctx.Err() != nil {
+				return best
+			}
+			// Shift the pixelation grid phase: prepend (px, py) pixels of white
+			// so the pixelation grid origin is displaced relative to the ink.
+			pad := image.NewRGBA(image.Rect(0, 0, ink.Bounds().Dx()+px, ink.Bounds().Dy()+py))
+			imutil.FillWhite(pad)
+			imutil.Compose(pad, ink, px, py)
+
+			cPx := cfg.Pixelator.Pixelate(pad, 0, 0)
+			cw := cPx.Bounds().Dx()
+			ch := cPx.Bounds().Dy()
+			if cw > tw || ch > th {
+				continue
+			}
+
+			for ox := 0; ox+cw <= tw && ox <= alignPosRange; ox += alignPosStep {
+				for oy := 0; oy+ch <= th && oy <= alignPosRange; oy += alignPosStep {
+					if ctx.Err() != nil {
+						return best
+					}
+					imutil.FillWhite(canvas)
+					imutil.Compose(canvas, cPx, ox, oy)
+					if d := m.Compare(canvas, target); d < best {
+						best = d
+					}
+				}
+			}
+		}
+	}
+	return best
+}
+
+// verifyCore implements the DefaultVerifyCore hook. It scores each candidate
+// via two complementary paths and takes the minimum distance:
+//
+//  1. Pipeline path: the existing render→BlueMargin→crop→pad→pixelate→LeftEdge
+//     pipeline (TotalScore) at the best discovered block-grid offset. This
+//     handles tight, pipeline-generated fixtures where the candidate's geometry
+//     exactly matches the engine's crop/pad geometry.
+//
+//  2. Alignment path (alignedDist): render → ink-crop → sub-block-phase shift
+//     + pixel-position slide. This handles real redactions whose block-grid
+//     origin is not at pixel (0,0) and whose textual content is not at the
+//     image's top-left corner — the geometry that verifyCore previously missed.
+//
+// Taking the min of both paths ensures that candidates correct for either
+// geometry class score near 0, and that adding the alignment path cannot raise
+// any existing passing distance.
 func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candidates []string) ([]unpixel.Verdict, error) {
 	scorer := search.NewCachingScorer(search.NewPipelineScorer(rgba, cfg), cfg.CacheSize)
 	offsets := search.DiscoverOffsets(ctx, scorer, cfg, func(unpixel.Progress) {})
@@ -85,9 +200,24 @@ func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candi
 
 	verdicts := make([]unpixel.Verdict, len(candidates))
 	for i, cand := range candidates {
+		// Pipeline path: best block-grid offset.
 		dist := 1.0
 		for _, off := range offsets {
 			if d := scorer.TotalScore(ctx, cand, off); d < dist {
+				dist = d
+			}
+		}
+		// Alignment path: ink-crop + phase/position slide, run ONLY as a fallback
+		// when the fast pipeline path did not already confirm a match. This keeps
+		// the common/synthetic case (pipeline geometry) free of the ~block/8² ×
+		// (range/step)² comparisons alignedDist costs, paying them only on real
+		// external redactions whose geometry defeats the pipeline path. Its result
+		// is applied only when it is itself a genuine physical confirmation (below
+		// the match threshold): the lenient cross-renderer metric can coincidentally
+		// lower near-miss candidates on small images, so gating on the threshold
+		// makes it a confirmer only, never a discriminator between near-misses.
+		if dist >= unpixel.VerifyMatchThreshold {
+			if d := alignedDist(ctx, cand, rgba, cfg); d < unpixel.VerifyMatchThreshold && d < dist {
 				dist = d
 			}
 		}

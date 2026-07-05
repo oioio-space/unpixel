@@ -352,3 +352,61 @@ func TestLum601(t *testing.T) {
 		})
 	}
 }
+
+// --- InkBounds ---
+
+// TestInkBounds_findsInk confirms that InkBounds returns the tight bounding box
+// of dark pixels within the [0, sentinelX) columns of a white image with a
+// single dark pixel.
+func TestInkBounds_findsInk(t *testing.T) {
+	img := newWhite(20, 10)
+	img.SetRGBA(5, 3, color.RGBA{R: 0, G: 0, B: 0, A: 255}) // dark pixel at (5,3)
+
+	got := imutil.InkBounds(img, 20)
+	want := image.Rect(5, 3, 6, 4)
+	if got != want {
+		t.Errorf("InkBounds = %v, want %v", got, want)
+	}
+}
+
+// TestInkBounds_respectsSentinelX confirms that pixels at or beyond sentinelX
+// are excluded from the ink search even when they are dark.
+func TestInkBounds_respectsSentinelX(t *testing.T) {
+	img := newWhite(20, 10)
+	img.SetRGBA(3, 3, color.RGBA{R: 0, G: 0, B: 0, A: 255})  // inside sentinel
+	img.SetRGBA(15, 3, color.RGBA{R: 0, G: 0, B: 0, A: 255}) // beyond sentinel (x=10)
+
+	got := imutil.InkBounds(img, 10) // sentinel at x=10
+	want := image.Rect(3, 3, 4, 4)
+	if got != want {
+		t.Errorf("InkBounds(sentinelX=10) = %v, want %v (pixel beyond sentinel must be excluded)", got, want)
+	}
+}
+
+// TestInkBounds_allWhiteReturnsUnit confirms that a fully-white image (no ink)
+// returns image.Rect(0, 0, 1, 1) so callers can always crop without an empty-
+// bounds guard.
+func TestInkBounds_allWhiteReturnsUnit(t *testing.T) {
+	img := newWhite(20, 10)
+	got := imutil.InkBounds(img, 20)
+	want := image.Rect(0, 0, 1, 1)
+	if got != want {
+		t.Errorf("InkBounds(all white) = %v, want %v", got, want)
+	}
+}
+
+// TestInkBounds_multiplePixels confirms that InkBounds returns the union
+// bounding box when multiple dark pixels are scattered across the image.
+func TestInkBounds_multiplePixels(t *testing.T) {
+	img := newWhite(30, 20)
+	img.SetRGBA(2, 5, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	img.SetRGBA(10, 1, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+	img.SetRGBA(7, 15, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+
+	got := imutil.InkBounds(img, 30)
+	// x: [2, 10+1) = [2, 11), y: [1, 15+1) = [1, 16)
+	want := image.Rect(2, 1, 11, 16)
+	if got != want {
+		t.Errorf("InkBounds(scattered pixels) = %v, want %v", got, want)
+	}
+}

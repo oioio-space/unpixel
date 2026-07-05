@@ -225,3 +225,29 @@ func Margins(img *image.RGBA) int {
 	}
 	return 0
 }
+
+// InkBounds returns the bounding box of dark (luminance < 240) pixels within
+// the [0, sentinelX) columns of img. It returns image.Rect(0, 0, 1, 1) when no
+// ink pixel is found, so callers can always crop without an empty-bounds guard.
+//
+// sentinelX is the renderer-provided x-coordinate of the blue sentinel pixel;
+// all rendered ink lies strictly to its left. Pass img.Bounds().Dx() when no
+// sentinel is available.
+func InkBounds(img *image.RGBA, sentinelX int) image.Rectangle {
+	b := img.Bounds()
+	sx := min(sentinelX, b.Dx())
+	x0, y0, x1, y1 := sx, b.Dy(), 0, 0
+	for y := range b.Dy() {
+		for x := range sx {
+			c := img.RGBAAt(x, y)
+			if Lum601(c.R, c.G, c.B) < 240 {
+				x0, y0 = min(x0, x), min(y0, y)
+				x1, y1 = max(x1, x+1), max(y1, y+1)
+			}
+		}
+	}
+	if x1 <= x0 || y1 <= y0 {
+		return image.Rect(0, 0, 1, 1)
+	}
+	return image.Rect(x0, y0, x1, y1)
+}
