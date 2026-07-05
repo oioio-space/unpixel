@@ -1402,3 +1402,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `a22ad87` 2026-07-05 — fix(search): exclude whitespace from offset discovery — correct phase on margined images (P3b) _(4 fichiers)_
 - `1706083` 2026-07-05 — docs(plan): P3b progress — offset-selection root cause fixed, residual isolated _(2 fichiers)_
 - `6cac184` 2026-07-05 — feat(refmatch): WithRefXScale — anisotropy support in the reference decoder (P3b) _(4 fichiers)_
+- `39e4703` 2026-07-05 — fix(mosaictext): update measureAdvancesByCumulative callers for the xScale param _(5 fichiers)_

@@ -153,6 +153,27 @@ comme le fait `bestDistance`). Câbler `DecodeReference`/refmatch avec la config
 entièrement pur-Go, sans ML. Le mur « real = fidélité du modèle » est **définitivement réfuté** :
 le modèle atteint 0.0000, c'est un mur de **méthode de scoring de recherche**, cartographié de bout en bout.
 
+### P3b — CULMINATION : le premier réel est récupérable, mécanisme démontré ✅
+Test permanent `TestHelloWorld_RecoverableByProposeVerify` (passe). Chaîne complète, mesurée :
+- Décodage **par-caractère** (monospace/reference/+LM) = **info-affamé** à block=32 (glyphe ≈2-3
+  colonnes) → tous garbage (dist 0.017-0.026).
+- Scoring **chaîne-entière** avec alignement exhaustif (crop-encre + glissement position/phase,
+  comme le modèle direct) → confirme **"Hello World !" à 0.0000** : la redaction EST réversible.
+- MAIS **égalité sémantique** : "Hello Norld !" aussi à 0.0000 (W≈N en moyenne de bloc). Seul un
+  **prior de langue** sépare le mot réel du non-mot.
+
+**Conclusion démontrée** : le chemin récupérable = **proposeur génératif (LLM propose des mots
+plausibles) + vérif physique chaîne-entière (confirme ~0) + prior sémantique (départage les
+égalités)**. C'est exactement le différenciateur LLM-propose/vérifie (#3), **prouvé sur une image
+réelle**. « real = mismatch de modèle » définitivement réfuté.
+
+**Gap production concret (prochain pas le plus rentable)** : `unpixel.Verify`/`verifyCore` n'aligne
+que sur les offsets de grille-bloc (via `TotalScore`), PAS le crop-encre + glissement de position
+qu'utilise le modèle direct — donc aujourd'hui Verify score ~0.63 pour *tous* les candidats sur
+cette redaction plus large. **Donner à `verifyCore` cet alignement exhaustif fait fonctionner la
+boucle LLM-propose/vérifie sur les images réelles** (pas seulement hello-world) — le levier le plus
+élevé pour le différenciateur stratégique, entièrement pur-Go.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
