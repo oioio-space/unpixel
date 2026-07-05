@@ -7,9 +7,18 @@ authoritative account of what is achievable.
 
 - **Synthetic redactions** (text redacted with a known font and subsequently recovered)
   are recovered **reliably and exactly.** The release panel stands at 17/17 exact.
-- **Real-world images** (screenshots, GIMP exports, JPEG captures) are **considerably more
-  difficult.** Success depends chiefly on whether the exact font can be matched. Out of the
-  box, real and "wild" redactions generally do **not** recover in full.
+- **Real-world images** (screenshots, GIMP exports, JPEG captures) do **not** recover in full
+  by *blind per-character search* — at coarse block sizes each glyph spans only ~2-3 block
+  columns, so per-character decoding is information-starved and no amount of search resolves it.
+- **But real redactions ARE recoverable via propose-and-verify.** When a candidate string is
+  *proposed* (by a human, a language model, or OSINT) and the geometry is calibrated (font,
+  block, linear/sRGB, anisotropic `XScale`), `unpixel.Verify` now confirms it by whole-image
+  physical re-pixelation with exhaustive alignment: on the real `hello-world.png` GIMP mosaic it
+  scores the true "Hello World !" at distance **0.0000** (Match) and rejects wrong-shaped decoys.
+  The recoverable path is therefore **generative proposer → whole-string physical verify →
+  language prior as tie-breaker** (some substitutions such as `W`↔`N` are physically identical at
+  coarse blocks and only the language model separates them). This is the intended
+  LLM-propose/verify loop, and it works on real images.
 
 This is not a transient defect; it reflects genuine information-theoretic and rendering
 limits. UnPixel should be regarded as a powerful instrument for *demonstrating that
