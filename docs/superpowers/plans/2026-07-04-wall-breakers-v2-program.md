@@ -118,6 +118,24 @@ avance-cellule cohérente avec XScale + seuil), pas un réglage à un bouton. Co
 effort dédié, pas un quick-win. Le modèle direct atteignant 0.0000, la limite est bien la
 **recherche/segmentation**, pas le modèle.
 
+### P3b — attaque du mur, progrès vérifié (commit a22ad87)
+Diagnostic instrumenté (scores par-cellule mesurés) : le blocage n'était **ni le seuil ni le
+scorer marginal** mais la **sélection d'offset**. `DiscoverOffsets` scorait chaque origine par
+`min sur charset du score mono-caractère` ; un glyphe **blanc** (espace) matche n'importe quelle
+zone blanche → score ≈0 à *toutes* les origines, donc sur une image à marges blanches (captures
+réelles) toutes les origines s'égalisent à 0 et la vraie phase est noyée (hello-world : offset
+trouvé (31,15) au lieu de (0,0)). **Fix livré, vérifié, gratuit** : exclure les runes
+`unicode.IsSpace` du probe (seuls les glyphes encrés portent l'info de phase) — panel 17/17,
+matrix inchangée, benchstat neutre, test unitaire. Effet : le 'H' vérité passe 0.4286 → 0.3333.
+
+**Résidu isolé (prochain pas précis)** : hello-world donne encore "H". La cause résiduelle est
+que le score mono-caractère est comparé contre **toute la bande de 13 glyphes** — un glyphe seul
+ne matche jamais une ligne multi-caractères (H=0.33 > seuil 0.25), donc la vraie origine ne
+survit pas et la cellule 0 n'est pas admise. Le prochain pas est un **scoring borné à la cellule**
+(comparer chaque cellule contre sa seule région de bloc, pas l'image entière) + phase exacte.
+C'est un effort coordonné dédié, pas un bouton — mais le chemin est maintenant précisément cartographié
+et le mur « real = modèle » est réfuté : c'est un mur de **recherche/segmentation**, réparable en pur-Go.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
