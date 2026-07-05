@@ -101,7 +101,7 @@ func TestColumnEmissionDID_CorrectGlyphBest(t *testing.T) {
 	pix := pixelate.NewBlockAverage(block)
 	charset := []rune("abcdefghijklmnopqrstuvwxyz ")
 
-	advances := measureAdvancesByCumulative(r, charset, fs)
+	advances := measureAdvancesByCumulative(r, charset, fs, 0)
 	t.Logf("'a' advance=%d 'b' advance=%d 'c' advance=%d", advances['a'], advances['b'], advances['c'])
 
 	glyphImgs := make(map[rune]*image.RGBA, len(charset))
@@ -272,7 +272,7 @@ func TestColumnEmissionContextDID_CorrectGlyphBest(t *testing.T) {
 	pix := pixelate.NewBlockAverage(block)
 	charset := []rune("abcdefghijklmnopqrstuvwxyz ")
 
-	advances := measureAdvancesByCumulative(r, charset, fs)
+	advances := measureAdvancesByCumulative(r, charset, fs, 0)
 
 	glyphImgs := make(map[rune]*image.RGBA, len(charset))
 	for _, ch := range charset {

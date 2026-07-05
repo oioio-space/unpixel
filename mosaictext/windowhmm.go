@@ -405,7 +405,7 @@ func DecodeWindowHMM(ctx context.Context, img image.Image, opts ...WHMMOption) (
 			pd := task.pair
 			fs := task.fs
 
-			advances := measureAdvancesByCumulative(pd.fe.r, charRunes, fs)
+			advances := measureAdvancesByCumulative(pd.fe.r, charRunes, fs, 0)
 			if len(advances) == 0 {
 				results[task.ordinal] = res
 				return

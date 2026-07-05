@@ -440,7 +440,7 @@ func DecodeTrainedHMM(ctx context.Context, img image.Image, opts ...THMMOption) 
 			fs := fsCands[0] // use first matching font size
 
 			// Measure per-glyph advances.
-			advances := measureAdvancesByCumulative(fe.r, charRunes, fs)
+			advances := measureAdvancesByCumulative(fe.r, charRunes, fs, 0)
 			if len(advances) == 0 {
 				results[task.ordinal] = res
 				return

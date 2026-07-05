@@ -418,7 +418,7 @@ func decodeOneDID(
 
 	// Measure per-glyph pixel advances via cumulative prefix renders.
 	charRunes := []rune(charset)
-	advances := measureAdvancesByCumulative(r, charRunes, fs)
+	advances := measureAdvancesByCumulative(r, charRunes, fs, 0)
 	if len(advances) == 0 {
 		return "", math.Inf(1), 0, 0
 	}
