@@ -212,6 +212,26 @@ la bande. Prouvé au niveau bibliothèque par `TestVerify_WithCrop_RealHelloWorl
 non-croppée → vérité 0.0000, décoy rejeté) ; `TestVerify_RealHelloWorld` (crop manuel) et
 `TestVerifyWithHints_RealHelloWorld` (via MCP) inchangés à 0.0000.
 
+### Wild (Depix mosaïques) — diagnostic mesuré : mur de FIDÉLITÉ, pas de recherche
+
+Ayant rendu propose/vérifie + `WithCrop` opérationnel sur le réel, j'ai tenté le corpus `wild`
+mosaïque avec le MÊME playbook. Deux images ont une vérité *phrase* (`m4`/`m5` = « Hello from the
+other side », benchmark Depix Notepad/Sublime) — la forme exacte où propose/vérifie gagne.
+
+Géométrie (probe jeté) : ce sont de **minuscules snippets déjà croppés** (m4 205×15, m5 250×20,
+bloc≈5), pas de crop nécessaire. J'ai balayé m4 sur **9 polices bundled × {sRGB, linéaire} × {14,16,18,20}pt**
+via `unpixel.Verify`. **Résultat : 0 config discrimine ; meilleure distance-vérité = 0.6699**
+(JetBrains Mono, linéaire, 14pt) — et même pas le minimum (un décoy score plus bas).
+
+**Conclusion (actionnable)** : 0.67 (vs 0.0000 sur hello-world) n'est **pas** un mismatch de police
+marginal (~0.2–0.3) mais un **échec de fidélité du modèle direct** : le modèle ne reproduit pas
+l'image. Cause = (a) police Depix (Consolas/Lucida Console) hors bundle, ET (b) **AA sous-pixel
+ClearType** cuit dans la capture d'écran avant pixelisation — nos moyennes de bloc (rendu gris propre
+→ moyenne) ne peuvent pas matcher des moyennes de pixels ClearType colorés. C'est un mur **plus
+profond** que hello-world (capture GIMP grise propre) : il exige la police exacte + un modèle d'AA
+d'écran, ou le tier ML (calibration depuis le visible), **pas** plus de recherche/crop. Confirme et
+précise [[font-prior-vfr-mismatch]] et l'operating-envelope. Rien commité (probe jeté) ; findings ici.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :

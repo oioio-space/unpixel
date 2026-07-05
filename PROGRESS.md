@@ -1410,3 +1410,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `7eb3807` 2026-07-05 — feat(measure): propose/verify spike on sick+context (P1) — the decisive experiment _(5 fichiers)_
 - `2bd3b4d` 2026-07-05 — feat(mcp): recover real redactions end-to-end via unpixel_verify_candidates _(8 fichiers)_
 - `25ffdf5` 2026-07-05 — docs(mcp): note real-image recovery via verify_candidates calibration hints _(2 fichiers)_
+- `4e79e5b` 2026-07-05 — refactor(verify): lift real-redaction crop into unpixel.WithCrop _(7 fichiers)_
