@@ -259,6 +259,16 @@ ne le touche pas, donc **panel 17/17 inaffecté par construction**. Coût : le f
 fait plus d'itérations de phase à bloc≤16 (bloc=8 : ×16 sur la boucle de phase), payé seulement
 quand le chemin pipeline manque ; hot-path Recover intact. Real hello-world (bloc 32) inchangé.
 
+**Levier suivant mesuré, NON retenu (coût) — position fine + coarse-to-fine.** J'ai testé
+`alignPosStep` 4→2 (glissement de position plus fin) : `verifymeasure` montre **context 5/9 → 6/9**
+(`ctx_sameline_block10` « r00t » 0.0714→**0.0000** rang-1, gain strict, zéro régression), MAIS le
+verify réel bloc-32 passe de ~8 s à ~26 s (positions 289→1089, ~3× sur CHAQUE candidat du fallback).
+**Reverté** : une taxe ×3 permanente sur tout verify d'image réelle pour +1 fixture n'est pas un bon
+défaut. La bonne solution (à implémenter proprement) est un **alignement coarse-to-fine** : balayage
+grossier (step 4) puis raffinement ±3 px (step 1) autour du meilleur — précision step-1 au coût
+≈step-4, récupérant r00t sans la taxe. Documenté comme optimisation suivante ; r00t est récupérable,
+juste pas au prix d'un step-2 global.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
