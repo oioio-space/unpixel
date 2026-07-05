@@ -81,3 +81,62 @@ func TestVerify_RealHelloWorld(t *testing.T) {
 		t.Errorf("decoy %q: Match=true (distance %.4f), want no-match", "HELLO WORLD !", decoy.Distance)
 	}
 }
+
+// TestVerify_WithCrop_RealHelloWorld confirms the library-level WithCrop option
+// recovers the real redaction from the FULL, uncropped screenshot: Verify itself
+// crops to the given band (with an alignment margin) before scoring. This is the
+// generalisation of the crop that the MCP verify tool previously did in its own
+// wrapper — now any Verify caller (CLI, library, MCP) can pass the band directly.
+//
+// Without WithCrop the surrounding white margins dilute the whole-image distance
+// and the truth does not discriminate (measured; see the plan doc P1/P3b); with
+// it, the truth confirms at ≈0 and the wrong-shape decoy is rejected.
+func TestVerify_WithCrop_RealHelloWorld(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real-mosaic WithCrop Verify integration in -short mode")
+	}
+
+	f, err := os.Open(realMosaicSample)
+	if err != nil {
+		t.Fatalf("open %s: %v", realMosaicSample, err)
+	}
+	defer func() { _ = f.Close() }()
+	src, err := decodePNG(f)
+	if err != nil {
+		t.Fatalf("decode %s: %v", realMosaicSample, err)
+	}
+
+	// Pass the FULL screenshot plus the band as WithCrop — no manual pre-crop.
+	band := contentBounds(src)
+	r := notoMonoRenderer(t)
+
+	vs, err := unpixel.Verify(
+		t.Context(),
+		src,
+		[]string{"Hello World !", "HELLO WORLD !"},
+		unpixel.WithCrop(band),
+		unpixel.WithRenderer(r),
+		unpixel.WithPixelator(defaults.LinearBlockAverage(32)),
+		unpixel.WithBlockSize(32),
+		unpixel.WithStyle(unpixel.Style{FontSize: 124, XScale: 1.06}),
+	)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+
+	byText := make(map[string]unpixel.Verdict, len(vs))
+	for _, v := range vs {
+		byText[v.Text] = v
+	}
+
+	const τ = unpixel.VerifyMatchThreshold
+	truth := byText["Hello World !"]
+	t.Logf("truth %q: distance=%.4f match=%v", "Hello World !", truth.Distance, truth.Match)
+	if truth.Distance > τ || !truth.Match {
+		t.Errorf("truth %q: distance %.4f match=%v, want Match with distance ≤ %.2f",
+			"Hello World !", truth.Distance, truth.Match, τ)
+	}
+	if decoy := byText["HELLO WORLD !"]; decoy.Match {
+		t.Errorf("decoy %q: Match=true (distance %.4f), want rejected", "HELLO WORLD !", decoy.Distance)
+	}
+}

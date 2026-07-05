@@ -60,38 +60,6 @@ func TestCropRect(t *testing.T) {
 	}
 }
 
-func TestCropForVerify(t *testing.T) {
-	src := image.NewRGBA(image.Rect(0, 0, 200, 100))
-
-	t.Run("empty crop returns image unchanged", func(t *testing.T) {
-		out, err := cropForVerify(src, image.Rectangle{})
-		if err != nil {
-			t.Fatalf("cropForVerify: %v", err)
-		}
-		if out.Bounds() != src.Bounds() {
-			t.Errorf("bounds = %v, want %v", out.Bounds(), src.Bounds())
-		}
-	})
-
-	t.Run("crop adds white margin", func(t *testing.T) {
-		crop := image.Rect(10, 10, 60, 40) // 50×30
-		out, err := cropForVerify(src, crop)
-		if err != nil {
-			t.Fatalf("cropForVerify: %v", err)
-		}
-		want := image.Rect(0, 0, crop.Dx()+verifyCropMargin.X, crop.Dy()+verifyCropMargin.Y)
-		if out.Bounds() != want {
-			t.Errorf("bounds = %v, want %v", out.Bounds(), want)
-		}
-	})
-
-	t.Run("non-intersecting crop errors", func(t *testing.T) {
-		if _, err := cropForVerify(src, image.Rect(500, 500, 520, 520)); err == nil {
-			t.Error("cropForVerify with out-of-bounds crop: want error, got nil")
-		}
-	})
-}
-
 func TestHintOptions(t *testing.T) {
 	t.Run("unknown bundled font errors", func(t *testing.T) {
 		if _, err := hintOptions(VerifyHints{Font: "No Such Font"}); err == nil {
@@ -127,6 +95,16 @@ func TestHintOptions(t *testing.T) {
 		}
 		if len(opts) != 0 {
 			t.Errorf("len(opts) = %d, want 0 (linear-light needs block_size)", len(opts))
+		}
+	})
+
+	t.Run("crop adds an option", func(t *testing.T) {
+		opts, err := hintOptions(VerifyHints{Crop: image.Rect(1, 2, 30, 40)})
+		if err != nil {
+			t.Fatalf("hintOptions: %v", err)
+		}
+		if len(opts) != 1 {
+			t.Errorf("len(opts) = %d, want 1 (crop only)", len(opts))
 		}
 	})
 }

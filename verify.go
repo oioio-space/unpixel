@@ -29,6 +29,25 @@ const (
 	maxVerifyCandidates = 256
 )
 
+// verifyCropMargin is the white border (right, bottom) added around a WithCrop
+// band before search. It gives the verifier's alignment sweep room to slide the
+// rendered candidate over the band (verifyCore aligns over a position range of
+// ~64 px) and to absorb the block-multiple padding the pixelator adds, so a tight
+// band does not clip a candidate that renders slightly wider than the observed ink.
+var verifyCropMargin = image.Pt(128, 48)
+
+// cropToBand crops rgba to band (clamped to its bounds) and pads the result with a
+// white [verifyCropMargin] border. It returns rgba unchanged when band does not
+// intersect the image.
+func cropToBand(rgba *image.RGBA, band image.Rectangle) *image.RGBA {
+	band = band.Intersect(rgba.Bounds())
+	if band.Empty() {
+		return rgba
+	}
+	sub := imutil.Crop(rgba, band.Min.X-rgba.Bounds().Min.X, band.Min.Y-rgba.Bounds().Min.Y, band.Dx(), band.Dy())
+	return imutil.PadWhite(sub, sub.Bounds().Dx()+verifyCropMargin.X, sub.Bounds().Dy()+verifyCropMargin.Y)
+}
+
 // prepareVerify runs the shared preparation prologue for the Verify family:
 // it resolves opts into a Config (enabling the auto path when neither a
 // Pixelator nor a block size is set), converts img to RGBA, auto-contrast /
@@ -50,6 +69,9 @@ func prepareVerify(img image.Image, opts []Option) (*image.RGBA, Config, error) 
 	}
 
 	rgba := imutil.ToRGBA(img)
+	if !cfg.crop.Empty() {
+		rgba = cropToBand(rgba, cfg.crop)
+	}
 	if darkBackground(rgba) {
 		rgba = invertColors(rgba)
 	}

@@ -236,6 +236,15 @@ type Config struct {
 	// WithAutoCrop; never set directly.
 	autoCrop bool
 
+	// crop, when non-empty, is an explicit redaction band (in image coordinates)
+	// to crop to — with an alignment margin — before verification. It is the
+	// explicit counterpart to autoCrop for callers that already know the band
+	// (e.g. from LocateRedaction or an external analysis step). Set via WithCrop;
+	// never set directly. The zero Rectangle means "no crop". Currently honoured
+	// by the Verify family (prepareVerify), where cropping to the band is what lets
+	// whole-string scoring discriminate the truth on a real screenshot.
+	crop image.Rectangle
+
 	// autoColorspace, when true, runs forensics.Fingerprint on the
 	// located/cropped target and selects the linear or sRGB pixelator
 	// accordingly. Falls back to the default (sRGB) when confidence < 0.5.
@@ -1894,6 +1903,19 @@ func WithL0Deblur(fns ...func(*deblur.L0Options)) Option {
 // and inflate the search region. Default off — without this option behaviour is
 // byte-identical to before.
 func WithAutoCrop() Option { return func(c *Config) { c.autoCrop = true } }
+
+// WithCrop crops the input to an explicit redaction band (in image coordinates)
+// before verification, padding it with a white margin so the verifier's alignment
+// sweep has room to slide. Unlike [WithAutoCrop] it takes the rectangle directly —
+// pass the band from [LocateRedaction] or an external analysis step (its
+// convention matches [LocateRedaction]'s returned rectangle).
+//
+// This is the lever that makes whole-string [Verify] discriminate the truth on a
+// real screenshot: without cropping, the surrounding margins dilute the
+// whole-image distance and every candidate scores alike. The zero Rectangle
+// (default) means no crop — behaviour is then byte-identical to before. Honoured
+// by the Verify family; it has no effect on [Recover].
+func WithCrop(band image.Rectangle) Option { return func(c *Config) { c.crop = band } }
 
 // WithAutoColorspace enables automatic colorspace detection for the mosaic
 // pixelator. When set, New runs forensics fingerprinting on the (possibly

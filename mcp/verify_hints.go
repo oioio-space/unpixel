@@ -19,17 +19,9 @@ import (
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/defaults"
-	"github.com/oioio-space/unpixel/internal/imutil"
 	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/rerank"
 )
-
-// verifyCropMargin is the white border (right, bottom) added around a crop before
-// verification. It gives the aligner room to slide the rendered candidate over the
-// redaction (verifyCore's alignment sweep spans up to alignPosRange≈64 px) and to
-// absorb the block-multiple padding the pixelator adds, so a tight analyze band
-// does not clip a candidate that renders slightly wider than the observed ink.
-var verifyCropMargin = image.Pt(128, 48)
 
 // VerifyHints carries the physical-calibration hints that make whole-string
 // verification work on a real redaction. The zero value reproduces the legacy
@@ -63,25 +55,22 @@ type VerifyHints struct {
 // Pick is always the lowest-distance candidate whose [unpixel.Verdict.Match] is
 // true — a physical decision independent of any language re-ranking.
 func VerifyWithHints(ctx context.Context, img image.Image, candidates []string, h VerifyHints) (VerifyReport, error) {
-	target, err := cropForVerify(img, h.Crop)
-	if err != nil {
-		return VerifyReport{}, err
-	}
-
 	opts, err := hintOptions(h)
 	if err != nil {
 		return VerifyReport{}, err
 	}
 
-	verdicts, err := unpixel.Verify(ctx, target, candidates, opts...)
+	verdicts, err := unpixel.Verify(ctx, img, candidates, opts...)
 	if err != nil {
 		return VerifyReport{}, fmt.Errorf("score candidates: %w", err)
 	}
 
 	ranked := make([]RankedCandidate, len(verdicts))
 	if h.RerankWeight > 0 {
-		// Fused order: blend physical distance with the English language prior.
-		rr, rerr := rerank.Default().Rerank(ctx, target, verdicts, lang.PriorFor(lang.English), h.RerankWeight)
+		// Fused order: blend physical distance with the English language prior. The
+		// default reranker uses only the verdicts and the language model, not the
+		// image, so the uncropped img here is fine.
+		rr, rerr := rerank.Default().Rerank(ctx, img, verdicts, lang.PriorFor(lang.English), h.RerankWeight)
 		if rerr != nil {
 			return VerifyReport{}, fmt.Errorf("rerank candidates: %w", rerr)
 		}
@@ -107,23 +96,6 @@ func VerifyWithHints(ctx context.Context, img image.Image, candidates []string, 
 	}
 	report.Pick = lowestDistanceMatch(verdicts)
 	return report, nil
-}
-
-// cropForVerify returns img (converted to RGBA) unchanged when crop is empty, or a
-// white canvas holding the cropped band at its top-left with a [verifyCropMargin]
-// border on the right and bottom. The margin gives the verifier's alignment sweep
-// room to slide and to absorb pixelator padding.
-func cropForVerify(img image.Image, crop image.Rectangle) (image.Image, error) {
-	rgba := imutil.ToRGBA(img)
-	if crop.Empty() {
-		return rgba, nil
-	}
-	crop = crop.Intersect(rgba.Bounds())
-	if crop.Empty() {
-		return nil, fmt.Errorf("crop region does not intersect the image bounds")
-	}
-	sub := imutil.Crop(rgba, crop.Min.X-rgba.Bounds().Min.X, crop.Min.Y-rgba.Bounds().Min.Y, crop.Dx(), crop.Dy())
-	return imutil.PadWhite(sub, sub.Bounds().Dx()+verifyCropMargin.X, sub.Bounds().Dy()+verifyCropMargin.Y), nil
 }
 
 // cropRect converts a [x0, y0, x1, y1] corner slice into an image.Rectangle. This
@@ -183,6 +155,9 @@ func hintOptions(h VerifyHints) ([]unpixel.Option, error) {
 	}
 	if h.LinearLight && h.BlockSize > 0 {
 		opts = append(opts, unpixel.WithPixelator(defaults.LinearBlockAverage(h.BlockSize)))
+	}
+	if !h.Crop.Empty() {
+		opts = append(opts, unpixel.WithCrop(h.Crop))
 	}
 	return opts, nil
 }

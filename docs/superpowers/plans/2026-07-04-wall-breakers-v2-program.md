@@ -202,13 +202,15 @@ vérité 0.0000, décoy rejeté) + tests unitaires blancs des helpers. `VerifyCa
 (délègue à `VerifyWithHints` — rétro-compatible, 11 appelants inchangés). Panel 17/17 préservé,
 gates verts. **Le différenciateur LLM-propose/vérifie est opérationnel en production, pur-Go, sans ML.**
 
-**Suivi identifié (revue /simplify, altitude)** : le crop-bande vit aujourd'hui dans la couche MCP
-(`cropForVerify`, canvas blanc avant `unpixel.Verify`). Plus propre serait une option racine
-`unpixel.WithCrop(image.Rectangle)` honorée *dans* `prepareVerify` (dont l'auto-crop se désactive
-dès qu'un `BlockSize` explicite est fourni — exactement le cas des hints), pour que le crop passe
-par le pipeline de prétraitement (contraste/deskew/fingerprint) et bénéficie à tout appelant (CLI,
-autres outils). Différé : le mur est cassé et vérifié tel quel ; `WithCrop` est une passe racine
-dédiée séparée (touche le chemin `Verify` partagé), pas un élargissement de ce commit.
+**Généralisation livrée (revue /simplify, altitude) ✅** : le crop-bande a été remonté de la couche
+MCP dans la **bibliothèque** — option racine `unpixel.WithCrop(image.Rectangle)` honorée dans
+`prepareVerify` (crop + marge d'alignement juste après `ToRGBA`, avant deskew/colorspace). Inerte
+quand la bande est vide → byte-identique pour tout appelant existant (aucun ne la fixe). `VerifyWithHints`
+délègue désormais via `WithCrop` (plus de chirurgie d'image côté MCP ; `cropForVerify` supprimé).
+Bénéfice : **tout appelant `Verify` (CLI, bibliothèque, MCP) récupère un caviardage réel** en passant
+la bande. Prouvé au niveau bibliothèque par `TestVerify_WithCrop_RealHelloWorld` (image plein cadre
+non-croppée → vérité 0.0000, décoy rejeté) ; `TestVerify_RealHelloWorld` (crop manuel) et
+`TestVerifyWithHints_RealHelloWorld` (via MCP) inchangés à 0.0000.
 
 ## État du programme (2026-07-05)
 
