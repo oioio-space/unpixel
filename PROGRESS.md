@@ -1411,3 +1411,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `2bd3b4d` 2026-07-05 — feat(mcp): recover real redactions end-to-end via unpixel_verify_candidates _(8 fichiers)_
 - `25ffdf5` 2026-07-05 — docs(mcp): note real-image recovery via verify_candidates calibration hints _(2 fichiers)_
 - `4e79e5b` 2026-07-05 — refactor(verify): lift real-redaction crop into unpixel.WithCrop _(7 fichiers)_
+- `18b47a3` 2026-07-05 — docs(plan): wild Depix mosaics are a forward-model fidelity wall, not search _(2 fichiers)_

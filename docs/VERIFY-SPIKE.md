@@ -7,11 +7,11 @@ substitutions) and calls `unpixel.Verify` with the image's calibrated config.
 A **win** = truth is rank 1 AND Match=true. Machine-readable counterpart:
 `benchmarks/verify/run-*.json`.
 
-## Verify spike run 20260705T095044
+## Verify spike run 20260705T114519
 
 ### sick corpus
 
-Win rate: **8 / 10** (truth rank-1 AND Match=true)
+Win rate: **10 / 10** (truth rank-1 AND Match=true)
 
 | image | truth | truthDist | Match | rank | bestDecoyDist | margin | win | note |
 |---|---|---|---|---|---|---|---|---|
@@ -22,29 +22,29 @@ Win rate: **8 / 10** (truth rank-1 AND Match=true)
 | sick_children_playing | `two children are playing in the snow` | 0.0000 | true | 1 | 0.0121 | 0.0121 | **true** |  |
 | sick_woman_singing | `a woman is singing a song` | 0.0000 | true | 1 | 0.0071 | 0.0071 | **true** |  |
 | digits_7d_1234567 | `1234567` | 0.0000 | true | 1 | 0.0168 | 0.0168 | **true** |  |
-| digits_8d_98765432 | `98765432` | 0.5188 | false | 5 | 0.4887 | -0.0301 | **false** |  |
-| digits_9d_012345678 | `012345678` | 0.4740 | false | 4 | 0.4675 | -0.0065 | **false** |  |
+| digits_8d_98765432 | `98765432` | 0.0771 | true | 1 | 0.0799 | 0.0028 | **true** |  |
+| digits_9d_012345678 | `012345678` | 0.0925 | true | 1 | 0.0950 | 0.0024 | **true** |  |
 | digits_10d_1029384756 | `1029384756` | 0.0000 | true | 1 | 0.0238 | 0.0238 | **true** |  |
 
 ### context corpus
 
-Win rate: **2 / 9** (truth rank-1 AND Match=true)
+Win rate: **5 / 9** (truth rank-1 AND Match=true)
 
 | image | truth | truthDist | Match | rank | bestDecoyDist | margin | win | note |
 |---|---|---|---|---|---|---|---|---|
-| ctx_sameline_user | `hunter2` | 0.4556 | false | 9 | 0.0778 | -0.3778 | **false** |  |
-| ctx_sameline_pin | `4892` | 0.0333 | true | 1 | 0.0333 | 0.0000 | **true** |  |
-| ctx_sameline_mono_token | `a3f9b2` | 0.5102 | false | 4 | 0.4898 | -0.0204 | **false** |  |
-| ctx_label_password | `Pa55w0rd!` | 0.5238 | false | 6 | 0.0873 | -0.4365 | **false** |  |
-| ctx_label_secret | `X7kQ9m` | 0.0061 | true | 1 | 0.0061 | 0.0000 | **true** |  |
-| ctx_varfont_wght600 | `Tr0ub4dor` | 0.0869 | true | 4 | 0.0401 | -0.0468 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
+| ctx_sameline_user | `hunter2` | 0.0153 | true | 1 | 0.0153 | 0.0000 | **true** |  |
+| ctx_sameline_pin | `4892` | 0.0250 | true | 1 | 0.0333 | 0.0083 | **true** |  |
+| ctx_sameline_mono_token | `a3f9b2` | 0.0714 | true | 2 | 0.0651 | -0.0064 | **false** |  |
+| ctx_label_password | `Pa55w0rd!` | 0.0119 | true | 1 | 0.0119 | 0.0000 | **true** |  |
+| ctx_label_secret | `X7kQ9m` | 0.0030 | true | 1 | 0.0030 | 0.0000 | **true** |  |
+| ctx_varfont_wght600 | `Tr0ub4dor` | 0.0535 | true | 3 | 0.0401 | -0.0134 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
 | ctx_varfont_wght750 | `G4te2024` | 0.5123 | false | 6 | 0.4982 | -0.0140 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
-| ctx_sameline_block10 | `r00t` | 0.2976 | false | 2 | 0.0893 | -0.2083 | **false** |  |
-| ctx_crossimg_wght700 | `Secret7` | 0.4649 | false | 9 | 0.4386 | -0.0263 | **false** | font "Nunito" not bundled → Liberation Sans fallback |
+| ctx_sameline_block10 | `r00t` | 0.0714 | true | 2 | 0.0417 | -0.0298 | **false** |  |
+| ctx_crossimg_wght700 | `Secret7` | 0.0636 | true | 1 | 0.0636 | 0.0000 | **true** | font "Nunito" not bundled → Liberation Sans fallback |
 
 ### Conclusions
 
-**sick** (10 images): win-rate = 8/10 → propose/verify CAN discriminate on 8/10 images.
+**sick** (10 images): win-rate = 10/10 → propose/verify CAN discriminate on ALL images.
 
-**context** (9 images): win-rate = 2/9 → propose/verify CAN discriminate on 2/9 images.
+**context** (9 images): win-rate = 5/9 → propose/verify CAN discriminate on 5/9 images.
 

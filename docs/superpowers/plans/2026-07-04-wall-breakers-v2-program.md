@@ -232,6 +232,33 @@ profond** que hello-world (capture GIMP grise propre) : il exige la police exact
 d'écran, ou le tier ML (calibration depuis le visible), **pas** plus de recherche/crop. Confirme et
 précise [[font-prior-vfr-mismatch]] et l'operating-envelope. Rien commité (probe jeté) ; findings ici.
 
+### Sick + context — MUR CASSÉ : alignement de phase sous-bloc pour petits blocs ✅
+
+En sondant les 2 échecs digits du spike P1 (`digits_8d`/`digits_9d`, vérité ~0.5 alors que
+`digits_7d`/`digits_10d` = 0.0000, **config identique** LibMono/bloc 8/32pt), j'ai trouvé un
+**vrai bug d'algorithme, réparable** : `alignedDist` (le fallback d'alignement exhaustif de
+`verifyCore`) utilisait `const alignPhaseStep = 8`. À bloc=8, la boucle de phase
+`for px := 0; px < block; px += 8` ne teste **que la phase 0** — aucun alignement sous-bloc.
+7d/10d s'alignaient par chance sur la phase 0 ; 8d/9d avaient besoin d'une phase sous-bloc jamais
+essayée → 0.5.
+
+**Fix** : `alignPhaseStep(block) = max(1, block/4)` — ~4 échantillons de phase par axe pour tout
+bloc. **Byte-identique à bloc=32** (step 8 → phases 0,8,16,24, comme avant et comme la sonde
+`bestDistance`) ; les petits blocs obtiennent enfin une couverture de phase réelle (bloc=8 → step 2).
+
+**Mesuré (`mise run verifymeasure`, autorité)** — gain strict, **zéro régression** (chaque image
+gagnante le reste ; aucun décoy ne matche à tort, tous les échecs restants = vérité pas rang-1) :
+- **sick 8/10 → 10/10** : `digits_8d` 0.5188→**0.0771** (rang 1, marge +0.0028), `digits_9d`
+  0.4740→**0.0925** (rang 1, marge +0.0024).
+- **context 2/9 → 5/9** (bonus) : `ctx_sameline_user` 0.4556→0.0153, `ctx_label_password`
+  0.5238→0.0119, `ctx_crossimg_wght700` 0.4649→0.0636 — tous nouveaux rang-1.
+- Total discrimination propose/vérifie **10/19 → 15/19** sur sick+context.
+
+Portée : `alignedDist` n'est appelé QUE par `verifyCore` (chemin Verify) — le chemin décode/Recover
+ne le touche pas, donc **panel 17/17 inaffecté par construction**. Coût : le fallback alignedDist
+fait plus d'itérations de phase à bloc≤16 (bloc=8 : ×16 sur la boucle de phase), payé seulement
+quand le chemin pipeline manque ; hot-path Recover intact. Real hello-world (bloc 32) inchangé.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :

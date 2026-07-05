@@ -49,10 +49,14 @@ import (
 	"github.com/oioio-space/unpixel/internal/secrets"
 )
 
-// alignPhaseStep is the sub-block phase increment used by alignedDist. Matches
-// the bestDistance test sweep: at block=32 this gives 4 phase values per axis
-// (0, 8, 16, 24); at block ≤ 8 only phase 0 is tried.
-const alignPhaseStep = 8
+// alignPhaseStep returns the sub-block phase increment alignedDist sweeps for a
+// given block size: block/4, giving ~4 phase samples per axis (0, b/4, b/2, 3b/4)
+// for any block ≥ 4. At block=32 this is 8 (0, 8, 16, 24) — identical to the
+// original fixed step and the bestDistance test sweep — while small blocks (e.g.
+// block=8 → step 2) now get genuine sub-block phase coverage instead of collapsing
+// to phase 0, which is required to align a candidate whose ink falls on a
+// sub-block phase (measured: recovers the block=8 sick digit fixtures).
+func alignPhaseStep(block int) int { return max(1, block/4) }
 
 // alignPosStep is the pixel-position slide increment used by alignedDist.
 const alignPosStep = 4
@@ -138,8 +142,9 @@ func alignedDist(ctx context.Context, cand string, target *image.RGBA, cfg unpix
 	canvas := image.NewRGBA(image.Rect(0, 0, tw, th))
 
 	best := 1.0
-	for px := 0; px < block; px += alignPhaseStep {
-		for py := 0; py < block; py += alignPhaseStep {
+	phaseStep := alignPhaseStep(block)
+	for px := 0; px < block; px += phaseStep {
+		for py := 0; py < block; py += phaseStep {
 			if ctx.Err() != nil {
 				return best
 			}
