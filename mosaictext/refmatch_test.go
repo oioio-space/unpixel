@@ -717,3 +717,36 @@ func BenchmarkBeamMatchPhase(b *testing.B) {
 		sinkRefResult = res
 	}
 }
+
+// TestDecodeReference_XScaleIdentity is the byte-identity gate for WithRefXScale:
+// the zero value and exactly 1.0 must render references identically, so passing
+// WithRefXScale(1.0) decodes the same text as not passing the option at all.
+// XScale only takes effect for x ∉ {0, 1}. This guards every existing caller
+// (which passes no XScale) against any behavioural change.
+func TestDecodeReference_XScaleIdentity(t *testing.T) {
+	f := refFont(t, "Liberation Mono")
+	const (
+		text  = "X7kQ2mR9"
+		fs    = 32.0
+		block = 8
+	)
+	mosaic := syntheticRefMosaic(t, text, f.Data, fs, block, true) // linear
+	img := embedInWhiteRef(mosaic, block)
+
+	opts := []mosaictext.RefOption{
+		mosaictext.WithRefFont("Liberation Mono"),
+		mosaictext.WithRefCharset(mosaictext.DefaultRefCharset),
+		mosaictext.WithRefLinear(1),
+	}
+	base, err := mosaictext.DecodeReference(t.Context(), img, opts...)
+	if err != nil {
+		t.Fatalf("DecodeReference base: %v", err)
+	}
+	withOne, err := mosaictext.DecodeReference(t.Context(), img, append(opts, mosaictext.WithRefXScale(1.0))...)
+	if err != nil {
+		t.Fatalf("DecodeReference XScale=1.0: %v", err)
+	}
+	if got, want := withOne.Text, base.Text; got != want {
+		t.Errorf("WithRefXScale(1.0).Text = %q, want %q — must be byte-identical to the unset option", got, want)
+	}
+}

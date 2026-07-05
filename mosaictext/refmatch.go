@@ -132,6 +132,7 @@ type refConfig struct {
 	lmLambda     float64        // emission temperature (0 → use defaultRefLambda)
 	blockSize    int            // 0 → auto-detect via InferBlockGrid; >0 → use this value directly
 	visibleText  string         // non-empty → stored for future font-calibration use
+	refXScale    float64        // 0 and 1.0 = no stretch; >1 stretches references horizontally
 }
 
 func defaultRefConfig() refConfig {
@@ -249,6 +250,18 @@ func WithRefVisibleText(visibleText string) RefOption {
 			c.visibleText = visibleText
 		}
 	}
+}
+
+// WithRefXScale sets the horizontal stretch factor applied when synthesising
+// per-character block references. It mirrors the unpixel.Style.XScale contract:
+// the zero value and exactly 1.0 both mean no stretch (byte-identical output to
+// an unset option). A value of 1.06 stretches each synthesised reference 6%
+// wider, matching redactions produced by anisotropic scaling (e.g. a GIMP layer
+// scaled where x and y zoom differ). Without the matching stretch the wrong
+// characters win because the synthesised references are narrower than the target
+// block columns.
+func WithRefXScale(x float64) RefOption {
+	return func(c *refConfig) { c.refXScale = x }
 }
 
 // refCandidate holds one (font, linear) decode result for the sweep winner.
@@ -388,7 +401,7 @@ func DecodeReference(ctx context.Context, img image.Image, opts ...RefOption) (R
 				defer func() { <-sem }()
 
 				cand := decodeRefOne(ctx, fe.r, fe.name, lin,
-					target, block, rcfg.charset, rcfg.lmLang, rcfg.lmLambda)
+					target, block, rcfg.charset, rcfg.lmLang, rcfg.lmLambda, rcfg.refXScale)
 				if cand.text == "" {
 					return
 				}
@@ -451,6 +464,7 @@ func buildPerCharRefs(
 	fs float64,
 	block int,
 	inkRows int,
+	xScale float64,
 ) refTable {
 	table := make(refTable, block)
 	for p := range block {
@@ -470,6 +484,7 @@ func buildPerCharRefs(
 				FontSize:    fs,
 				PaddingTop:  0,
 				PaddingLeft: p,
+				XScale:      xScale,
 			})
 			if err != nil {
 				continue
@@ -553,6 +568,7 @@ func decodeRefOne(
 	charset string,
 	lmLang *lang.Language,
 	lmLambda float64,
+	xScale float64,
 ) refCandidate {
 	pix := pixelatorFor(block, linear)
 
@@ -593,14 +609,14 @@ func decodeRefOne(
 		}
 
 		// Measure per-glyph pixel advances via cumulative prefix renders.
-		advances := measureAdvancesByCumulative(r, charRunes, fs)
+		advances := measureAdvancesByCumulative(r, charRunes, fs, xScale)
 		if len(advances) == 0 {
 			continue
 		}
 
 		// Build the per-char-per-phase reference table.
 		// table[p][i] is the block reference for charRunes[i] at sub-block phase p.
-		table := buildPerCharRefs(r, pix, charRunes, advances, fs, block, inkRows)
+		table := buildPerCharRefs(r, pix, charRunes, advances, fs, block, inkRows, xScale)
 
 		// Build LM model once if enabled (nil lmLang → greedy path).
 		var lmModel *lang.Model
@@ -1051,7 +1067,7 @@ func glyphDistPhaseSkip(target [][]refmatch.BlockSig, targetCol int, ref *perCha
 // Duplicate runes in charRunes are deduplicated before measurement so that
 // the cumulative prefix technique stays consistent: each rune appears exactly
 // once in the prefix sequence, giving a correct advance for every entry.
-func measureAdvancesByCumulative(r unpixel.Renderer, charRunes []rune, fs float64) map[rune]int {
+func measureAdvancesByCumulative(r unpixel.Renderer, charRunes []rune, fs float64, xScale float64) map[rune]int {
 	// Dedup while preserving first-occurrence order.
 	seen := make(map[rune]bool, len(charRunes))
 	unique := make([]rune, 0, len(charRunes))
@@ -1071,6 +1087,7 @@ func measureAdvancesByCumulative(r unpixel.Renderer, charRunes []rune, fs float6
 			FontSize:    fs,
 			PaddingTop:  0,
 			PaddingLeft: 0,
+			XScale:      xScale,
 		})
 		if err != nil || sx <= 0 {
 			return nil // fatal: can't measure

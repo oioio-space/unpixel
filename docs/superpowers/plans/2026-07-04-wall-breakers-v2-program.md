@@ -136,6 +136,23 @@ survit pas et la cellule 0 n'est pas admise. Le prochain pas est un **scoring bo
 C'est un effort coordonné dédié, pas un bouton — mais le chemin est maintenant précisément cartographié
 et le mur « real = modèle » est réfuté : c'est un mur de **recherche/segmentation**, réparable en pur-Go.
 
+### P3b — diagnostic complet du mur (le chemin exact, mesuré)
+Après le fix de sélection d'offset, le résidu a été entièrement caractérisé (probe de seuils :
+loosening → explosion combinatoire, pas de convergence). **Cause structurelle finale** : avec
+`XScale=1.06`, l'**avance de glyphe** (dérivée de la police 124px étirée) est **incommensurable**
+avec la **grille de blocs 32px**. Le modèle direct atteint 0.0000 en *glissant l'image entière*
+sur des sous-phases ; mais le scoring **marginal** par-cellule de la stratégie monospace, évalué
+à des offsets de bloc entiers, ne peut structurellement pas atteindre cet alignement (advance ≠
+block). Cell 0 "H" plafonne à ~0.33 même à la meilleure origine entière.
+
+**Conclusion (le chemin, précis) :** le premier exact-match real n'est PAS atteignable par le
+chemin monospace-marginal ; il faut un décodeur à **scoring image-entière** (le chemin
+`reference`/`refmatch` : matching par-phase de candidats complets, qui compare la bande entière
+comme le fait `bestDistance`). Câbler `DecodeReference`/refmatch avec la config calibrée
+(Noto Sans Mono + LinearBlockAverage + XScale + phase) est l'effort dédié qui casse ce mur —
+entièrement pur-Go, sans ML. Le mur « real = fidélité du modèle » est **définitivement réfuté** :
+le modèle atteint 0.0000, c'est un mur de **méthode de scoring de recherche**, cartographié de bout en bout.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :

@@ -1400,3 +1400,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `d98323e` 2026-07-05 — docs(plan): P3b measured — engine decodes "H", convergence needs coordinated work _(2 fichiers)_
 - `919b79f` 2026-07-05 — docs(limits): keep the operating-envelope contract current (P19/P20) _(2 fichiers)_
 - `a22ad87` 2026-07-05 — fix(search): exclude whitespace from offset discovery — correct phase on margined images (P3b) _(4 fichiers)_
+- `1706083` 2026-07-05 — docs(plan): P3b progress — offset-selection root cause fixed, residual isolated _(2 fichiers)_
