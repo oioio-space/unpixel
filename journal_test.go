@@ -127,6 +127,7 @@ type journalRun struct {
 	Corpora        []journalCorpusSummary `json:"corpora"`
 	DecoderRows    []decoderRow           `json:"decoder_rows,omitempty"`
 	ContextDetails []contextDetail        `json:"context_details,omitempty"`
+	ProposeVerify  *proposeVerifySummary  `json:"propose_verify,omitempty"`
 }
 
 // ─── timeout / charset constants ─────────────────────────────────────────────
@@ -166,6 +167,7 @@ func TestJournal(t *testing.T) {
 	rows = append(rows, runSickCorpus(t)...)
 
 	decoderRows, ctxDetails := runDecoderMatrix(t)
+	proposeVerify := runProposeVerify(t)
 
 	totalDuration := time.Since(start)
 	corpora := summariseCorpora(rows)
@@ -182,6 +184,7 @@ func TestJournal(t *testing.T) {
 		Corpora:        corpora,
 		DecoderRows:    decoderRows,
 		ContextDetails: ctxDetails,
+		ProposeVerify:  &proposeVerify,
 	}
 
 	writeJournalJSON(t, run, timestamp, commit)
@@ -1021,6 +1024,7 @@ func buildRunSection(run journalRun) string {
 		fmt.Fprintf(&sb, "\n")
 	}
 	sb.WriteString(buildContextSection(run))
+	sb.WriteString(buildProposeVerifySection(run.ProposeVerify))
 	return sb.String()
 }
 

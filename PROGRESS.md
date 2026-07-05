@@ -1416,3 +1416,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `11c95d7` 2026-07-05 — docs(plan): finer position alignment recovers r00t but taxes verify 3x — coarse-to-fine follow-up _(2 fichiers)_
 - `25c63b6` 2026-07-05 — perf(verify): coarse-to-fine position alignment — recovers r00t at ~no extra cost _(7 fichiers)_
 - `4c142d9` 2026-07-05 — docs(plan): Nunito wall is homoglyph ties, not font — VF rendering works _(2 fichiers)_
+- `dbbb807` 2026-07-05 — docs(plan): VF+rerank is an inconsistent tie-breaker — residual wall is info-theoretic _(2 fichiers)_
