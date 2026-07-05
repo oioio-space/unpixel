@@ -276,6 +276,27 @@ préservée). Le meilleur des deux : +1 récup ET pas de taxe perf. Gardé par
 Technique standard (pyramide/coarse-to-fine) appliquée à l'alignement — amélioration sur le
 balayage-grille brute-force.
 
+### Nunito variable-font — diagnostic : le mur n'est PAS la police mais les homoglyphes
+
+Les 2-3 images context `var_font` (Nunito wght 600/700/750) échouaient parce que le harnais
+verifymeasure retombait sur Liberation Sans (mauvaise police). La capacité de rendu VF **existe**
+(`internal/varfont.VarRenderer` + `NunitoVFWght` embarqué, stack pure-Go go-text). Testé (sonde
+jetée) : `unpixel.Verify` avec `VarRenderer(Nunito, wght=N)` **rend correctement** et fait plonger
+la distance-vérité :
+- `ctx_varfont_wght600` « Tr0ub4dor » : 0.0535 rang-3 → **0.0067 rang-1 (WIN)**.
+- `ctx_varfont_wght750` « G4te2024 » : 0.5123 → **0.0158** (mais rang-2, marge −0.0018).
+- `ctx_crossimg_wght700` « Secret7 » : 0.0636 → **0.0132** (rang-2, marge −0.0022 ; son ancien
+  « win » à 0.0636 était un **artefact de mauvaise-police** — Liberation Sans par chance).
+
+**Conclusion (actionnable, wiring reverté)** : la bonne police VF **comprime toutes les distances
+vers ~0.01**, transformant l'échec de-police en **quasi-égalité homoglyphe** (décoys à swap de glyphe
+confus O/0, l/1 gagnent de ~0.002). Sous scoring physique pur, câbler la VF est **neutre en compte**
+(+wght600 gagné, −crossimg700 son faux-win exposé) → non retenu. Le mur Nunito résiduel est donc la
+**tie sémantique/homoglyphe**, franchissable par un **prior de langue (rerank)** sur ces secrets
+leetspeak (mots manglés Tr0ub4dor/G4te2024/Secret7), **pas** par la fidélité de police (déjà résolue).
+Levier suivant : VF renderer + rerank>0 dans la boucle verify. Cf. [[font-prior-vfr-mismatch]],
+[[blind-sentence-scoring-wall]].
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :

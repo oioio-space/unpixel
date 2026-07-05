@@ -1414,3 +1414,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `18b47a3` 2026-07-05 — docs(plan): wild Depix mosaics are a forward-model fidelity wall, not search _(2 fichiers)_
 - `a549abe` 2026-07-05 — fix(verify): sub-block phase alignment for small blocks — sick 8/10 to 10/10 _(7 fichiers)_
 - `11c95d7` 2026-07-05 — docs(plan): finer position alignment recovers r00t but taxes verify 3x — coarse-to-fine follow-up _(2 fichiers)_
+- `25c63b6` 2026-07-05 — perf(verify): coarse-to-fine position alignment — recovers r00t at ~no extra cost _(7 fichiers)_
