@@ -25,6 +25,8 @@ package fonts
 import (
 	"embed"
 	"fmt"
+	"slices"
+	"sync"
 
 	"github.com/oioio-space/unpixel"
 	"github.com/oioio-space/unpixel/defaults"
@@ -68,8 +70,10 @@ var catalog = []Font{
 	{Name: "Noto Sans Mono", Style: "mono", Approx: "", File: "NotoSansMono-Regular.ttf"},
 }
 
-// All returns the bundled fonts, in sweep order, each with its Data populated.
-func All() []Font {
+// cachedCatalog reads every embedded font file once, on first use. embed.FS.ReadFile
+// copies the ~2 MB bundle on each call, so caching avoids re-copying it on every
+// All() (e.g. a per-request font lookup). The Data slices are read-only.
+var cachedCatalog = sync.OnceValue(func() []Font {
 	out := make([]Font, len(catalog))
 	for i, f := range catalog {
 		data, err := files.ReadFile("embed/" + f.File)
@@ -81,6 +85,13 @@ func All() []Font {
 		out[i] = f
 	}
 	return out
+})
+
+// All returns the bundled fonts, in sweep order, each with its Data populated. The
+// returned slice is a fresh copy the caller may reorder freely; the Data byte slices
+// are shared across calls and must not be mutated (as documented on [Font.Data]).
+func All() []Font {
+	return slices.Clone(cachedCatalog())
 }
 
 // Renderers builds one renderer per bundled font, in [All] order, ready to pass

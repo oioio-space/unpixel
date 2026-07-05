@@ -12,7 +12,27 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/oioio-space/unpixel/fonts"
 )
+
+// bundledFontData resolves a bundled font by name (case-insensitive, whitespace
+// trimmed) to its raw TTF/OTF bytes. It returns ok=false when no bundled font
+// matches, so callers can surface the set of valid names. Names are those listed
+// by the unpixel://fonts resource and returned by unpixel_rank_fonts.
+func bundledFontData(name string) ([]byte, bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	if want == "" {
+		return nil, false
+	}
+	for _, f := range fonts.All() {
+		if strings.ToLower(f.Name) == want {
+			return f.Data, true
+		}
+	}
+	return nil, false
+}
 
 // maxFontBytes is the maximum accepted font file size (16 MiB). Fonts larger
 // than this are almost certainly not real font files and are rejected to limit

@@ -174,6 +174,42 @@ cette redaction plus large. **Donner à `verifyCore` cet alignement exhaustif fa
 boucle LLM-propose/vérifie sur les images réelles** (pas seulement hello-world) — le levier le plus
 élevé pour le différenciateur stratégique, entièrement pur-Go.
 
+### P1/P3b — PRODUCTION : la boucle propose/vérifie ferme sur une image réelle via MCP ✅
+
+Le différenciateur (LLM propose → vérif physique) était prouvé au niveau **bibliothèque**
+(`TestVerify_RealHelloWorld`, avec hints oracle passés à la main). Cette passe le rend
+**opérationnel via le serveur MCP** — un client LLM peut désormais piloter la récupération d'un
+caviardage RÉEL de bout en bout.
+
+**Mesure d'abord (scratch, jeté)** sur `real/hello-world.png`, matrice de configs :
+- **Sans crop**, toutes distances ~0.19–1.0 ; la vérité n'est **même pas la plus basse** (dilution
+  par les marges blanches) ET le chemin auto est intractable (>120–225 s, ne converge pas).
+- **Avec crop** sur la bande + config oracle (Noto Sans Mono + block=32 + `LinearBlockAverage` +
+  `Style{FontSize:124, XScale:1.06}`) : **vérité `"Hello World !"` = 0.0000, Match=true, en ~14 s**,
+  décoy `"HELLO WORLD !"` = 0.58 **rejeté**. Le **crop est le levier contraignant** (correctness
+  *et* coût d'alignement) — le chemin auto (colorspace/block/DFS) ne le remplace pas.
+
+**Tous les hints requis sont déjà découvrables par les outils MCP** : crop + block ←
+`unpixel_analyze` ; police ← `unpixel_rank_fonts` ; colorspace linéaire ← fingerprint analyze ;
+font_size / x_scale ← `unpixel_calibrate`. Le mur n'était **pas** la fidélité du modèle mais que
+`unpixel_verify_candidates` ne pouvait pas **accepter** ces hints.
+
+**Livré (commit à venir)** : `mcpserver.VerifyWithHints` (cœur testable) + schéma
+`unpixel_verify_candidates` étendu (`font` bundled / `font_path` / `font_base64`, `crop` [x,y,w,h],
+`linear_light`, `font_size`, `x_scale`, `letter_spacing`) + résolveur `bundledFontData`
+(case-insensitive sur `fonts.All`). Test permanent `TestVerifyWithHints_RealHelloWorld` (Pick =
+vérité 0.0000, décoy rejeté) + tests unitaires blancs des helpers. `VerifyCandidates` conservé
+(délègue à `VerifyWithHints` — rétro-compatible, 11 appelants inchangés). Panel 17/17 préservé,
+gates verts. **Le différenciateur LLM-propose/vérifie est opérationnel en production, pur-Go, sans ML.**
+
+**Suivi identifié (revue /simplify, altitude)** : le crop-bande vit aujourd'hui dans la couche MCP
+(`cropForVerify`, canvas blanc avant `unpixel.Verify`). Plus propre serait une option racine
+`unpixel.WithCrop(image.Rectangle)` honorée *dans* `prepareVerify` (dont l'auto-crop se désactive
+dès qu'un `BlockSize` explicite est fourni — exactement le cas des hints), pour que le crop passe
+par le pipeline de prétraitement (contraste/deskew/fingerprint) et bénéficie à tout appelant (CLI,
+autres outils). Différé : le mur est cassé et vérifié tel quel ; `WithCrop` est une passe racine
+dédiée séparée (touche le chemin `Verify` partagé), pas un élargissement de ce commit.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
@@ -184,6 +220,7 @@ Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 
 | P2b | Robustesse détection grille (marx + sous-harmonique) | ✅ livré (+2 tests réparés) | `9e0c2e9` |
 | P3a | Primitive anisotropie `Style.XScale` | ✅ livré, vérifié 0.0000 | `2a45144` |
 | P3b | Décodage blind hello-world | 🔬 modèle direct prouvé ; blind = câblage/recherche (déféré) | `384213d` (doc) |
+| P1/P3b | Boucle propose/vérifie réelle **via MCP** (`VerifyWithHints` + schéma étendu) | ✅ livré, `TestVerifyWithHints_RealHelloWorld` (0.0000, décoy rejeté) | commit à venir |
 | P21 | Anti-régression full-testdata | ⚠️ gap : journal couvre 5-6/10 corpora ; `perspective` non gaté |
 | P1,P4,P5,P6,P7,P8,P9,P10-P20 | — | ⏳ non commencés (échelle recherche pour la plupart) |
 

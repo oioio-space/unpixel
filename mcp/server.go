@@ -46,7 +46,6 @@
 package mcpserver
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -55,7 +54,6 @@ import (
 	_ "image/png"  // register PNG decoding
 	"math"
 	"os"
-	"slices"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -63,10 +61,8 @@ import (
 	_ "github.com/oioio-space/unpixel/defaults" // wire standard components
 	"github.com/oioio-space/unpixel/internal/forensics"
 	"github.com/oioio-space/unpixel/internal/imutil"
-	"github.com/oioio-space/unpixel/internal/lang"
 	"github.com/oioio-space/unpixel/internal/pixelate"
 	"github.com/oioio-space/unpixel/internal/rectify"
-	"github.com/oioio-space/unpixel/rerank"
 )
 
 // NewServer builds an MCP server with all UnPixel tools and resources
@@ -119,6 +115,12 @@ var toolVerify = &mcpsdk.Tool{
 		"VerifyMatchThreshold (a confident physical match). Pick is empty when no candidate " +
 		"meets the threshold. Supply charset and block_size from unpixel_propose_hints or " +
 		"unpixel_analyze to sharpen discrimination. " +
+		"For a REAL (non-synthetic) redaction, whole-string verification only discriminates the " +
+		"truth when the candidate is rendered with the right font and geometry and compared " +
+		"against a tight crop of the redaction band — pass the physical hints: crop (unpixel_analyze's " +
+		"redaction_bbox [x0,y0,x1,y1] passed through), font (bundled name from unpixel_rank_fonts, or font_path/font_base64 " +
+		"for a custom font), linear_light (from the analyze colourspace fingerprint), and " +
+		"font_size/x_scale/letter_spacing (from unpixel_calibrate). " +
 		"Set rerank_weight>0 to blend a language prior into the ranking (Pick stays a physical match).",
 }
 
@@ -381,6 +383,37 @@ type verifyInput struct {
 	// pure physical-distance order. Pick always remains the lowest-distance
 	// physical match regardless of this value.
 	RerankWeight float64 `json:"rerank_weight,omitzero" jsonschema:"Blend weight for language re-ranking of candidates (0 = physical order only; ~0.05–0.1 to enable)"`
+
+	// The remaining fields are the physical-calibration hints that make
+	// verification discriminate the truth on a REAL (non-pipeline) redaction —
+	// each is discoverable via the other tools. Omit them for synthetic/pipeline
+	// mosaics, where auto-detection suffices.
+
+	// Font is a bundled font name to render candidates with (e.g. "Noto Sans Mono").
+	// Use the top result from unpixel_rank_fonts. See the unpixel://fonts resource
+	// for names. Ignored when font_path/font_base64 is set.
+	Font string `json:"font,omitzero" jsonschema:"Bundled font name to render candidates with (from unpixel_rank_fonts; see unpixel://fonts)"`
+	// FontPath is a local TTF/OTF path for a custom (non-bundled) font. Mutually
+	// exclusive with font_base64; takes precedence over the bundled font name.
+	FontPath string `json:"font_path,omitzero" jsonschema:"Local TTF/OTF path for a custom font (mutually exclusive with font_base64; overrides font)"`
+	// FontBase64 is raw TTF/OTF bytes as base64. Mutually exclusive with font_path.
+	FontBase64 string `json:"font_base64,omitzero" jsonschema:"Raw TTF/OTF font bytes as base64 (mutually exclusive with font_path; overrides font)"`
+	// FontSize overrides the render point size (from unpixel_analyze/calibrate).
+	FontSize float64 `json:"font_size,omitzero" jsonschema:"Render font size in points (0 = default; from analyze/calibrate)"`
+	// XScale is the horizontal glyph-stretch factor (1.0 = none) matching a target
+	// stretched at the pixel level before mosaicking.
+	XScale float64 `json:"x_scale,omitzero" jsonschema:"Horizontal glyph stretch factor applied before mosaicking (1.0 = none)"`
+	// LetterSpacing adds extra pixels between glyphs.
+	LetterSpacing float64 `json:"letter_spacing,omitzero" jsonschema:"Extra pixels of spacing between glyphs (0 = none)"`
+	// LinearLight selects linear-light block averaging (GIMP/GEGL Pixelize, CSS,
+	// most tools) instead of the sRGB default. Requires block_size. From the
+	// unpixel_analyze colourspace fingerprint.
+	LinearLight bool `json:"linear_light,omitzero" jsonschema:"Use linear-light block averaging (GIMP/GEGL); requires block_size"`
+	// Crop is the redaction band [x0, y0, x1, y1] to crop before verifying — the
+	// same corner convention as unpixel_analyze's redaction_bbox, so that value can
+	// be passed straight through. A real screenshot's margins dilute the
+	// whole-image score; cropping to the band is required to discriminate truth.
+	Crop []int `json:"crop,omitzero" jsonschema:"Redaction band [x0, y0, x1, y1] to crop before verifying (pass unpixel_analyze's redaction_bbox directly)"`
 }
 
 // RankedCandidate is one scored entry in VerifyReport.Ranked.
@@ -422,7 +455,28 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 		return errResult(fmt.Errorf("unpixel_verify_candidates: load image: %w", err)), VerifyReport{}, nil
 	}
 
-	report, err := VerifyCandidates(ctx, img, in.Candidates, in.BlockSize, in.Charset, in.RerankWeight)
+	fontData, err := LoadFontData(in.FontPath, in.FontBase64)
+	if err != nil {
+		return errResult(fmt.Errorf("unpixel_verify_candidates: %w", err)), VerifyReport{}, nil
+	}
+
+	crop, err := cropRect(in.Crop)
+	if err != nil {
+		return errResult(fmt.Errorf("unpixel_verify_candidates: %w", err)), VerifyReport{}, nil
+	}
+
+	report, err := VerifyWithHints(ctx, img, in.Candidates, VerifyHints{
+		BlockSize:     in.BlockSize,
+		Charset:       in.Charset,
+		RerankWeight:  in.RerankWeight,
+		Font:          in.Font,
+		FontData:      fontData,
+		FontSize:      in.FontSize,
+		XScale:        in.XScale,
+		LetterSpacing: in.LetterSpacing,
+		LinearLight:   in.LinearLight,
+		Crop:          crop,
+	})
 	if err != nil {
 		return errResult(fmt.Errorf("unpixel_verify_candidates: %w", err)), VerifyReport{}, nil
 	}
@@ -445,50 +499,11 @@ func handleVerify(ctx context.Context, _ *mcpsdk.CallToolRequest, in verifyInput
 // Pick is always the lowest-distance candidate whose [unpixel.Verdict.Match] is
 // true — a physical decision independent of any language re-ranking.
 func VerifyCandidates(ctx context.Context, img image.Image, candidates []string, blockSize int, charset string, rerankWeight float64) (VerifyReport, error) {
-	var opts []unpixel.Option
-	if blockSize > 0 {
-		opts = append(opts, unpixel.WithBlockSize(blockSize))
-	}
-	if charset != "" {
-		opts = append(opts, unpixel.WithCharset(charset))
-	}
-
-	verdicts, err := unpixel.Verify(ctx, img, candidates, opts...)
-	if err != nil {
-		return VerifyReport{}, fmt.Errorf("score candidates: %w", err)
-	}
-
-	ranked := make([]RankedCandidate, len(verdicts))
-	if rerankWeight > 0 {
-		// Fused order: blend physical distance with the English language prior.
-		rr, rerr := rerank.Default().Rerank(ctx, img, verdicts, lang.PriorFor(lang.English), rerankWeight)
-		if rerr != nil {
-			return VerifyReport{}, fmt.Errorf("rerank candidates: %w", rerr)
-		}
-		for i, r := range rr {
-			ranked[i] = RankedCandidate{Text: r.Text, Distance: r.Distance, Match: r.Distance < unpixel.VerifyMatchThreshold}
-		}
-	} else {
-		// Physical order (unchanged behaviour).
-		for i, v := range verdicts {
-			ranked[i] = RankedCandidate{Text: v.Text, Distance: v.Distance, Match: v.Match}
-		}
-		slices.SortFunc(ranked, func(a, b RankedCandidate) int {
-			return cmp.Compare(a.Distance, b.Distance)
-		})
-	}
-
-	report := VerifyReport{Ranked: ranked}
-	if len(ranked) > 0 {
-		report.Best = ranked[0].Text
-	}
-	if len(ranked) >= 2 {
-		report.Margin = ranked[1].Distance - ranked[0].Distance
-	}
-	// Pick: lowest-distance candidate with a confident physical match — always a
-	// physical decision, independent of any language re-ranking.
-	report.Pick = lowestDistanceMatch(verdicts)
-	return report, nil
+	return VerifyWithHints(ctx, img, candidates, VerifyHints{
+		BlockSize:    blockSize,
+		Charset:      charset,
+		RerankWeight: rerankWeight,
+	})
 }
 
 // lowestDistanceMatch returns the Text of the verdict with the smallest Distance

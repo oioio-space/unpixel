@@ -1407,3 +1407,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `55cd568` 2026-07-05 — docs(limits): real redactions are recoverable via propose+verify (P3b landmark) _(2 fichiers)_
 - `be1b6ac` 2026-07-05 — test(search): make hello-world offset-fix regression test observational (fix CI) _(2 fichiers)_
 - `bc594e7` 2026-07-05 — perf(build): ship Profile-Guided Optimization (P9) _(4 fichiers)_
+- `7eb3807` 2026-07-05 — feat(measure): propose/verify spike on sick+context (P1) — the decisive experiment _(5 fichiers)_
