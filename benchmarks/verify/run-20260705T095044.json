@@ -1,0 +1,217 @@
+{
+  "timestamp": "20260705T095044",
+  "results": [
+    {
+      "corpus": "sick",
+      "image": "sick_wrestling",
+      "truth": "two dogs are wrestling and hugging",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.004464285714285714,
+      "margin": 0.004464285714285714,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "sick_boys_outdoors",
+      "truth": "the young boys are playing outdoors",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.007263922518159807,
+      "margin": 0.007263922518159807,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "sick_water_safety",
+      "truth": "nobody is practicing water safety",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.003616636528028933,
+      "margin": 0.003616636528028933,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "sick_man_playing",
+      "truth": "a man is playing a guitar",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.003246753246753247,
+      "margin": 0.003246753246753247,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "sick_children_playing",
+      "truth": "two children are playing in the snow",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.012106537530266344,
+      "margin": 0.012106537530266344,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "sick_woman_singing",
+      "truth": "a woman is singing a song",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.007142857142857143,
+      "margin": 0.007142857142857143,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "digits_7d_1234567",
+      "truth": "1234567",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.01680672268907563,
+      "margin": 0.01680672268907563,
+      "win": true
+    },
+    {
+      "corpus": "sick",
+      "image": "digits_8d_98765432",
+      "truth": "98765432",
+      "truth_dist": 0.518796992481203,
+      "truth_match": false,
+      "truth_rank": 5,
+      "best_decoy_dist": 0.48872180451127817,
+      "margin": -0.030075187969924866,
+      "win": false
+    },
+    {
+      "corpus": "sick",
+      "image": "digits_9d_012345678",
+      "truth": "012345678",
+      "truth_dist": 0.474025974025974,
+      "truth_match": false,
+      "truth_rank": 4,
+      "best_decoy_dist": 0.4675324675324675,
+      "margin": -0.006493506493506496,
+      "win": false
+    },
+    {
+      "corpus": "sick",
+      "image": "digits_10d_1029384756",
+      "truth": "1029384756",
+      "truth_dist": 0,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.023809523809523808,
+      "margin": 0.023809523809523808,
+      "win": true
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_sameline_user",
+      "truth": "hunter2",
+      "truth_dist": 0.45555555555555555,
+      "truth_match": false,
+      "truth_rank": 9,
+      "best_decoy_dist": 0.07777777777777778,
+      "margin": -0.37777777777777777,
+      "win": false
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_sameline_pin",
+      "truth": "4892",
+      "truth_dist": 0.03333333333333333,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.03333333333333333,
+      "margin": 0,
+      "win": true
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_sameline_mono_token",
+      "truth": "a3f9b2",
+      "truth_dist": 0.5102040816326531,
+      "truth_match": false,
+      "truth_rank": 4,
+      "best_decoy_dist": 0.4897959183673469,
+      "margin": -0.020408163265306145,
+      "win": false
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_label_password",
+      "truth": "Pa55w0rd!",
+      "truth_dist": 0.5238095238095238,
+      "truth_match": false,
+      "truth_rank": 6,
+      "best_decoy_dist": 0.0873015873015873,
+      "margin": -0.4365079365079365,
+      "win": false
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_label_secret",
+      "truth": "X7kQ9m",
+      "truth_dist": 0.006060606060606061,
+      "truth_match": true,
+      "truth_rank": 1,
+      "best_decoy_dist": 0.006060606060606061,
+      "margin": 0,
+      "win": true
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_varfont_wght600",
+      "truth": "Tr0ub4dor",
+      "truth_dist": 0.08688387635756056,
+      "truth_match": true,
+      "truth_rank": 4,
+      "best_decoy_dist": 0.040100250626566414,
+      "margin": -0.04678362573099415,
+      "win": false,
+      "note": "font \"Nunito\" not bundled → Liberation Sans fallback"
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_varfont_wght750",
+      "truth": "G4te2024",
+      "truth_dist": 0.512280701754386,
+      "truth_match": false,
+      "truth_rank": 6,
+      "best_decoy_dist": 0.4982456140350877,
+      "margin": -0.01403508771929829,
+      "win": false,
+      "note": "font \"Nunito\" not bundled → Liberation Sans fallback"
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_sameline_block10",
+      "truth": "r00t",
+      "truth_dist": 0.2976190476190476,
+      "truth_match": false,
+      "truth_rank": 2,
+      "best_decoy_dist": 0.08928571428571429,
+      "margin": -0.20833333333333331,
+      "win": false
+    },
+    {
+      "corpus": "context",
+      "image": "ctx_crossimg_wght700",
+      "truth": "Secret7",
+      "truth_dist": 0.4649122807017544,
+      "truth_match": false,
+      "truth_rank": 9,
+      "best_decoy_dist": 0.43859649122807015,
+      "margin": -0.026315789473684237,
+      "win": false,
+      "note": "font \"Nunito\" not bundled → Liberation Sans fallback"
+    }
+  ]
+}

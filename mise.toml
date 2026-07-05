@@ -261,6 +261,10 @@ run = "./scripts/gotest-caged.sh go test -tags didmeasure -run TestDIDDigitsMeas
 description = "Geometry diagnostic: per-stage accuracy (localize/grid/segment/font) on real and wild corpora, writes benchmarks/geometry/ JSON + docs/GEOMETRY.md (observational, memory-caged)"
 run = "./scripts/gotest-caged.sh go test -tags geomeasure -run TestGeomeasure -v -timeout 15m ."
 
+[tasks.verifymeasure]
+description = "Verify spike (P1): does propose/verify discriminate truth from hard decoys on sick+context corpora? Writes benchmarks/verify/ JSON + docs/VERIFY-SPIKE.md (observational, memory-caged)"
+run = "./scripts/gotest-caged.sh go test -tags verifymeasure -run TestVerifySpike -v -timeout 15m ."
+
 [tasks."trend:check"]
 description = "Compare the two most recent docs/JOURNAL.md évolution rows; fail on any per-corpus exact/≥70% regression across the full testdata set (warn on mean drop). Runs automatically after `journal`; STRICT=1 also fails on a mean drop > MEAN_DROP_PP."
 run = "./scripts/journal-trend-check.sh"
