@@ -20,6 +20,18 @@ Outillage qualité en place ; **cœur du portage terminé** ; **Phase 2 + CLI li
 **robustesse au bruit** (auto-débruitage médian) + **prior FR pondéré par fréquence**,
 et **corpus de samples réels** organisés sous `testdata/real` avec manifeste (paramètres + ground truth).
 
+- **v0.18.0 — propose/vérifie opérationnel sur le réel + alignement sous-bloc.** La boucle
+  LLM-propose / vérif-physique récupère un caviardage RÉEL de bout en bout : `unpixel_verify_candidates`
+  (MCP) accepte désormais les hints physiques (`crop`=redaction_bbox, `font`, `linear_light`,
+  `font_size`/`x_scale`) via `mcpserver.VerifyWithHints`, et le crop est remonté en option bibliothèque
+  `unpixel.WithCrop` (CLI/lib aussi). `real/hello-world.png` → « Hello World ! » à **0.0000** bout-en-bout.
+  Deux murs d'alignement cassés dans `verifyCore` : balayage de **phase sous-bloc** (`block/4`, réparait
+  l'effondrement à la phase-0 sur petits blocs) → **sick 8/10→10/10** ; recherche de position
+  **coarse-to-fine** (`minPositionDist`, précision pixel au coût du pas grossier) → **context 5/9→6/9**
+  (r00t 0.0000) sans taxe de latence. Discrimination propose/vérifie **10/19→16/19** (`mise run
+  verifymeasure`). Frontière restante mesurée = **limite info-théorique** (égalités homoglyphes des
+  secrets haute-entropie ; le rendu VF Nunito et un prior de langue global ne suffisent pas → tier ML).
+  Journal enrichi d'une section **propose/verify** (`journal_proposeverify_test.go`).
 - **Mosaïque linéaire (GEGL/GIMP) + échantillon réel "Hello World !"** : la plupart des outils
   (GIMP/GEGL Pixelize, CSS, navigateurs) moyennent les blocs en **lumière linéaire**, pas en sRGB —
   la moyenne d'un texte sombre sur fond clair y est nettement plus claire. Ajout de
@@ -1418,3 +1430,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `4c142d9` 2026-07-05 — docs(plan): Nunito wall is homoglyph ties, not font — VF rendering works _(2 fichiers)_
 - `dbbb807` 2026-07-05 — docs(plan): VF+rerank is an inconsistent tie-breaker — residual wall is info-theoretic _(2 fichiers)_
 - `9ec203e` 2026-07-05 — test(journal): add propose/verify (Verify-path) section with analysis _(3 fichiers)_
+- `d2e1e95` 2026-07-05 — docs(limits,readme): document propose/verify real recovery + measured discrimination _(3 fichiers)_
