@@ -187,8 +187,11 @@ unpixel-mcp   # speaks MCP over stdio; point your MCP client at it
 
 Tools: `unpixel_analyze` (inspect → recommend decoder/quad), `unpixel_decode` (13 methods
 behind one `method` enum; async for long runs; `multi-frame` auto-detects per-frame phase when offsets are 0), `unpixel_verify_candidates` (LLM proposes
-strings, UnPixel scores them by physical re-pixelation; now accepts optional `rerank_weight` to blend
-a language prior into candidate ranking, with 0 = physical order and `Pick` staying a pure physical match),
+strings, UnPixel scores them by physical re-pixelation; accepts `rerank_weight` to blend
+a language prior into candidate ranking, with 0 = physical order and `Pick` staying a pure physical match;
+for a REAL redaction, pass the physical-calibration hints — `crop` (analyze's `redaction_bbox`), `font`
+(from `unpixel_rank_fonts`), `linear_light`, `font_size`/`x_scale` — to recover it end-to-end, as
+`unpixel_analyze` → `unpixel_rank_fonts` → propose → verify),
 `unpixel_verify_image` (physics-verifies a restored image against a redaction by re-applying the forward
 operator; anti-hallucination gate for external diffusion restorers; see library entry `unpixel.VerifyImage` and
 `docs/sidecar-protocol.md` for the restorer contract),

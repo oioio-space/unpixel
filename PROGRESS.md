@@ -1408,3 +1408,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `be1b6ac` 2026-07-05 — test(search): make hello-world offset-fix regression test observational (fix CI) _(2 fichiers)_
 - `bc594e7` 2026-07-05 — perf(build): ship Profile-Guided Optimization (P9) _(4 fichiers)_
 - `7eb3807` 2026-07-05 — feat(measure): propose/verify spike on sick+context (P1) — the decisive experiment _(5 fichiers)_
+- `2bd3b4d` 2026-07-05 — feat(mcp): recover real redactions end-to-end via unpixel_verify_candidates _(8 fichiers)_
