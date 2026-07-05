@@ -297,6 +297,18 @@ leetspeak (mots manglés Tr0ub4dor/G4te2024/Secret7), **pas** par la fidélité 
 Levier suivant : VF renderer + rerank>0 dans la boucle verify. Cf. [[font-prior-vfr-mismatch]],
 [[blind-sentence-scoring-wall]].
 
+**VF + rerank testé (sonde jetée) — le prior est un départageur INCOHÉRENT.** Avec le VarRenderer +
+`rerank(English, w)` sur les décoys durs : à faible poids (w≈0.05) le prior fait gagner `wght750`
+(« G4te2024 » rang 2→1) et `crossimg700` (« Secret7 » rang 2→1) — leurs décoys sont plus riches en
+chiffres. MAIS il **rétrograde** `wght600` (« Tr0ub4dor » rang 1→2) : la vérité elle-même est
+peu-anglaise (troubadour manglé), donc le prior classe un décoy au-dessus. Aucune config (VF, poids)
+unique ne gagne les trois : le prior aide quand la vérité est plus mot-like que son décoy, nuit sinon.
+**Conclusion définitive** : le mur résiduel (Nunito + `mono_token` hex + wild) est une **limite
+info-théorique** — à rendu correct, les secrets haute-entropie deviennent des égalités homoglyphes
+physiques qu'un prior de langue global départage de façon incohérente. Il faut des **émissions
+apprises par-caractère** (HMM entraîné / ML, //go:build ml) qui modélisent la confusabilité
+per-glyphe conditionnée sur l'image — pas un prior de langue global. C'est le plafond ML documenté.
+
 ## État du programme (2026-07-05)
 
 Livré et committé (branche `wall-breakers-v2`), tous gates verts, panel 17/17 préservé :
