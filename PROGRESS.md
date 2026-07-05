@@ -1397,3 +1397,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `2a45144` 2026-07-05 — feat(render): model anisotropic x-stretch via Style.XScale (P3a) _(5 fichiers)_
 - `384213d` 2026-07-05 — docs(plan): record P3b honest status — direct model verified, blind gap is config/search _(2 fichiers)_
 - `42de670` 2026-07-05 — docs(plan): program status checkpoint — 4 points shipped, remaining sequenced _(2 fichiers)_
+- `d98323e` 2026-07-05 — docs(plan): P3b measured — engine decodes "H", convergence needs coordinated work _(2 fichiers)_

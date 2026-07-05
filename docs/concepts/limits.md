@@ -25,6 +25,18 @@ whatever produced the redaction (owing to differing hinting and anti-aliasing). 
 lies outside the bundled set, the sweep will not match well. **Mitigation:** supply the exact
 font with `--font` or `--font-dir`. See [fonts & calibration](fonts-and-calibration.md).
 
+The forward model also accounts for **anisotropic scaling** (`Style.XScale`): screenshots
+produced by unequal x/y zoom (e.g. GIMP layer scale) stretch glyph ink horizontally in a way
+inter-glyph spacing cannot express. With the right font, block-average mode, and XScale, the
+direct model can reproduce a real redaction *exactly* — on `testdata/real/hello-world.png` it
+reaches pixelmatch **0.0000** (vs 0.0972 without the stretch). Crucially, when the model matches
+this well, **font fidelity is no longer the wall**: what remains is *blind search convergence* —
+segmenting the line into cells, aligning the grid phase, and accepting the correct character at
+each cell without the per-cell marginal score pruning it. On that image the engine currently
+recovers the first cell ("H") correctly but does not yet converge on the full line. So the
+dominant obstacle is image-dependent: model fidelity for unknown fonts, search convergence when
+the model already matches.
+
 ### 2. Coarse blocks carry little information
 Large block sizes applied to small fonts average away nearly all per-character signal, so
 many strings produce nearly identical blocks. Beyond a certain point this is
@@ -62,6 +74,15 @@ still governs the result.
 `trained-hmm` is trained on a specific tuple of (block size, font size, face, block phase). On
 independent images with differing geometry, accuracy declines sharply (the paper's
 offset-sensitivity result). For out-of-sample geometry, the `window-hmm` beam is more robust.
+
+Grid *detection* itself is now robust to non-zero grid phase and proportional (non-monospace)
+blocks: `InferBlockGrid` previously returned no grid on offset mosaics such as
+`testdata/real/marx.png` (19 px block at offset (5,5)), and elsewhere locked onto a
+sub-harmonic of the true period. Both are fixed (a sub-harmonic guard that only upgrades the
+period when the robust autocorrelation does not already support the candidate). The per-stage
+`mise run geomeasure` diagnostic ([`GEOMETRY.md`](../GEOMETRY.md)) confirms geometry is no
+longer the first failing stage on the real corpus — it isolates whichever stage
+(localize → grid → segment → font) actually breaks per image.
 
 ## The measured decoder picture
 
