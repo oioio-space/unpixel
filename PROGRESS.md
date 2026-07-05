@@ -1404,3 +1404,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `6cac184` 2026-07-05 — feat(refmatch): WithRefXScale — anisotropy support in the reference decoder (P3b) _(4 fichiers)_
 - `39e4703` 2026-07-05 — fix(mosaictext): update measureAdvancesByCumulative callers for the xScale param _(5 fichiers)_
 - `ebcaaf5` 2026-07-05 — feat(verify): exhaustive alignment in verifyCore — Verify recovers real redactions (P3b) _(4 fichiers)_
+- `55cd568` 2026-07-05 — docs(limits): real redactions are recoverable via propose+verify (P3b landmark) _(2 fichiers)_
