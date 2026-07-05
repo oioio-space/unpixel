@@ -206,11 +206,15 @@ structured secret (Luhn/mod-97/date/phone-validated). See [docs](docs/) for the 
 ## Effectiveness
 
 UnPixel recovers **synthetic** redactions reliably (text redacted with a known font and
-subsequently recovered). On **real-world images**, recovery is considerably more
-difficult; success depends primarily on matching the exact font, and supplying `--font`
-is the single most significant factor. The [limitations](docs/concepts/limits.md) page
-documents the operating envelope candidly and should be consulted before relying on the
-tool.
+subsequently recovered). Blind per-character recovery of **real-world images** is
+considerably more difficult; success depends primarily on matching the exact font, and
+supplying `--font` is the single most significant factor. But real redactions **are**
+recoverable by **propose-and-verify**: given a candidate string and calibration
+(font, block, colourspace, crop), `unpixel.Verify` / `unpixel_verify_candidates` confirms
+it by whole-string physical re-pixelation — it recovers the real `hello-world.png` GIMP
+mosaic at distance 0.0000 and ranks the truth #1 on 10/10 sick and 6/9 context secrets
+(`mise run verifymeasure`). The [limitations](docs/concepts/limits.md) page documents the
+operating envelope candidly and should be consulted before relying on the tool.
 
 ## Documentation
 

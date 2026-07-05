@@ -19,6 +19,12 @@ authoritative account of what is achievable.
   language prior as tie-breaker** (some substitutions such as `W`↔`N` are physically identical at
   coarse blocks and only the language model separates them). This is the intended
   LLM-propose/verify loop, and it works on real images.
+- **Measured discrimination** (`mise run verifymeasure`): given calibrated config and hard
+  confusable decoys, propose-and-verify ranks the truth #1 on **10/10** sick sentences/digits and
+  **6/9** context secrets. The remaining misses are the **information-theoretic ceiling**: at
+  correct rendering, high-entropy secrets pixelated at coarse blocks become *physical homoglyph
+  ties* (e.g. `0`↔`O`) that whole-string scoring cannot separate and a global language prior
+  breaks only inconsistently — resolving them needs learned per-character emissions (an ML tier).
 
 This is not a transient defect; it reflects genuine information-theoretic and rendering
 limits. UnPixel should be regarded as a powerful instrument for *demonstrating that
@@ -39,12 +45,14 @@ produced by unequal x/y zoom (e.g. GIMP layer scale) stretch glyph ink horizonta
 inter-glyph spacing cannot express. With the right font, block-average mode, and XScale, the
 direct model can reproduce a real redaction *exactly* — on `testdata/real/hello-world.png` it
 reaches pixelmatch **0.0000** (vs 0.0972 without the stretch). Crucially, when the model matches
-this well, **font fidelity is no longer the wall**: what remains is *blind search convergence* —
-segmenting the line into cells, aligning the grid phase, and accepting the correct character at
-each cell without the per-cell marginal score pruning it. On that image the engine currently
-recovers the first cell ("H") correctly but does not yet converge on the full line. So the
-dominant obstacle is image-dependent: model fidelity for unknown fonts, search convergence when
-the model already matches.
+this well, **font fidelity is no longer the wall**: what remains is *alignment and scoring*. The
+whole-string `unpixel.Verify` path resolves this — cropping to the redaction band
+(`unpixel.WithCrop`) plus exhaustive sub-block alignment (phase sweep + coarse-to-fine position
+refinement in `verifyCore`) now confirms the **entire** "Hello World !" line at **0.0000**, not
+just the first cell, and this recovery is drivable end-to-end from an MCP client via
+`unpixel_verify_candidates` with hints from analyze / rank_fonts / calibrate. So the dominant
+obstacle for real images is image-dependent: model fidelity for unknown fonts (blind decode),
+resolved by propose-and-verify when a candidate and its calibration are available.
 
 ### 2. Coarse blocks carry little information
 Large block sizes applied to small fonts average away nearly all per-character signal, so
