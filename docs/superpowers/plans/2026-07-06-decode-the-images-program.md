@@ -111,6 +111,19 @@ Chaque point : TDD → impl → benchstat (si perf) → doc → commit via gates
   crossimg700 ; `a3f9b2` reste hors d'atteinte de toute méthode (perte d'information réelle).
 - **Conséquence programme** : les gains de décodage restants sont concentrés dans **P10–P14 (tier
   ML, multi-session)** + **P2/P7 (polices, dont wild exige la police exacte utilisateur-fournie)**.
-  Aucun décodage nouveau n'est atteignable en une seule session sans ces briques ; le plan les
-  architecture. Les corpora déjà décodés : fixtures 17/17, blur 13/14, real (hello-world 0.0000 via
-  propose/verify), sick 10/10 discrimination.
+  Les corpora déjà décodés : fixtures 17/17, blur 13/14, real (hello-world 0.0000 via propose/verify),
+  sick 10/10 discrimination.
+
+### ⭐ DÉCODAGE RÉEL cette session — `ctx_crossimg_wght700` → « Secret7 » (pur-Go, sans ML)
+
+Le plafond « info-théorique » était **trop pessimiste pour les secrets contenant un MOT**. Nouvelle
+capacité livrée `mcpserver.VerifyVarFontFit` + test permanent `TestVerifyVarFontFit_DecodeCrossImg` :
+la chaîne **calibration par-candidat des axes VF (wght) + taille en generate-and-test** (chaque
+candidat prend son min sur la grille wght×size) amène la vérité à son **minimum physique** (0.0119,
+à égalité homoglyphe avec « Secnet7 »/« Sccret7 » — indistinguables à block 8), puis un **prior de
+mot-dictionnaire** (`dictWordBonus` : la partie alphabétique est-elle un mot ? « Secret » oui,
+« Secnet »/« Sccret » non) **casse l'égalité** là où le prior char-n-gram échouait. **Best = « Secret7 »,
+Match=true — décodé.** C'est le levier P13/P14 sans ML : émission-par-calibration + prior sémantique
+au niveau mot. Frontière raffinée : **les ties homoglyphes de secrets *word-like* SONT décodables**
+(calibration + dict) ; seul `a3f9b2` (aléatoire pur, décoy physiquement plus bas) reste hors d'atteinte.
+Levier généralisable : intégrer VF-fit + dict-prior dans la boucle verify context (viserait wght750 aussi).
