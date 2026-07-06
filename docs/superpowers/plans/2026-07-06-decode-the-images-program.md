@@ -92,3 +92,25 @@ inférence pur-Go via gorgonia/onnx-go/gonum.
 
 Chaque point : TDD → impl → benchstat (si perf) → doc → commit via gates. Critère de rétention :
 **franchir exact-match sur un corpus muré** OU diagnostic actionnable. Pas de régression panel/journal.
+
+## Findings d'exécution (2026-07-06)
+
+- **P1 — wild = mur de police, CONFIRMÉ (sondes jetées).** Scorer generate-and-test chaîne-entière
+  (filtre-boîte linéaire) × toutes polices bundled + NimbusMonoPS (Courier) × tailles 8–26 × gras ×
+  block{4..8} : **m4 meilleure dist = 0.3252** (Caladea, faux serif), **m5 = 0.9348**. Ni police
+  Courier ni gras ne ferment l'écart. Les polices exactes (Consolas/Notepad, Sublime) sont
+  propriétaires/système — **Depix lui-même exige une capture de référence fournie par l'utilisateur
+  dans la police exacte**. → P2/P7 (acquérir/élargir polices) est le seul levier ; sans la police
+  exacte, m4/m5 ne sont pas décodables en aveugle. **Réoriente l'effort vers le tier ML (ties).**
+- **context ties — rerank INSUFFISANT, mesuré (sonde jetée).** VF-renderer (var_font) + prior de
+  langue rerank sur tout le corpus context : **physique 6/9 → 4/9 (w=0.05) → 3/9 (w=0.10)** — le
+  prior rétrograde plus de wins qu'il n'en récupère (incohérent). De plus `ctx_sameline_mono_token`
+  (`a3f9b2`, hex aléatoire) est **info-théoriquement indécodable** : un décoy homoglyphe score
+  **physiquement plus bas** que la vérité (0.0651 < 0.0714) → même un modèle appris préférerait le
+  décoy. → seul un **modèle d'émission appris par-glyphe** (P10–P14) peut espérer casser wght750/
+  crossimg700 ; `a3f9b2` reste hors d'atteinte de toute méthode (perte d'information réelle).
+- **Conséquence programme** : les gains de décodage restants sont concentrés dans **P10–P14 (tier
+  ML, multi-session)** + **P2/P7 (polices, dont wild exige la police exacte utilisateur-fournie)**.
+  Aucun décodage nouveau n'est atteignable en une seule session sans ces briques ; le plan les
+  architecture. Les corpora déjà décodés : fixtures 17/17, blur 13/14, real (hello-world 0.0000 via
+  propose/verify), sick 10/10 discrimination.

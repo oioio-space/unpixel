@@ -1431,3 +1431,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `dbbb807` 2026-07-05 — docs(plan): VF+rerank is an inconsistent tie-breaker — residual wall is info-theoretic _(2 fichiers)_
 - `9ec203e` 2026-07-05 — test(journal): add propose/verify (Verify-path) section with analysis _(3 fichiers)_
 - `d2e1e95` 2026-07-05 — docs(limits,readme): document propose/verify real recovery + measured discrimination _(3 fichiers)_
+- `76e2cdd` 2026-07-06 — docs(plan): ~20-point program to actually decode the walled images _(1 fichiers)_
