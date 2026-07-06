@@ -42,13 +42,17 @@ type VarFontFitHints struct {
 	BlockSize int
 	Linear    bool
 	FontData  []byte
-	Axis      string
-	WghtMin   int
-	WghtMax   int
-	WghtStep  int
-	SizeMin   float64
-	SizeMax   float64
-	SizeStep  float64
+	// VarFont selects the renderer: true builds a variable-font renderer and fits the
+	// Axis over [WghtMin, WghtMax]; false builds a static renderer from FontData and
+	// only fits size (set WghtMin == WghtMax). The dictionary tie-break applies either way.
+	VarFont  bool
+	Axis     string
+	WghtMin  int
+	WghtMax  int
+	WghtStep int
+	SizeMin  float64
+	SizeMax  float64
+	SizeStep float64
 
 	RerankWeight float64
 }
@@ -78,10 +82,9 @@ func VerifyVarFontFit(ctx context.Context, img image.Image, candidates []string,
 		sStep = 1
 	}
 	for w := h.WghtMin; w <= h.WghtMax; w += wStep {
-		vr, verr := varfont.NewVarRenderer(bytes.NewReader(h.FontData),
-			[]varfont.Axis{{Tag: axis, Value: float32(w)}})
+		vr, verr := fitRenderer(h, axis, w)
 		if verr != nil {
-			return VerifyReport{}, fmt.Errorf("build var renderer @ %s=%d: %w", axis, w, verr)
+			return VerifyReport{}, fmt.Errorf("build renderer @ %s=%d: %w", axis, w, verr)
 		}
 		for size := h.SizeMin; size <= h.SizeMax; size += sStep {
 			opts := []unpixel.Option{
@@ -146,6 +149,17 @@ func VerifyVarFontFit(ctx context.Context, img image.Image, candidates []string,
 	}
 	report.Pick = lowestDistanceMatch(verdicts)
 	return report, nil
+}
+
+// fitRenderer builds the renderer for one grid point: a variable-font renderer with
+// the axis set to w when h.VarFont, else a static renderer from h.FontData (w is
+// then ignored — the caller keeps WghtMin == WghtMax so only size is fitted).
+func fitRenderer(h VarFontFitHints, axis string, w int) (unpixel.Renderer, error) {
+	if h.VarFont {
+		return varfont.NewVarRenderer(bytes.NewReader(h.FontData),
+			[]varfont.Axis{{Tag: axis, Value: float32(w)}})
+	}
+	return defaults.RendererFromFonts(h.FontData, nil)
 }
 
 // dictWordBonus returns 1 when any maximal alphabetic run of s (length ≥ 3) is an

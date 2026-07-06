@@ -126,4 +126,22 @@ mot-dictionnaire** (`dictWordBonus` : la partie alphabétique est-elle un mot ? 
 Match=true — décodé.** C'est le levier P13/P14 sans ML : émission-par-calibration + prior sémantique
 au niveau mot. Frontière raffinée : **les ties homoglyphes de secrets *word-like* SONT décodables**
 (calibration + dict) ; seul `a3f9b2` (aléatoire pur, décoy physiquement plus bas) reste hors d'atteinte.
-Levier généralisable : intégrer VF-fit + dict-prior dans la boucle verify context (viserait wght750 aussi).
+
+### Généralisation à tout le corpus context — frontière MESURÉE (mustDecode = mot présent)
+
+`VerifyVarFontFit` généralisé (VF-fit pour var-font, size-fit pour statique) + `TestVerifyVarFontFit_DecodeContext`
+sur les 3 images var-font Nunito. **Résultat mesuré, honnête** : le prior-mot ne casse la tie que si le
+secret **contient un vrai mot**.
+- `ctx_crossimg_wght700` « Secret7 » → **DÉCODÉ** (« Secret » est un mot ; décoys « Secnet7 »/« Sccret7 » non).
+- `ctx_varfont_wght600` « Tr0ub4dor » → **non** (aucun mot dict ; perd même contre un décoy T→X « Xr0ub4dor »
+  à grille grossière — égalité physique pure).
+- `ctx_varfont_wght750` « G4te2024 » → tie physique, pas de mot ; décode seulement par bris-d'égalité d'ordre
+  (fragile).
+
+**Frontière définitive** : calibration VF/size + **prior-mot** décode les secrets *contenant un mot* ;
+les secrets **sans mot** (Tr0ub4dor, G4te2024, a3f9b2) restent des **égalités homoglyphes physiques** —
+seule une **émission apprise par-glyphe** (P10–P14, ML) peut espérer les départager (et `a3f9b2` reste
+info-théoriquement perdu, décoy physiquement inférieur). L'intégration dans la boucle verifymeasure standard
+est **trop lente** (fit = |wght|×|size| Verify/candidat, >15 min sur le corpus) → gardée hors du harnais
+rapide ; décode-time, pas hot-loop, donc **pas de benchstat requis** (règle hot-path = render/search/
+pixelate/metric/imutil), coût documenté sur `VerifyVarFontFit`.

@@ -21,10 +21,17 @@ authoritative account of what is achievable.
   LLM-propose/verify loop, and it works on real images.
 - **Measured discrimination** (`mise run verifymeasure`): given calibrated config and hard
   confusable decoys, propose-and-verify ranks the truth #1 on **10/10** sick sentences/digits and
-  **6/9** context secrets. The remaining misses are the **information-theoretic ceiling**: at
-  correct rendering, high-entropy secrets pixelated at coarse blocks become *physical homoglyph
-  ties* (e.g. `0`↔`O`) that whole-string scoring cannot separate and a global language prior
-  breaks only inconsistently — resolving them needs learned per-character emissions (an ML tier).
+  **6/9** context secrets.
+- **Variable-font decode** (`mcpserver.VerifyVarFontFit`): when the exact font weight is only
+  approximate (variable-font redactions), fitting the weight axis + size *per candidate* by
+  generate-and-test drives the truth to its physical minimum; a **dictionary word prior** then
+  breaks the residual homoglyph tie when the secret contains a real word — this decodes the
+  `ctx_crossimg_wght700` redaction to **"Secret7"** (over confusable "Secnet7"/"Sccret7").
+- **The residual ceiling** is now precisely bounded: at correct rendering, high-entropy secrets
+  pixelated at coarse blocks become *physical homoglyph ties* (e.g. `0`↔`O`). A word prior separates
+  them **only when the secret contains a dictionary word**; **word-less** secrets (`Tr0ub4dor`,
+  `G4te2024`) and **fully-random** ones (`a3f9b2`, whose decoy even scores physically lower) remain
+  unrecoverable by whole-string scoring — breaking those needs learned per-character emissions (ML).
 
 This is not a transient defect; it reflects genuine information-theoretic and rendering
 limits. UnPixel should be regarded as a powerful instrument for *demonstrating that
