@@ -55,7 +55,12 @@ else
 fi
 
 # 4. Build — code must compile.
-go build ./... || fail "go build failed"
+# -pgo=off: this build-check runs concurrently (under `mise run ci`) with the
+# coverage test build. cmd/unpixel ships default.pgo, so -pgo=auto would recompile
+# its deps (mosaictext) WITH PGO here while the test build compiles them WITHOUT —
+# two fingerprints in the shared GOCACHE race and linking fails (golang/go#61376).
+# A compile-check needs no PGO; the release binary keeps it via goreleaser.
+go build -pgo=off ./... || fail "go build failed"
 ok "go build"
 
 # NOTE: tests are intentionally NOT run here. The dedicated `test:ci` task is the

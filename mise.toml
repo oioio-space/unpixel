@@ -69,7 +69,10 @@ run = "./scripts/rtkx.sh go vet ./..."
 
 [tasks.build]
 description = "Build all packages"
-run = "./scripts/rtkx.sh go build ./..."
+# -pgo=off: this is a compile-check (no -o, binaries discarded); PGO is only needed
+# for the release binary (goreleaser) and would recompile cmd/unpixel's deps with a
+# different fingerprint, risking a cache race under concurrent builds (golang/go#61376).
+run = "./scripts/rtkx.sh go build -pgo=off ./..."
 
 [tasks.align]
 description = "Reorder struct fields for optimal memory alignment (betteralign -apply)"
@@ -89,11 +92,20 @@ run = "go generate ./... && git diff --exit-code -- testdata/fixtures"
 
 [tasks.test]
 description = "Run tests (gotestsum, readable output)"
-run = "./scripts/rtkx.sh gotestsum --format pkgname -- ./..."
+# -pgo=off: tests never need PGO, and disabling it keeps dep fingerprints uniform
+# across concurrent builds (see test:ci for the golang/go#61376 rationale).
+run = "./scripts/rtkx.sh gotestsum --format pkgname -- -pgo=off ./..."
 
 [tasks."test:ci"]
 description = "Run tests once, producing a JUnit report AND coverage.out"
-run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- -short -timeout=8m -covermode=atomic -coverprofile=coverage.out ./..."
+# -pgo=off: `mise run ci` runs this concurrently with lint (go vet) / scan:code
+# (govulncheck) / cgo:check, which all recompile the same packages. Because
+# cmd/unpixel ships default.pgo, -pgo=auto (the default) recompiles cmd/unpixel's
+# deps (e.g. mosaictext) WITH PGO for its test binary while the concurrent tasks
+# build them WITHOUT PGO — two fingerprints in the shared GOCACHE race and the
+# cmd/unpixel test link fails with "fingerprint mismatch" (golang/go#61376). Tests
+# never need PGO, so disabling it makes every build's dep fingerprints uniform.
+run = "./scripts/rtkx.sh gotestsum --junitfile junit.xml --format pkgname -- -pgo=off -short -timeout=8m -covermode=atomic -coverprofile=coverage.out ./..."
 
 [tasks."test:watch"]
 description = "Re-run tests on every file change (TDD loop)"
@@ -190,7 +202,7 @@ run = "./scripts/rtkx.sh grype sbom:sbom.cdx.json --fail-on high"
 # CGO and is forbidden here); use `CGO_ENABLED=1 go test -race ./...` only as a manual,
 # local-only deep check. See .claude/skills/goroutine-leak-check.
 description = "Goroutine-leak gate: goleak (via TestMain) over the full suite, memory-caged"
-run = "./scripts/gotest-caged.sh go test -timeout=8m ./..."
+run = "./scripts/gotest-caged.sh go test -pgo=off -timeout=8m ./..."
 
 [tasks.ci]
 description = "Everything CI must pass"
