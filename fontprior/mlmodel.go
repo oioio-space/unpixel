@@ -19,7 +19,6 @@ package fontprior
 
 import (
 	"image"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +27,7 @@ import (
 	"github.com/oioio-space/unpixel/defaults"
 	"github.com/oioio-space/unpixel/fonts"
 	"github.com/oioio-space/unpixel/internal/imutil"
+	"github.com/oioio-space/unpixel/internal/linearml"
 )
 
 const (
@@ -130,113 +130,24 @@ func genSamples(fnts []fonts.Font) (X [][]float64, y []int) {
 	return X, y
 }
 
-// softmaxModel is a linear softmax classifier: probs = softmax(W·x + b).
-type softmaxModel struct {
-	W      [][]float64 // [nClass][nFeat]
-	B      []float64   // [nClass]
-	names  []string    // class -> font name
-	nClass int
-	nFeat  int
-}
-
-// trainSoftmax fits a softmax classifier on (X, y) by full-batch gradient descent.
-func trainSoftmax(X [][]float64, y []int, names []string) *softmaxModel {
-	nClass := len(names)
-	nFeat := 0
-	if len(X) > 0 {
-		nFeat = len(X[0])
-	}
-	m := &softmaxModel{
-		W:      make([][]float64, nClass),
-		B:      make([]float64, nClass),
-		names:  names,
-		nClass: nClass,
-		nFeat:  nFeat,
-	}
-	for c := range m.W {
-		m.W[c] = make([]float64, nFeat)
-	}
-	if len(X) == 0 {
-		return m
-	}
-	invN := 1.0 / float64(len(X))
-	gradW := make([][]float64, nClass)
-	for c := range gradW {
-		gradW[c] = make([]float64, nFeat)
-	}
-	gradB := make([]float64, nClass)
-	for epoch := 0; epoch < mlEpochs; epoch++ {
-		for c := range gradW {
-			for j := range gradW[c] {
-				gradW[c][j] = 0
-			}
-			gradB[c] = 0
-		}
-		for i, x := range X {
-			p := m.predict(x)
-			for c := 0; c < nClass; c++ {
-				d := p[c]
-				if c == y[i] {
-					d -= 1
-				}
-				gradB[c] += d
-				wc := gradW[c]
-				for j, xj := range x {
-					wc[j] += d * xj
-				}
-			}
-		}
-		for c := 0; c < nClass; c++ {
-			m.B[c] -= mlLR * gradB[c] * invN
-			wc, gc := m.W[c], gradW[c]
-			for j := range wc {
-				wc[j] -= mlLR * (gc[j]*invN + mlL2*wc[j])
-			}
-		}
-	}
-	return m
-}
-
-// predict returns the class-probability vector for feature x.
-func (m *softmaxModel) predict(x []float64) []float64 {
-	logits := make([]float64, m.nClass)
-	maxL := math.Inf(-1)
-	for c := 0; c < m.nClass; c++ {
-		s := m.B[c]
-		wc := m.W[c]
-		for j, xj := range x {
-			s += wc[j] * xj
-		}
-		logits[c] = s
-		if s > maxL {
-			maxL = s
-		}
-	}
-	var sum float64
-	for c := range logits {
-		logits[c] = math.Exp(logits[c] - maxL)
-		sum += logits[c]
-	}
-	if sum == 0 {
-		sum = 1
-	}
-	for c := range logits {
-		logits[c] /= sum
-	}
-	return logits
+// fontModel is the trained classifier plus the class→font-name mapping.
+type fontModel struct {
+	clf   *linearml.Softmax
+	names []string // class index → font name
 }
 
 // trainedModel caches the model trained on the bundled fonts. Training is
 // deterministic and cheap (~a few hundred synthetic samples), so it runs once on
 // first use rather than shipping embedded weights.
-var trainedModel = sync.OnceValue(func() *softmaxModel {
+var trainedModel = sync.OnceValue(func() *fontModel {
 	all := fonts.All()
 	names := make([]string, len(all))
 	for i, f := range all {
 		names[i] = f.Name
 	}
 	X, y := genSamples(all)
-	return trainSoftmax(X, y, names)
+	clf := linearml.Train(X, y, len(names), linearml.Options{Epochs: mlEpochs, LR: mlLR, L2: mlL2})
+	return &fontModel{clf: clf, names: names}
 })
 
 // rankWithModel featurises img at blockSize and ranks fnts by the model's class
@@ -252,8 +163,8 @@ func rankWithModel(img image.Image, blockSize int, fnts []fonts.Font) []Ranked {
 		}
 	}
 	m := trainedModel()
-	probs := m.predict(lumHist(imutil.ToRGBA(img), block))
-	prob := make(map[string]float64, m.nClass)
+	probs := m.clf.Predict(lumHist(imutil.ToRGBA(img), block))
+	prob := make(map[string]float64, len(m.names))
 	for c, name := range m.names {
 		prob[name] = probs[c]
 	}

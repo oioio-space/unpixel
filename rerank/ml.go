@@ -2,33 +2,16 @@
 
 package rerank
 
-import (
-	"context"
-	"errors"
-	"image"
-
-	"github.com/oioio-space/unpixel"
-)
-
-// ErrCTCNotBuilt is returned by the CTC reranker until a trained model is wired
-// in. It exists so callers built with -tags ml fail loudly rather than silently
-// degrading. Build without the tag for the pure-Go [Linguistic] reranker.
-var ErrCTCNotBuilt = errors.New("rerank: CTC reranker not built — train and embed a model, or build without -tags ml")
-
-// Default returns the CTC reranker when built with -tags ml. Until a model is
-// trained and embedded, its Rerank returns [ErrCTCNotBuilt].
+// Default returns the trained emission reranker when built with -tags ml: a pure-Go
+// glyph-emission model (see emission.go) that scores each candidate against the
+// image via a learned P(char | tile), a discriminative tie-break the language-only
+// [Linguistic] reranker cannot provide. Build without -tags ml for [Linguistic].
 func Default() Reranker { return ctcReranker{} }
 
-// ctcReranker is the seam for a CRNN-CTC model trained on the
-// render→pixelate→text synthetic domain (the renderer is the labeller). Unlike
-// the language-only [Linguistic] blend, a CTC head scores P(text | image)
-// discriminatively and can recognise fonts outside the bundled set that the
-// forward model cannot render. Inference would be a hand-written pure-Go forward
-// pass (conv+BiLSTM+CTC, no CGO). It is intentionally unimplemented: this commit
-// ships only the build-tag seam so the model can drop in without touching callers.
+// ctcReranker rescores candidates with a trained glyph-emission model: it segments
+// the redaction into per-glyph tiles and blends the mean per-glyph emission
+// log-likelihood P(char | tile) with the physical distance and the language prior.
+// The model trains itself at first use on synthetic render→pixelate glyph tiles of
+// the bundled fonts and runs a pure-Go softmax forward pass — no CGO, no framework,
+// no embedded weights. See [ctcReranker.Rerank] in emission.go.
 type ctcReranker struct{}
-
-// Rerank reports [ErrCTCNotBuilt] until a trained model is embedded.
-func (ctcReranker) Rerank(_ context.Context, _ image.Image, _ []unpixel.Verdict, _ func(string) float64, _ float64) ([]Ranked, error) {
-	return nil, ErrCTCNotBuilt
-}
