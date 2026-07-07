@@ -79,3 +79,51 @@ func TestEmissionReranker_breaksTie(t *testing.T) {
 		t.Errorf("emission reranker Best = %q, want %q (image should break the physical tie)", ranked[0].Text, truth)
 	}
 }
+
+// TestEmissionReranker_breaksTie_proportional is the proportional-font
+// counterpart of TestEmissionReranker_breaksTie: it renders a PROPORTIONAL
+// string (narrow "1", wide "M", medium "B" — very unequal glyph advances) in
+// Liberation Sans and checks the emission reranker still prefers the true
+// text over a confusable decoy tied on physical distance. Equal-width column
+// segmentation misaligns badly here (a wide "M" spills into its neighbouring
+// equal-width columns), which flips this exact case to the wrong candidate;
+// advance-aware segmentation (columns placed at each glyph's actual rendered
+// extent) keeps it correct — this is the case that proves the value of
+// advance-aware segmentation over the monospace assumption.
+func TestEmissionReranker_breaksTie_proportional(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping emission-reranker decode in -short mode")
+	}
+	var sans fonts.Font
+	for _, f := range fonts.All() {
+		if f.Name == "Liberation Sans" {
+			sans = f
+			break
+		}
+	}
+	rend, err := defaults.RendererFromFonts(sans.Data, nil)
+	if err != nil {
+		t.Fatalf("renderer: %v", err)
+	}
+	const truth = "1MB"
+	img, _, rerr := rend.Render(truth, unpixel.Style{FontSize: 30})
+	if rerr != nil {
+		t.Fatalf("render: %v", rerr)
+	}
+	mosaic := defaults.BlockAverage(6).Pixelate(imutil.ToRGBA(img), 0, 0)
+
+	verdicts := []unpixel.Verdict{
+		{Text: "lMB", Distance: 0.010},
+		{Text: truth, Distance: 0.010},
+	}
+	ranked, err := rerank.Default().Rerank(t.Context(), mosaic, verdicts, func(string) float64 { return 0 }, 1.0)
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	for _, r := range ranked {
+		t.Logf("candidate %-8q blended=%.4f distance=%.4f", r.Text, r.Blended, r.Distance)
+	}
+	if ranked[0].Text != truth {
+		t.Errorf("emission reranker Best = %q, want %q (advance-aware segmentation should break the physical tie)", ranked[0].Text, truth)
+	}
+}

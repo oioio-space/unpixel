@@ -1445,3 +1445,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `eeae843` 2026-07-07 — test(largeblock): regression-guard blind recovery at coarse block sizes (20-32px) _(2 fichiers)_
 - `df01037` 2026-07-08 — feat(api): RecoverBytes, actionable format errors, WithVerifyThreshold, hex/digits presets _(5 fichiers)_
 - `aac28e8` 2026-07-08 — feat(recover): Recover honours WithCrop — decode a redaction embedded in a larger image _(3 fichiers)_
+- `248f7d3` 2026-07-08 — feat(api,cli): Verify decode helpers, pkg.go.dev examples, --strict exit code _(5 fichiers)_

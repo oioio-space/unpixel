@@ -77,10 +77,11 @@ func TestMLPrior_topKAccuracy(t *testing.T) {
 		t.Logf("font=%-18s top1=%q", f.Name, ranked[0].Name)
 	}
 	// Chance top-3 over 9 fonts ≈ 3/9; training is deterministic (zero-init
-	// full-batch GD), so the score is reproducible. Require clearly above chance —
-	// the residual misses are same-family confusions (mono↔mono, sans↔sans), the
-	// documented information limit of blind font-ID from a coarse mosaic.
-	const want = 6
+	// full-batch GD), so the score is reproducible. featurize adds a spatial SHAPE
+	// signature (vertical ink-density profile + ink run-length histogram) to
+	// lumHist's ink-density histogram, which resolves most of the residual
+	// same-family confusions (mono↔mono, sans↔sans) that ink density alone missed.
+	const want = 8
 	if top3 < want {
 		t.Errorf("top-3 accuracy = %d/%d, want >= %d (well above chance)", top3, len(all), want)
 	}

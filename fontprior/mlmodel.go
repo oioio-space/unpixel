@@ -12,10 +12,14 @@ package fontprior
 // its INK block luminances — a font's stroke weight/aperture sets how dark its
 // strokes average at a given block size. lumHist captures that as the ink fraction
 // plus a normalised histogram over ink-bearing blocks only (background is excluded,
-// or it would swamp the signal), which is text-length- and position-invariant. A
-// softmax over that feature, trained discriminatively across fonts and block sizes,
-// separates families cleanly; the residual confusions are same-family faces (mono↔
-// mono, sans↔sans), the information limit of blind font-ID from a coarse mosaic.
+// or it would swamp the signal), which is text-length- and position-invariant. That
+// separates broad families cleanly, but leaves same-family faces (mono↔mono, sans↔
+// sans) confused, because it discards WHERE the ink sits. spatialProfile adds that:
+// a vertical ink-density profile (the font's cap-height/x-height/descender
+// proportions) and a horizontal ink run-length histogram (typical stroke-width and
+// letter-spacing texture) — both normalised over ink-bearing blocks, so they stay
+// text-length- and position-invariant like lumHist. featurize concatenates the two
+// into the vector actually trained/predicted on.
 
 import (
 	"image"
@@ -32,6 +36,8 @@ import (
 
 const (
 	histBins       = 24  // block-luminance histogram resolution
+	profBins       = 3   // vertical ink-density profile resolution
+	runBins        = 3   // ink run-length histogram resolution
 	mlEpochs       = 300 // SGD epochs
 	mlLR           = 0.3 // learning rate
 	mlL2           = 1e-4
@@ -51,13 +57,33 @@ var mlTexts = []string{"the quick brown fox", "PASSWORD 12345", "Hello, World!",
 // the histogram and washes out the font signature.
 const inkThreshold = 235.0
 
-// lumHist returns the model's feature (length histBins) from img pixelated at
-// block. Feature[0] is the ink fraction (share of blocks carrying text); the
-// remaining histBins-1 entries are a normalised histogram of the *ink* blocks'
-// mean luminance. Focusing on ink blocks captures the font's stroke-darkness
-// signature — how black its strokes average at this block size — instead of the
-// background that dominates a raw all-block histogram. It stays text-length- and
-// position-invariant (both terms are normalised counts).
+// blockLum returns the mean luminance ([0,255]) of the block-sized region of img
+// anchored at (bx,by), clipped to bounds, and whether it is ink-bearing (below
+// inkThreshold). It underlies both lumHist and spatialProfile so the two features
+// see exactly the same block quantisation.
+func blockLum(img *image.RGBA, bx, by, block int, bounds image.Rectangle) (lum float64, ink bool) {
+	var sum, cnt float64
+	for y := by; y < by+block && y < bounds.Max.Y; y++ {
+		for x := bx; x < bx+block && x < bounds.Max.X; x++ {
+			c := img.RGBAAt(x, y)
+			sum += float64(299*int(c.R)+587*int(c.G)+114*int(c.B)) / 1000
+			cnt++
+		}
+	}
+	if cnt == 0 {
+		return 0, false
+	}
+	lum = sum / cnt
+	return lum, lum < inkThreshold
+}
+
+// lumHist returns the model's ink-density feature (length histBins) from img
+// pixelated at block. Feature[0] is the ink fraction (share of blocks carrying
+// text); the remaining histBins-1 entries are a normalised histogram of the *ink*
+// blocks' mean luminance. Focusing on ink blocks captures the font's stroke-
+// darkness signature — how black its strokes average at this block size — instead
+// of the background that dominates a raw all-block histogram. It stays text-
+// length- and position-invariant (both terms are normalised counts).
 func lumHist(img *image.RGBA, block int) []float64 {
 	if block < 2 {
 		block = 8
@@ -68,27 +94,13 @@ func lumHist(img *image.RGBA, block int) []float64 {
 	total, ink := 0, 0
 	for by := b.Min.Y; by < b.Max.Y; by += block {
 		for bx := b.Min.X; bx < b.Max.X; bx += block {
-			var sum, cnt float64
-			for y := by; y < by+block && y < b.Max.Y; y++ {
-				for x := bx; x < bx+block && x < b.Max.X; x++ {
-					c := img.RGBAAt(x, y)
-					sum += float64(299*int(c.R)+587*int(c.G)+114*int(c.B)) / 1000
-					cnt++
-				}
-			}
-			if cnt == 0 {
-				continue
-			}
+			lum, isInk := blockLum(img, bx, by, block, b)
 			total++
-			lum := sum / cnt // [0,255]
-			if lum >= inkThreshold {
+			if !isInk {
 				continue
 			}
 			ink++
-			bin := int(lum / inkThreshold * float64(inkBins))
-			if bin >= inkBins {
-				bin = inkBins - 1
-			}
+			bin := min(int(lum/inkThreshold*float64(inkBins)), inkBins-1)
 			h[1+bin]++
 		}
 	}
@@ -101,6 +113,88 @@ func lumHist(img *image.RGBA, block int) []float64 {
 		}
 	}
 	return h
+}
+
+// resampleBox resamples src (any length) to exactly m values by box-averaging,
+// so a variable-length per-row/per-run profile becomes a fixed-length feature
+// regardless of how many block rows or runs the source text produced.
+func resampleBox(src []float64, m int) []float64 {
+	out := make([]float64, m)
+	n := len(src)
+	if n == 0 || m == 0 {
+		return out
+	}
+	for i := range m {
+		lo := float64(i) * float64(n) / float64(m)
+		hi := float64(i+1) * float64(n) / float64(m)
+		var sum, cnt float64
+		for j := int(lo); j < n && float64(j) < hi; j++ {
+			sum += src[j]
+			cnt++
+		}
+		if cnt == 0 {
+			out[i] = src[min(int(lo), n-1)]
+			continue
+		}
+		out[i] = sum / cnt
+	}
+	return out
+}
+
+// spatialProfile returns a text-invariant SHAPE signature (length profBins+runBins)
+// that complements lumHist's ink-density histogram with WHERE the ink sits: a
+// vertical ink-density profile (resampled to profBins) capturing the font's
+// cap-height/x-height/descender proportions, and a horizontal ink run-length
+// histogram (runBins) capturing typical stroke-width/letter-spacing texture. Both
+// are computed over ink-bearing blocks only and normalised, so — like lumHist —
+// they generalise across text content and length.
+func spatialProfile(img *image.RGBA, block int) []float64 {
+	if block < 2 {
+		block = 8
+	}
+	b := img.Bounds()
+	var rowDensity []float64
+	runHist := make([]float64, runBins)
+	var totalRuns float64
+
+	for by := b.Min.Y; by < b.Max.Y; by += block {
+		var rowInk, rowTotal, run int
+		for bx := b.Min.X; bx < b.Max.X; bx += block {
+			_, isInk := blockLum(img, bx, by, block, b)
+			rowTotal++
+			if isInk {
+				rowInk++
+				run++
+				continue
+			}
+			if run > 0 {
+				runHist[min(run-1, runBins-1)]++
+				totalRuns++
+				run = 0
+			}
+		}
+		if run > 0 {
+			runHist[min(run-1, runBins-1)]++
+			totalRuns++
+		}
+		if rowTotal > 0 {
+			rowDensity = append(rowDensity, float64(rowInk)/float64(rowTotal))
+		}
+	}
+
+	if totalRuns > 0 {
+		for i := range runHist {
+			runHist[i] /= totalRuns
+		}
+	}
+	return append(resampleBox(rowDensity, profBins), runHist...)
+}
+
+// featurize returns the full feature vector (length histBins+profBins+runBins)
+// trained and predicted on: lumHist's ink-density signature concatenated with
+// spatialProfile's shape signature.
+func featurize(img *image.RGBA, block int) []float64 {
+	return append(lumHist(img, block), spatialProfile(img, block)...)
 }
 
 // genSamples renders each font's exemplars, pixelates at each mlBlocks size, and
@@ -121,7 +215,7 @@ func genSamples(fnts []fonts.Font) (X [][]float64, y []int) {
 						continue
 					}
 					mosaic := px.Pixelate(imutil.ToRGBA(img), 0, 0)
-					X = append(X, lumHist(mosaic, block))
+					X = append(X, featurize(mosaic, block))
 					y = append(y, fi)
 				}
 			}
@@ -163,7 +257,7 @@ func rankWithModel(img image.Image, blockSize int, fnts []fonts.Font) []Ranked {
 		}
 	}
 	m := trainedModel()
-	probs := m.clf.Predict(lumHist(imutil.ToRGBA(img), block))
+	probs := m.clf.Predict(featurize(imutil.ToRGBA(img), block))
 	prob := make(map[string]float64, len(m.names))
 	for c, name := range m.names {
 		prob[name] = probs[c]

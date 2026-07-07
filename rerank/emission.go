@@ -15,8 +15,12 @@ package rerank
 // the glyph's ink box), so it captures glyph SHAPE — the signal that survives
 // coarse pixelation and distinguishes 0/O, r/n, T/X — not just ink density.
 //
-// Segmentation is monospace-style (candidate split into equal-width columns); it is
-// most reliable on fixed-advance redactions (the sick digit/token corpus). The
+// Segmentation is advance-aware: column boundaries are placed proportionally to
+// each candidate glyph's rendered advance width (measured against a reference
+// sans face), falling back to equal-width columns when advances are unavailable
+// or degenerate. This makes it correct for proportional-font redactions while
+// staying exactly equal-width — and so unchanged — for monospace ones, since a
+// monospace face's advances are equal by construction. The
 // emission log-likelihood and language prior are fused into Ranked.Blended (the
 // ordering key) while Ranked.Distance stays the untouched physical value; weight
 // controls how strongly the image can reorder the physical ranking — enough to flip
@@ -113,6 +117,79 @@ func tileFeature(img *image.RGBA) []float64 {
 	return feat
 }
 
+// advanceRenderer is the reference renderer used only to measure per-glyph
+// advance widths for proportional segmentation (see glyphAdvances); it is not
+// the emission model's training renderer. Liberation Sans (the first bundled
+// font) is a reasonable stand-in for an unknown redaction face: for a truly
+// monospace face all advances are equal anyway, so segmentation degenerates to
+// the original equal-width behaviour regardless of which face measures it.
+var advanceRenderer = sync.OnceValues(func() (unpixel.Renderer, error) {
+	all := fonts.All()
+	return defaults.RendererFromFonts(all[0].Data, nil)
+})
+
+// advanceRefSize is the font size advances are measured at. Segmentation only
+// needs the RATIO between glyph advances, which is scale-invariant, so any
+// size within the trained range works.
+const advanceRefSize = 30
+
+// glyphAdvances returns the rendered advance width of each rune in text, or
+// nil if advances are unavailable (reference renderer construction failure, or
+// any glyph fails to render). Each glyph is rendered alone, so the result
+// ignores kerning — an acceptable approximation for column segmentation.
+func glyphAdvances(text string) []float64 {
+	rend, err := advanceRenderer()
+	if err != nil {
+		return nil
+	}
+	runes := []rune(text)
+	advances := make([]float64, len(runes))
+	for i, ch := range runes {
+		_, sentinelX, rerr := rend.Render(string(ch), unpixel.Style{FontSize: advanceRefSize})
+		if rerr != nil {
+			return nil
+		}
+		advances[i] = float64(sentinelX)
+	}
+	return advances
+}
+
+// columnBounds returns n+1 monotonically increasing pixel offsets in [0, w]
+// segmenting a band of width w into n glyph columns. When advances holds n
+// positive-summing entries, boundaries are placed proportionally to the
+// cumulative advance — narrow glyphs (e.g. "i") get narrow columns, wide ones
+// (e.g. "W") get wide columns. Otherwise (advances unavailable, wrong length,
+// or non-positive total — e.g. all-zero-width glyphs) it falls back to the
+// original equal-width segmentation.
+func columnBounds(w int, advances []float64, n int) []int {
+	bounds := make([]int, n+1)
+	var total float64
+	if len(advances) == n {
+		for _, a := range advances {
+			total += a
+		}
+	}
+	switch {
+	case total > 0:
+		var cum float64
+		for i, a := range advances {
+			cum += a
+			bounds[i+1] = int(math.Round(float64(w) * cum / total))
+		}
+		bounds[n] = w
+	default:
+		for i := range bounds {
+			bounds[i] = i * w / n
+		}
+	}
+	for i := 1; i <= n; i++ {
+		if bounds[i] <= bounds[i-1] {
+			bounds[i] = bounds[i-1] + 1
+		}
+	}
+	return bounds
+}
+
 // glyphTile renders one rune in the given font at size, pixelates at emBlock, and
 // returns its tile feature. ok is false if the rune did not render.
 func glyphTile(fontData []byte, ch rune, size float64) ([]float64, bool) {
@@ -170,8 +247,10 @@ var trainedEmission = sync.OnceValue(func() *emissionModel {
 })
 
 // emissionLogLik scores candidate text against the redaction img: it splits img
-// into len(text) equal-width column tiles (monospace segmentation) and returns the
-// mean per-glyph log P(char | tile). Higher (less negative) is a better fit.
+// into len(text) column tiles — placed proportionally to each glyph's rendered
+// advance width (see columnBounds), falling back to equal-width columns for
+// monospace text or when advances are unavailable — and returns the mean
+// per-glyph log P(char | tile). Higher (less negative) is a better fit.
 func emissionLogLik(img image.Image, text string) float64 {
 	runes := []rune(text)
 	if len(runes) == 0 {
@@ -180,15 +259,11 @@ func emissionLogLik(img image.Image, text string) float64 {
 	rgba := imutil.ToRGBA(img)
 	b := rgba.Bounds()
 	w := b.Dx()
+	bounds := columnBounds(w, glyphAdvances(text), len(runes))
 	m := trainedEmission()
 	var sum float64
 	for i, ch := range runes {
-		x0 := b.Min.X + i*w/len(runes)
-		x1 := b.Min.X + (i+1)*w/len(runes)
-		if x1 <= x0 {
-			x1 = x0 + 1
-		}
-		col := imutil.Crop(rgba, x0, b.Min.Y, x1-x0, b.Dy())
+		col := imutil.Crop(rgba, b.Min.X+bounds[i], b.Min.Y, bounds[i+1]-bounds[i], b.Dy())
 		sum += m.logProb(tileFeature(col), ch)
 	}
 	return sum / float64(len(runes))
