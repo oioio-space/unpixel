@@ -1440,3 +1440,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `fb38390` 2026-07-07 — feat(fontprior): trained pure-Go font-ID model fills the //go:build ml seam _(4 fichiers)_
 - `6ccfe99` 2026-07-07 — feat(rerank): trained glyph-emission reranker + shared linearml classifier (ML tier) _(6 fichiers)_
 - `a6316f6` 2026-07-07 — docs(ml): document the pure-Go ML tier + its honest boundary _(3 fichiers)_
+- `40fc013` 2026-07-07 — docs(ml): note the opt-in -tags ml trained tier in README + PROGRESS _(2 fichiers)_

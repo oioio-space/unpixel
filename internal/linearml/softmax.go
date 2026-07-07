@@ -1,3 +1,5 @@
+//go:build ml
+
 // Package linearml is a tiny, dependency-free linear softmax classifier used by
 // the //go:build ml model seams (fontprior font-ID, rerank glyph emissions). It is
 // deliberately minimal — a single dense layer trained by deterministic full-batch
