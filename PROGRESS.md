@@ -1442,3 +1442,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `a6316f6` 2026-07-07 — docs(ml): document the pure-Go ML tier + its honest boundary _(3 fichiers)_
 - `40fc013` 2026-07-07 — docs(ml): note the opt-in -tags ml trained tier in README + PROGRESS _(2 fichiers)_
 - `d5badae` 2026-07-07 — fix(linearml): gate the shared classifier behind -tags ml (coverage) _(3 fichiers)_
+- `eeae843` 2026-07-07 — test(largeblock): regression-guard blind recovery at coarse block sizes (20-32px) _(2 fichiers)_

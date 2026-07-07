@@ -30,6 +30,7 @@
 package unpixel
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -245,6 +246,13 @@ type Config struct {
 	// whole-string scoring discriminate the truth on a real screenshot.
 	crop image.Rectangle
 
+	// verifyThreshold, when > 0, overrides VerifyMatchThreshold for the Verify
+	// family: a Verdict/ImageVerdict is a Match when its Distance is below it. Zero
+	// means "use the package default". Set via WithVerifyThreshold; read through
+	// VerifyThreshold. Lets callers tune Match strictness per call (a lower value
+	// demands a closer physical fit before claiming a recovery).
+	verifyThreshold float64
+
 	// autoColorspace, when true, runs forensics.Fingerprint on the
 	// located/cropped target and selects the linear or sRGB pixelator
 	// accordingly. Falls back to the default (sRGB) when confidence < 0.5.
@@ -280,6 +288,13 @@ type Config struct {
 const (
 	// CharsetLower is lowercase ASCII letters plus space (the faithful default).
 	CharsetLower = DefaultCharset
+	// CharsetDigits is the ten decimal digits — the narrowest useful alphabet, for
+	// PINs, card numbers, and other purely numeric secrets. The tighter the charset
+	// the smaller the search, so prefer this when the target is known to be numeric.
+	CharsetDigits = "0123456789"
+	// CharsetHex is the lowercase hexadecimal alphabet (0-9a-f), for hashes, hex
+	// tokens, and colour codes.
+	CharsetHex = "0123456789abcdef"
 	// CharsetAlnum adds uppercase letters and digits to CharsetLower.
 	CharsetAlnum = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 	// CharsetASCII is every printable ASCII character (0x20–0x7E). Use it for
@@ -1917,6 +1932,24 @@ func WithAutoCrop() Option { return func(c *Config) { c.autoCrop = true } }
 // by the Verify family; it has no effect on [Recover].
 func WithCrop(band image.Rectangle) Option { return func(c *Config) { c.crop = band } }
 
+// WithVerifyThreshold sets the maximum whole-image distance at which a Verify /
+// VerifyImage candidate counts as a Match, overriding the default
+// [VerifyMatchThreshold] for this call. Pass a smaller value to demand a closer
+// physical fit (fewer false Matches on ambiguous mosaics), or a larger one to be
+// more permissive. A value ≤ 0 keeps the package default. It affects only the
+// Match flag; the raw Distance is always reported so callers can threshold
+// themselves too.
+func WithVerifyThreshold(t float64) Option { return func(c *Config) { c.verifyThreshold = t } }
+
+// VerifyThreshold returns the effective Verify Match threshold for this config:
+// the value set by [WithVerifyThreshold] when positive, else [VerifyMatchThreshold].
+func (c Config) VerifyThreshold() float64 {
+	if c.verifyThreshold > 0 {
+		return c.verifyThreshold
+	}
+	return VerifyMatchThreshold
+}
+
 // WithAutoColorspace enables automatic colorspace detection for the mosaic
 // pixelator. When set, New runs forensics fingerprinting on the (possibly
 // cropped) target image after auto-detection of the block size, and selects
@@ -2251,14 +2284,36 @@ func Recover(ctx context.Context, redacted image.Image, opts ...Option) (Result,
 	return best, nil
 }
 
+// decodeImage decodes an image from r, mapping an unrecognised format to an
+// actionable error (only PNG is registered by default — import the format's
+// image/<fmt> package, e.g. image/jpeg, to add support).
+func decodeImage(r io.Reader) (image.Image, error) {
+	img, _, err := image.Decode(r)
+	if err != nil {
+		if errors.Is(err, image.ErrFormat) {
+			return nil, fmt.Errorf("decode image: unrecognised format — import the format's image/<fmt> package (e.g. image/jpeg) to register it: %w", err)
+		}
+		return nil, fmt.Errorf("decode image: %w", err)
+	}
+	return img, nil
+}
+
 // RecoverReader decodes an image (PNG is registered; register other formats by
 // importing their image/<fmt> package) from r and calls Recover.
 func RecoverReader(ctx context.Context, r io.Reader, opts ...Option) (Result, error) {
-	img, _, err := image.Decode(r)
+	img, err := decodeImage(r)
 	if err != nil {
-		return Result{}, fmt.Errorf("decode image: %w", err)
+		return Result{}, err
 	}
 	return Recover(ctx, img, opts...)
+}
+
+// RecoverBytes decodes an image from in-memory data and calls Recover. It is the
+// []byte counterpart of RecoverReader/RecoverFile — convenient when the image
+// already lives in memory (an HTTP body, an embedded asset) with no file or
+// io.Reader to hand.
+func RecoverBytes(ctx context.Context, data []byte, opts ...Option) (Result, error) {
+	return RecoverReader(ctx, bytes.NewReader(data), opts...)
 }
 
 // RecoverFile opens the image at path and calls RecoverReader. Pass "-" handling
@@ -2276,9 +2331,9 @@ func RecoverFile(ctx context.Context, path string, opts ...Option) (Result, erro
 // formats by importing their image/<fmt> package) from r and calls
 // RecoverBlurred.
 func RecoverBlurredReader(ctx context.Context, r io.Reader, opts ...Option) (Result, error) {
-	img, _, err := image.Decode(r)
+	img, err := decodeImage(r)
 	if err != nil {
-		return Result{}, fmt.Errorf("decode image: %w", err)
+		return Result{}, err
 	}
 	return RecoverBlurred(ctx, img, opts...)
 }

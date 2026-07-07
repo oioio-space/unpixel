@@ -259,15 +259,16 @@ func verifyCore(ctx context.Context, rgba *image.RGBA, cfg unpixel.Config, candi
 		// the match threshold): the lenient cross-renderer metric can coincidentally
 		// lower near-miss candidates on small images, so gating on the threshold
 		// makes it a confirmer only, never a discriminator between near-misses.
-		if dist >= unpixel.VerifyMatchThreshold {
-			if d := alignedDist(ctx, cand, rgba, cfg); d < unpixel.VerifyMatchThreshold && d < dist {
+		thr := cfg.VerifyThreshold()
+		if dist >= thr {
+			if d := alignedDist(ctx, cand, rgba, cfg); d < thr && d < dist {
 				dist = d
 			}
 		}
 		verdicts[i] = unpixel.Verdict{
 			Text:     cand,
 			Distance: dist,
-			Match:    dist < unpixel.VerifyMatchThreshold,
+			Match:    dist < thr,
 		}
 	}
 	return verdicts, nil
@@ -335,7 +336,7 @@ func verifyImageCore(ctx context.Context, redacted, restored *image.RGBA, cfg un
 		}
 	}
 
-	return unpixel.ImageVerdict{Distance: best, Match: best < unpixel.VerifyMatchThreshold}, nil
+	return unpixel.ImageVerdict{Distance: best, Match: best < cfg.VerifyThreshold()}, nil
 }
 
 // Wire fills any nil component fields in cfg with the standard implementations.

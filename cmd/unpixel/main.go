@@ -215,6 +215,10 @@ func buildConfig(p flagParams) unpixel.Config {
 // charsetForPreset maps a --charset-preset name to a charset constant.
 func charsetForPreset(name string) (string, error) {
 	switch name {
+	case "digits":
+		return unpixel.CharsetDigits, nil
+	case "hex":
+		return unpixel.CharsetHex, nil
 	case "lower":
 		return unpixel.CharsetLower, nil
 	case "alnum":
@@ -222,8 +226,8 @@ func charsetForPreset(name string) (string, error) {
 	case "ascii", "code":
 		return unpixel.CharsetASCII, nil
 	default:
-		return "", fmt.Errorf("--charset-preset must be %q, %q or %q/%q, got %q",
-			"lower", "alnum", "ascii", "code", name)
+		return "", fmt.Errorf("--charset-preset must be one of %q, %q, %q, %q, %q/%q, got %q",
+			"digits", "hex", "lower", "alnum", "ascii", "code", name)
 	}
 }
 
@@ -2067,7 +2071,7 @@ Examples:
 			},
 			&cli.StringFlag{
 				Name:  "charset-preset",
-				Usage: `named charset when --charset is unset: "lower", "alnum", or "ascii"/"code"`,
+				Usage: `named charset when --charset is unset: "digits", "hex", "lower", "alnum", or "ascii"/"code"`,
 			},
 			&cli.IntFlag{
 				Name:    "max-length",
