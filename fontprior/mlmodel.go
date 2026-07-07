@@ -1,0 +1,271 @@
+//go:build ml
+
+package fontprior
+
+// mlmodel.go — the trained font-ID model behind the //go:build ml seam. It is a
+// self-contained, pure-Go pipeline (no CGO, no external training framework, no
+// embedded weights): the renderer is the labeller, so the model TRAINS ITSELF at
+// first use on synthetic render→pixelate samples of the bundled fonts, then does a
+// pure-Go softmax forward pass to rank fonts.
+//
+// Feature: a font is identified blind (unknown plaintext) from the DISTRIBUTION of
+// its INK block luminances — a font's stroke weight/aperture sets how dark its
+// strokes average at a given block size. lumHist captures that as the ink fraction
+// plus a normalised histogram over ink-bearing blocks only (background is excluded,
+// or it would swamp the signal), which is text-length- and position-invariant. A
+// softmax over that feature, trained discriminatively across fonts and block sizes,
+// separates families cleanly; the residual confusions are same-family faces (mono↔
+// mono, sans↔sans), the information limit of blind font-ID from a coarse mosaic.
+
+import (
+	"image"
+	"math"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/oioio-space/unpixel"
+	"github.com/oioio-space/unpixel/defaults"
+	"github.com/oioio-space/unpixel/fonts"
+	"github.com/oioio-space/unpixel/internal/imutil"
+)
+
+const (
+	histBins       = 24  // block-luminance histogram resolution
+	mlEpochs       = 300 // SGD epochs
+	mlLR           = 0.3 // learning rate
+	mlL2           = 1e-4
+	samplesPerFont = 6 // renders per (font, block, text) combination
+)
+
+// mlBlocks is the range of block sizes trained over so the model generalises
+// across the redaction's (unknown) mosaic block size.
+var mlBlocks = []int{4, 5, 6, 8, 10}
+
+// mlTexts are exemplar strings spanning glyph shapes; the label is font, not text,
+// so variety here makes the feature text-invariant.
+var mlTexts = []string{"the quick brown fox", "PASSWORD 12345", "Hello, World!", "aeiou nmwWMH loql"}
+
+// inkThreshold is the block-mean-luminance below which a mosaic block is treated
+// as ink-bearing (text) rather than background. Above it, block-average white pads
+// the histogram and washes out the font signature.
+const inkThreshold = 235.0
+
+// lumHist returns the model's feature (length histBins) from img pixelated at
+// block. Feature[0] is the ink fraction (share of blocks carrying text); the
+// remaining histBins-1 entries are a normalised histogram of the *ink* blocks'
+// mean luminance. Focusing on ink blocks captures the font's stroke-darkness
+// signature — how black its strokes average at this block size — instead of the
+// background that dominates a raw all-block histogram. It stays text-length- and
+// position-invariant (both terms are normalised counts).
+func lumHist(img *image.RGBA, block int) []float64 {
+	if block < 2 {
+		block = 8
+	}
+	b := img.Bounds()
+	h := make([]float64, histBins)
+	inkBins := histBins - 1
+	total, ink := 0, 0
+	for by := b.Min.Y; by < b.Max.Y; by += block {
+		for bx := b.Min.X; bx < b.Max.X; bx += block {
+			var sum, cnt float64
+			for y := by; y < by+block && y < b.Max.Y; y++ {
+				for x := bx; x < bx+block && x < b.Max.X; x++ {
+					c := img.RGBAAt(x, y)
+					sum += float64(299*int(c.R)+587*int(c.G)+114*int(c.B)) / 1000
+					cnt++
+				}
+			}
+			if cnt == 0 {
+				continue
+			}
+			total++
+			lum := sum / cnt // [0,255]
+			if lum >= inkThreshold {
+				continue
+			}
+			ink++
+			bin := int(lum / inkThreshold * float64(inkBins))
+			if bin >= inkBins {
+				bin = inkBins - 1
+			}
+			h[1+bin]++
+		}
+	}
+	if total > 0 {
+		h[0] = float64(ink) / float64(total)
+	}
+	if ink > 0 {
+		for i := 1; i < histBins; i++ {
+			h[i] /= float64(ink)
+		}
+	}
+	return h
+}
+
+// genSamples renders each font's exemplars, pixelates at each mlBlocks size, and
+// returns (features, labels) for training. Label is the font index into fnts.
+func genSamples(fnts []fonts.Font) (X [][]float64, y []int) {
+	for fi, f := range fnts {
+		r, err := defaults.RendererFromFonts(f.Data, nil)
+		if err != nil {
+			continue
+		}
+		for _, block := range mlBlocks {
+			px := defaults.BlockAverage(block)
+			for ti, text := range mlTexts {
+				for s := 0; s < samplesPerFont; s++ {
+					size := 24.0 + float64((ti+s)%5)*4 // 24..40 pt spread
+					img, _, rerr := r.Render(text, unpixel.Style{FontSize: size})
+					if rerr != nil {
+						continue
+					}
+					mosaic := px.Pixelate(imutil.ToRGBA(img), 0, 0)
+					X = append(X, lumHist(mosaic, block))
+					y = append(y, fi)
+				}
+			}
+		}
+	}
+	return X, y
+}
+
+// softmaxModel is a linear softmax classifier: probs = softmax(W·x + b).
+type softmaxModel struct {
+	W      [][]float64 // [nClass][nFeat]
+	B      []float64   // [nClass]
+	names  []string    // class -> font name
+	nClass int
+	nFeat  int
+}
+
+// trainSoftmax fits a softmax classifier on (X, y) by full-batch gradient descent.
+func trainSoftmax(X [][]float64, y []int, names []string) *softmaxModel {
+	nClass := len(names)
+	nFeat := 0
+	if len(X) > 0 {
+		nFeat = len(X[0])
+	}
+	m := &softmaxModel{
+		W:      make([][]float64, nClass),
+		B:      make([]float64, nClass),
+		names:  names,
+		nClass: nClass,
+		nFeat:  nFeat,
+	}
+	for c := range m.W {
+		m.W[c] = make([]float64, nFeat)
+	}
+	if len(X) == 0 {
+		return m
+	}
+	invN := 1.0 / float64(len(X))
+	gradW := make([][]float64, nClass)
+	for c := range gradW {
+		gradW[c] = make([]float64, nFeat)
+	}
+	gradB := make([]float64, nClass)
+	for epoch := 0; epoch < mlEpochs; epoch++ {
+		for c := range gradW {
+			for j := range gradW[c] {
+				gradW[c][j] = 0
+			}
+			gradB[c] = 0
+		}
+		for i, x := range X {
+			p := m.predict(x)
+			for c := 0; c < nClass; c++ {
+				d := p[c]
+				if c == y[i] {
+					d -= 1
+				}
+				gradB[c] += d
+				wc := gradW[c]
+				for j, xj := range x {
+					wc[j] += d * xj
+				}
+			}
+		}
+		for c := 0; c < nClass; c++ {
+			m.B[c] -= mlLR * gradB[c] * invN
+			wc, gc := m.W[c], gradW[c]
+			for j := range wc {
+				wc[j] -= mlLR * (gc[j]*invN + mlL2*wc[j])
+			}
+		}
+	}
+	return m
+}
+
+// predict returns the class-probability vector for feature x.
+func (m *softmaxModel) predict(x []float64) []float64 {
+	logits := make([]float64, m.nClass)
+	maxL := math.Inf(-1)
+	for c := 0; c < m.nClass; c++ {
+		s := m.B[c]
+		wc := m.W[c]
+		for j, xj := range x {
+			s += wc[j] * xj
+		}
+		logits[c] = s
+		if s > maxL {
+			maxL = s
+		}
+	}
+	var sum float64
+	for c := range logits {
+		logits[c] = math.Exp(logits[c] - maxL)
+		sum += logits[c]
+	}
+	if sum == 0 {
+		sum = 1
+	}
+	for c := range logits {
+		logits[c] /= sum
+	}
+	return logits
+}
+
+// trainedModel caches the model trained on the bundled fonts. Training is
+// deterministic and cheap (~a few hundred synthetic samples), so it runs once on
+// first use rather than shipping embedded weights.
+var trainedModel = sync.OnceValue(func() *softmaxModel {
+	all := fonts.All()
+	names := make([]string, len(all))
+	for i, f := range all {
+		names[i] = f.Name
+	}
+	X, y := genSamples(all)
+	return trainSoftmax(X, y, names)
+})
+
+// rankWithModel featurises img at blockSize and ranks fnts by the model's class
+// probabilities (best-first: higher probability → lower Score). Fonts absent from
+// the trained model fall to the back with Score 1.
+func rankWithModel(img image.Image, blockSize int, fnts []fonts.Font) []Ranked {
+	block := blockSize
+	if block < 2 {
+		if s := unpixel.InferBlockSize(imutil.ToRGBA(img)); s >= 2 {
+			block = s
+		} else {
+			block = 8
+		}
+	}
+	m := trainedModel()
+	probs := m.predict(lumHist(imutil.ToRGBA(img), block))
+	prob := make(map[string]float64, m.nClass)
+	for c, name := range m.names {
+		prob[name] = probs[c]
+	}
+	ranked := make([]Ranked, len(fnts))
+	for i, f := range fnts {
+		ranked[i] = Ranked{Name: f.Name, Score: 1 - prob[f.Name]}
+	}
+	sort.SliceStable(ranked, func(a, b int) bool {
+		if ranked[a].Score != ranked[b].Score {
+			return ranked[a].Score < ranked[b].Score
+		}
+		return strings.Compare(ranked[a].Name, ranked[b].Name) < 0
+	})
+	return ranked
+}

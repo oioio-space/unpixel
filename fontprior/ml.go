@@ -4,30 +4,32 @@ package fontprior
 
 import (
 	"context"
-	"errors"
 	"image"
 
 	"github.com/oioio-space/unpixel/fonts"
 )
 
-// ErrMLNotBuilt is returned by the ML prior until a trained model is wired in.
-// It exists so callers built with -tags ml fail loudly rather than silently
-// degrading. Build without the tag for the pure-Go [Histogram] prior.
-var ErrMLNotBuilt = errors.New("fontprior: ML prior not built — train and embed a model, or build without -tags ml")
-
-// Default returns the ML prior when built with -tags ml. Until a model is
-// trained and embedded, its Rank returns [ErrMLNotBuilt]; [RecoverWithPrior]
-// then falls back to the catalog-order sweep.
+// Default returns the trained ML prior when built with -tags ml: a pure-Go softmax
+// font-ID classifier (see mlmodel.go) trained at first use on synthetic
+// render→pixelate samples of the bundled fonts. No CGO, no external framework, no
+// embedded weights — the renderer is the labeller.
 func Default() Prior { return mlPrior{} }
 
-// mlPrior is the seam for a CNN font classifier trained on the
-// render→pixelate→font-label synthetic domain (the renderer is the labeller).
-// Training and weights live outside this repo; inference would be a
-// hand-written pure-Go forward pass (no CGO). This commit ships only the
-// build-tag seam so a model can drop in without touching callers.
+// mlPrior is a font classifier trained on the render→pixelate→font-label synthetic
+// domain (the renderer labels the data). Inference is a pure-Go softmax forward
+// pass over a block-luminance-histogram feature. It ranks the bundled fonts by
+// P(font | mosaic) — a discriminative alternative to the L1-histogram [Histogram]
+// prior, dropping in behind the //go:build ml seam without touching callers.
 type mlPrior struct{}
 
-// Rank reports [ErrMLNotBuilt] until a trained model is embedded.
-func (mlPrior) Rank(_ context.Context, _ image.Image, _ int, _ []fonts.Font) ([]Ranked, error) {
-	return nil, ErrMLNotBuilt
+// Rank ranks fnts best-first by the trained model's class probabilities. It returns
+// nil, nil for an empty font list or a nil image (nothing to classify).
+func (mlPrior) Rank(ctx context.Context, img image.Image, blockSize int, fnts []fonts.Font) ([]Ranked, error) {
+	if len(fnts) == 0 || img == nil {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return rankWithModel(img, blockSize, fnts), nil
 }
