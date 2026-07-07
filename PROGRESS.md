@@ -1434,3 +1434,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `76e2cdd` 2026-07-06 — docs(plan): ~20-point program to actually decode the walled images _(1 fichiers)_
 - `eb92e27` 2026-07-06 — feat(mcp): generalize VerifyVarFontFit (VF + static fonts) + measure the decode boundary _(4 fichiers)_
 - `fb38390` 2026-07-07 — feat(fontprior): trained pure-Go font-ID model fills the //go:build ml seam _(4 fichiers)_
+- `6ccfe99` 2026-07-07 — feat(rerank): trained glyph-emission reranker + shared linearml classifier (ML tier) _(6 fichiers)_

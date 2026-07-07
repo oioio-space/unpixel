@@ -32,6 +32,15 @@ authoritative account of what is achievable.
   them **only when the secret contains a dictionary word**; **word-less** secrets (`Tr0ub4dor`,
   `G4te2024`) and **fully-random** ones (`a3f9b2`, whose decoy even scores physically lower) remain
   unrecoverable by whole-string scoring — breaking those needs learned per-character emissions (ML).
+- **A pure-Go ML tier** (opt-in `-tags ml`, no CGO, no external framework, no shipped weights — the
+  renderer is the labeller, so models train themselves at first use on synthetic render→pixelate data)
+  fills both learned seams: `fontprior` gains a trained softmax font-ID classifier (7/9 top-3, the
+  residual misses being same-family faces), and `rerank` gains a trained per-glyph **emission** model
+  `P(char | tile)` that rescores candidates *discriminatively from the image* — on a monospace render
+  it ranks the true `aB7kQ` above the confusable `a87kQ` that ties it on physical distance, the
+  tie-break the language-only reranker cannot make. Its segmentation is monospace-style today, so it
+  targets fixed-advance redactions; extending it to proportional fonts is what would let it attack the
+  `Tr0ub4dor`/`G4te2024` walls. The default (non-`ml`) build keeps the pure-Go heuristic priors.
 
 This is not a transient defect; it reflects genuine information-theoretic and rendering
 limits. UnPixel should be regarded as a powerful instrument for *demonstrating that

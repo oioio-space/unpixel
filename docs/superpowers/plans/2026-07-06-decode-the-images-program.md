@@ -145,3 +145,28 @@ info-théoriquement perdu, décoy physiquement inférieur). L'intégration dans 
 est **trop lente** (fit = |wght|×|size| Verify/candidat, >15 min sur le corpus) → gardée hors du harnais
 rapide ; décode-time, pas hot-loop, donc **pas de benchstat requis** (règle hot-path = render/search/
 pixelate/metric/imutil), coût documenté sur `VerifyVarFontFit`.
+
+### ⭐ TIER ML CONSTRUIT (P10–P14) — pur-Go, sans CGO, sans framework, opt-in `-tags ml`
+
+Les deux *seams* `//go:build ml` (avant : stubs `ErrMLNotBuilt`/`ErrCTCNotBuilt`) portent désormais de
+**vrais modèles entraînés**, pipeline complet en pur Go — **le renderer est le labelleur**, les modèles
+s'entraînent au premier usage sur des échantillons synthétiques render→pixelate ; inférence = passe avant
+softmax écrite à la main (aucun poids embarqué, aucune dépendance externe, `CGO_ENABLED=0` préservé).
+- **P10 (données)** : générateurs synthétiques (`genSamples` font, `trainedEmission` glyphes).
+- **P11–P12 (train/infer)** : `internal/linearml.Softmax` — descente de gradient plein-batch déterministe
+  (reproductible) + passe avant softmax stable numériquement. Partagé par les deux seams.
+- **P13 (émissions)** : `rerank` — modèle d'émission par-glyphe `P(char | tuile)` sur une **tuile spatiale
+  6×6** (capte la FORME du glyphe, le signal qui survit au pixel grossier — 0/O, r/n, T/X).
+- **P14 (rerank)** : le reranker segmente la redaction en colonnes par-glyphe et fusionne la log-vraisemblance
+  d'émission (image) + prior linguistique dans `Ranked.Blended` (`Distance` reste physique).
+- **Font-ID appris (Phase 4)** : `fontprior` — softmax sur histogramme d'encre → **7/9 top-3** (les ratés
+  restants sont des confusions même-famille mono↔mono/sans↔sans — la limite d'information du font-ID aveugle).
+
+**Mesuré, honnête** : le reranker d'émission **casse une égalité physique** sur un rendu monospace bloc-6
+(vrai `aB7kQ` classé au-dessus du décoy confusable `a87kQ`, à égalité de distance) — le bris-d'égalité
+*discriminatif par l'image* que le reranker langue-seule ne peut pas faire. **Segmentation monospace**
+aujourd'hui → vise les redactions à chasse-fixe (corpus sick digits/tokens) ; l'**étendre au proportionnel**
+est ce qui permettrait d'attaquer directement les murs Nunito `Tr0ub4dor`/`G4te2024`. Tests : `fontprior`
+`TestMLPrior_topKAccuracy`, `rerank` `TestEmissionReranker_breaksTie` (derrière `-short`). Le tier ML est
+**opt-in** (build par défaut = priors heuristiques pur-Go), donc hors du hot-path de recovery → panel
+17/17 et benchstat inchangés.
