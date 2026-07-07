@@ -39,6 +39,12 @@ go get github.com/oioio-space/unpixel
 Go 1.26 or later is required. For building from source, see the
 [getting-started guide](docs/getting-started.md).
 
+**Experimental: ML tier (`-tags ml`).** The default build is pure-Go heuristic priors. Append `-tags ml` for an opt-in trained tier: softmax font-ID classifier (7/9 top-3 on bundled fonts) + per-glyph emission reranker. Both are pure Go, no weights shipped; the ML tier is experimental and currently targets monospace redactions.
+
+```bash
+go install -tags ml github.com/oioio-space/unpixel/cmd/unpixel@latest
+```
+
 ## Usage
 
 **1. Automatic recovery** — UnPixel detects all parameters from the image:

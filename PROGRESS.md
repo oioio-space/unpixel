@@ -313,6 +313,10 @@ plus rapide ; les vrais gains de vitesse applicative sont les parallélisations 
 trained-hmm ~2.5×) + wins block-grid byte-identiques + memBudget ~8 %. Objectif +20 % atteint sur la
 métrique autoritaire (journal) sans aucune perte de récupération.
 
+### 🤖 Tier ML — police + émission (P10–P14, 2026-07-07)
+
+Livré : `-tags ml` pur-Go, **zéro CGO, zéro poids**. Classifieur softmax police (7/9 top-3 sur bundled) + réranker émission P(char|tile) linéaire, entraînés render→pixelate. API opt-in (`unpixel.WithFontPrior` et hooks décodeur) ; byte-identique (panel 17/17). Limite : segmentation monospace ; proportionnel = futur. Commits fb38390/6ccfe99. Build défaut inchangé : pur-Go heuristique.
+
 ## ✅ Reste à faire
 
 ### 🗺️ Programme « débloquer le décodage » (recherche 4-agents, 2026-06-29)
@@ -1435,3 +1439,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `eb92e27` 2026-07-06 — feat(mcp): generalize VerifyVarFontFit (VF + static fonts) + measure the decode boundary _(4 fichiers)_
 - `fb38390` 2026-07-07 — feat(fontprior): trained pure-Go font-ID model fills the //go:build ml seam _(4 fichiers)_
 - `6ccfe99` 2026-07-07 — feat(rerank): trained glyph-emission reranker + shared linearml classifier (ML tier) _(6 fichiers)_
+- `a6316f6` 2026-07-07 — docs(ml): document the pure-Go ML tier + its honest boundary _(3 fichiers)_
