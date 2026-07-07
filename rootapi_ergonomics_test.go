@@ -89,6 +89,32 @@ func TestRecoverBytes_unrecognisedFormat(t *testing.T) {
 	}
 }
 
+// TestVerifyBytes confirms the in-memory Verify helper scores a candidate against
+// an image decoded from bytes: the true text Matches (low distance), a wrong-shaped
+// one does not.
+func TestVerifyBytes(t *testing.T) {
+	data, err := os.ReadFile("testdata/largeblock/lb_block20_go.png")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	verdicts, err := unpixel.VerifyBytes(t.Context(), data, []string{"go", "xy"},
+		unpixel.WithBlockSize(20),
+		unpixel.WithStyle(unpixel.Style{FontSize: 80, PaddingTop: 8, PaddingLeft: 8}),
+	)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if len(verdicts) != 2 {
+		t.Fatalf("len(verdicts) = %d, want 2", len(verdicts))
+	}
+	if !verdicts[0].Match {
+		t.Errorf("verdict for %q: Match=false (distance %.4f), want a match", verdicts[0].Text, verdicts[0].Distance)
+	}
+	if verdicts[1].Match {
+		t.Errorf("verdict for %q: Match=true (distance %.4f), want no match", verdicts[1].Text, verdicts[1].Distance)
+	}
+}
+
 // TestVerifyThresholdOption checks WithVerifyThreshold overrides the default and a
 // non-positive value falls back to VerifyMatchThreshold.
 func TestVerifyThresholdOption(t *testing.T) {

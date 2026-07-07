@@ -60,3 +60,42 @@ func Example() {
 	}
 	<-done
 }
+
+// ExampleRecoverBytes recovers redacted text from an image already in memory (an
+// HTTP body, an embedded asset), constraining the search to digits for a numeric
+// secret such as a PIN — the narrowest charset gives the fastest, most reliable
+// search.
+func ExampleRecoverBytes() {
+	var pngData []byte // the mosaic image bytes
+
+	res, err := unpixel.RecoverBytes(context.Background(), pngData,
+		unpixel.WithCharset(unpixel.CharsetDigits),
+		unpixel.WithBlockSize(8),
+	)
+	if err != nil {
+		fmt.Println("recover:", err)
+		return
+	}
+	fmt.Println(res.BestGuess)
+}
+
+// ExampleVerifyBytes confirms proposed candidate strings against a redaction using
+// the faithful forward model — the propose-and-verify path. WithVerifyThreshold
+// tunes how close a physical fit must be to count as a Match.
+func ExampleVerifyBytes() {
+	var redaction []byte // the mosaic image bytes
+
+	verdicts, err := unpixel.VerifyBytes(context.Background(), redaction,
+		[]string{"hunter2", "swordfish"},
+		unpixel.WithVerifyThreshold(0.05),
+	)
+	if err != nil {
+		fmt.Println("verify:", err)
+		return
+	}
+	for _, v := range verdicts {
+		if v.Match {
+			fmt.Printf("%s confirmed (distance %.4f)\n", v.Text, v.Distance)
+		}
+	}
+}

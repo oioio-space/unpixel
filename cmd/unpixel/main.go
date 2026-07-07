@@ -23,6 +23,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -69,6 +70,12 @@ func main() {
 	app := buildApp()
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "unpixel: %v\n", err)
+		// Honour an explicit exit code (e.g. --strict's code 2 for an unreliable
+		// recovery) so CI can tell "ran, but unrecoverable" from a hard failure.
+		var ec cli.ExitCoder
+		if errors.As(err, &ec) {
+			os.Exit(ec.ExitCode())
+		}
 		os.Exit(1)
 	}
 }
@@ -100,6 +107,7 @@ type flagParams struct {
 	beamWidth           int
 	timeout             time.Duration
 	quiet               bool
+	strict              bool
 	blurExact           bool
 	gamma               string // "auto" | "linear" | "srgb"
 	language            bool
@@ -657,6 +665,10 @@ func reportConfidence(fidelity float64, p flagParams) error {
 	if p.minConfidence > 0 && fidelity < p.minConfidence {
 		return fmt.Errorf("recovery confidence %.2f is below --min-confidence %.2f; not reporting a likely-wrong guess",
 			fidelity, p.minConfidence)
+	}
+	if p.strict && fidelity < trustBar {
+		// Distinct exit code so CI can tell "ran but unrecoverable" from a crash.
+		return cli.Exit(fmt.Sprintf("recovery confidence %.2f is below the trust bar %.2f; --strict", fidelity, trustBar), 2)
 	}
 	return nil
 }
@@ -2265,6 +2277,10 @@ Examples:
 				Value: 0,
 			},
 			&cli.BoolFlag{
+				Name:  "strict",
+				Usage: "exit with code 2 (not 0) when the recovery is unreliable (confidence below the trust bar), so CI can distinguish an unrecoverable image from a successful decode",
+			},
+			&cli.BoolFlag{
 				Name:  "escalate",
 				Usage: "when no charset is given, widen it (lower → alnum → ascii) until a confident result",
 				Value: true,
@@ -2443,6 +2459,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		language:            cmd.Bool("language"),
 		secrets:             cmd.Bool("secrets"),
 		minConfidence:       cmd.Float("min-confidence"),
+		strict:              cmd.Bool("strict"),
 		escalate:            cmd.Bool("escalate"),
 		charsetTopK:         cmd.Int("charset-topk"),
 		charsetExplicit:     cmd.IsSet("charset") || cmd.IsSet("charset-preset"),

@@ -1,8 +1,12 @@
 package unpixel
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"image"
+	"io"
+	"os"
 
 	"github.com/oioio-space/unpixel/internal/imutil"
 )
@@ -190,4 +194,32 @@ func Verify(ctx context.Context, img image.Image, candidates []string, opts ...O
 	}
 	capped := candidates[:min(len(candidates), maxVerifyCandidates)]
 	return DefaultVerifyCore(ctx, rgba, cfg, capped)
+}
+
+// VerifyReader decodes an image from r (PNG is registered; import the format's
+// image/<fmt> package for others) and calls Verify. It is the io.Reader counterpart
+// of Verify, for callers holding a stream rather than a decoded image.Image.
+func VerifyReader(ctx context.Context, r io.Reader, candidates []string, opts ...Option) ([]Verdict, error) {
+	img, err := decodeImage(r)
+	if err != nil {
+		return nil, err
+	}
+	return Verify(ctx, img, candidates, opts...)
+}
+
+// VerifyBytes decodes an image from in-memory data and calls Verify — the []byte
+// counterpart of Verify (HTTP bodies, embedded assets).
+func VerifyBytes(ctx context.Context, data []byte, candidates []string, opts ...Option) ([]Verdict, error) {
+	return VerifyReader(ctx, bytes.NewReader(data), candidates, opts...)
+}
+
+// VerifyFile opens the image at path and calls VerifyReader. Use "-"-to-stdin
+// handling at the call site if needed; VerifyFile always opens a file.
+func VerifyFile(ctx context.Context, path string, candidates []string, opts ...Option) ([]Verdict, error) {
+	f, err := os.Open(path) // #nosec G304 -- caller-provided image path is the operation's purpose
+	if err != nil {
+		return nil, fmt.Errorf("open image: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return VerifyReader(ctx, f, candidates, opts...)
 }
