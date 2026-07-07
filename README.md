@@ -123,6 +123,23 @@ fmt.Println(multi.BestGuess)
 // DID with context-aware emission:
 did, _ := mosaictext.DecodeDID(ctx, img, mosaictext.WithDIDContext(true))
 fmt.Println(did.BestGuess)
+
+// In-memory decode (from []byte), narrowing the alphabet + pinning the band of a
+// redaction embedded in a larger screenshot:
+res, _ := unpixel.RecoverBytes(ctx, pngData,
+  unpixel.WithCharset(unpixel.CharsetDigits),   // narrow to digits for PINs (faster)
+  unpixel.WithCrop(band),                       // decode a redaction embedded in a larger image
+)
+
+// Verify proposed candidates against a redaction (LLM-propose / physical-verify):
+verdicts, _ := unpixel.VerifyBytes(ctx, pngData, []string{"hunter2", "swordfish"},
+  unpixel.WithVerifyThreshold(0.05),            // stricter Match threshold (default 0.10)
+)
+for _, v := range verdicts {
+  if v.Match {
+    fmt.Println("confirmed:", v.Text)
+  }
+}
 ```
 
 ## Real-world / zero-config usage

@@ -317,6 +317,10 @@ métrique autoritaire (journal) sans aucune perte de récupération.
 
 Livré : `-tags ml` pur-Go, **zéro CGO, zéro poids**. Classifieur softmax police (7/9 top-3 sur bundled) + réranker émission P(char|tile) linéaire, entraînés render→pixelate. API opt-in (`unpixel.WithFontPrior` et hooks décodeur) ; byte-identique (panel 17/17). Limite : segmentation monospace ; proportionnel = futur. Commits fb38390/6ccfe99. Build défaut inchangé : pur-Go heuristique.
 
+### 🔧 API & CLI ergonomics — batch de 10 évolutions (2026-07-08)
+
+Livré : triplet entrée-points complets (`RecoverBytes`/`VerifyBytes`/`VerifyFile`/`VerifyReader`) pour décoder depuis `[]byte` ou streams. Errors décodeImage actionables (guide l'import `image/<fmt>`). Configuration `WithVerifyThreshold` (seuil par appel) + CLI `--charset-preset digits|hex` (PINs, tokens hex). `Recover` honore `WithCrop` — décode une redaction intégrée (chemin `analyze`→`decode` fluide). ML tier (+2 evolutions) : font-ID spatial-shape (9/9 top-3 vs 7/9) ; reranker advance-aware (proportionnelles correctes, monospace byte-identique). CLI `--strict` (exit code 2 si confiance < seuil). Exemples runnable `ExampleRecoverBytes`/`ExampleVerifyBytes` pour pkg.go.dev. Panel 17/17 byte-identique, CI verte. Commits df01037/aac28e8/248f7d3/47a0697.
+
 ## ✅ Reste à faire
 
 ### 🗺️ Programme « débloquer le décodage » (recherche 4-agents, 2026-06-29)
@@ -1446,3 +1450,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `df01037` 2026-07-08 — feat(api): RecoverBytes, actionable format errors, WithVerifyThreshold, hex/digits presets _(5 fichiers)_
 - `aac28e8` 2026-07-08 — feat(recover): Recover honours WithCrop — decode a redaction embedded in a larger image _(3 fichiers)_
 - `248f7d3` 2026-07-08 — feat(api,cli): Verify decode helpers, pkg.go.dev examples, --strict exit code _(5 fichiers)_
+- `47a0697` 2026-07-08 — feat(ml): font-ID 7/9 to 9/9 via spatial-shape feature; advance-aware emission segmentation _(5 fichiers)_
