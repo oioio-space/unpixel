@@ -1,6 +1,9 @@
 package unpixel_test
 
 import (
+	"image"
+	"image/draw"
+	"image/png"
 	"os"
 	"strings"
 	"testing"
@@ -8,6 +11,43 @@ import (
 	"github.com/oioio-space/unpixel"
 	_ "github.com/oioio-space/unpixel/defaults"
 )
+
+// TestRecoverWithCrop_embedded proves Recover honours WithCrop: a decodable mosaic
+// fixture is composited into a larger white canvas at a known offset, and Recover
+// with WithCrop pinned to the band recovers it — the analyze→decode flow for a
+// redaction embedded in a bigger screenshot.
+func TestRecoverWithCrop_embedded(t *testing.T) {
+	f, err := os.Open("testdata/largeblock/lb_block20_go.png")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	fixture, err := png.Decode(f)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	fb := fixture.Bounds()
+
+	// Composite the fixture into a larger white canvas at offset (60, 40).
+	const ox, oy = 60, 40
+	canvas := image.NewRGBA(image.Rect(0, 0, fb.Dx()+140, fb.Dy()+90))
+	draw.Draw(canvas, canvas.Bounds(), image.White, image.Point{}, draw.Src)
+	band := image.Rect(ox, oy, ox+fb.Dx(), oy+fb.Dy())
+	draw.Draw(canvas, band, fixture, fb.Min, draw.Src)
+
+	opts := []unpixel.Option{
+		unpixel.WithCharset("go abcdef"),
+		unpixel.WithBlockSize(20),
+		unpixel.WithStyle(unpixel.Style{FontSize: 80, PaddingTop: 8, PaddingLeft: 8}),
+	}
+	res, err := unpixel.Recover(t.Context(), canvas, append(opts, unpixel.WithCrop(band))...)
+	if err != nil {
+		t.Fatalf("Recover with crop: %v", err)
+	}
+	if res.BestGuess != "go" {
+		t.Errorf("Recover(WithCrop band) BestGuess = %q, want %q — WithCrop should crop before search", res.BestGuess, "go")
+	}
+}
 
 // TestRecoverBytes_matchesFile checks the in-memory RecoverBytes helper decodes an
 // image identically to RecoverFile on the same bytes.

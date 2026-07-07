@@ -241,9 +241,10 @@ type Config struct {
 	// to crop to — with an alignment margin — before verification. It is the
 	// explicit counterpart to autoCrop for callers that already know the band
 	// (e.g. from LocateRedaction or an external analysis step). Set via WithCrop;
-	// never set directly. The zero Rectangle means "no crop". Currently honoured
-	// by the Verify family (prepareVerify), where cropping to the band is what lets
-	// whole-string scoring discriminate the truth on a real screenshot.
+	// never set directly. The zero Rectangle means "no crop". Honoured by the Verify
+	// family (prepareVerify) and by Recover (before the search, taking precedence
+	// over autoCrop), where cropping to the band is what lets whole-string scoring
+	// discriminate the truth on a real screenshot.
 	crop image.Rectangle
 
 	// verifyThreshold, when > 0, overrides VerifyMatchThreshold for the Verify
@@ -568,7 +569,17 @@ func New(redacted image.Image, cfg Config) (*Engine, error) {
 	// and the located band is smaller than the full image — both gates are
 	// required to ensure byte-identical behaviour when the option is off or the
 	// image is already a tight crop.
-	if cfg.autoCrop && DefaultLocateMosaicBand != nil {
+	if !cfg.crop.Empty() {
+		// Explicit crop (WithCrop): the caller pinned the redaction band (e.g. from
+		// analyze / LocateRedaction), so honour it directly — like the Verify path —
+		// instead of auto-detecting. This lets a redaction embedded in a larger image
+		// with surrounding sharp text be decoded by cropping to the band first.
+		b := rgba.Bounds()
+		if band := cfg.crop.Intersect(b); !band.Empty() && (band.Dx() < b.Dx() || band.Dy() < b.Dy()) {
+			rgba = imutil.Crop(rgba, band.Min.X-b.Min.X, band.Min.Y-b.Min.Y, band.Dx(), band.Dy())
+			grid.Size = 0
+		}
+	} else if cfg.autoCrop && DefaultLocateMosaicBand != nil {
 		if band, ok := DefaultLocateMosaicBand(rgba); ok {
 			b := rgba.Bounds()
 			if band.Dx() < b.Dx() || band.Dy() < b.Dy() {
@@ -1927,9 +1938,10 @@ func WithAutoCrop() Option { return func(c *Config) { c.autoCrop = true } }
 //
 // This is the lever that makes whole-string [Verify] discriminate the truth on a
 // real screenshot: without cropping, the surrounding margins dilute the
-// whole-image distance and every candidate scores alike. The zero Rectangle
-// (default) means no crop — behaviour is then byte-identical to before. Honoured
-// by the Verify family; it has no effect on [Recover].
+// whole-image distance and every candidate scores alike. [Recover] also honours it
+// — it crops to the band (taking precedence over [WithAutoCrop]) before the search,
+// so a redaction embedded in a larger image can be decoded without detection. The
+// zero Rectangle (default) means no crop — behaviour is then byte-identical to before.
 func WithCrop(band image.Rectangle) Option { return func(c *Config) { c.crop = band } }
 
 // WithVerifyThreshold sets the maximum whole-image distance at which a Verify /
