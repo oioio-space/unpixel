@@ -1451,3 +1451,4 @@ Détails + `file:line` + sources : voir [[unpixel-perf-roadmap]].
 - `aac28e8` 2026-07-08 — feat(recover): Recover honours WithCrop — decode a redaction embedded in a larger image _(3 fichiers)_
 - `248f7d3` 2026-07-08 — feat(api,cli): Verify decode helpers, pkg.go.dev examples, --strict exit code _(5 fichiers)_
 - `47a0697` 2026-07-08 — feat(ml): font-ID 7/9 to 9/9 via spatial-shape feature; advance-aware emission segmentation _(5 fichiers)_
+- `1803fbe` 2026-07-08 — docs(examples): runnable examples tree — one folder per feature (CLI + code + images) _(32 fichiers)_

@@ -15,7 +15,16 @@ if [[ "${1:-}" != "--check" || ! -f coverage.out ]]; then
   go test -short -timeout=8m -covermode=atomic -coverprofile=coverage.out ./...
 fi
 
-total="$(go tool cover -func=coverage.out 2>/dev/null | awk '/^total:/{gsub(/%/,"",$3); print $3}')"
+# The examples/ programs are runnable documentation (package main, no tests), not
+# tested library code, so exclude them from the coverage total — otherwise untested
+# demo mains would fail the gate. Filter them out of the profile before scoring.
+prof=coverage.out
+if grep -q '/examples/' coverage.out 2>/dev/null; then
+  prof="$(mktemp)"
+  grep -v '/examples/' coverage.out >"$prof"
+fi
+
+total="$(go tool cover -func="$prof" 2>/dev/null | awk '/^total:/{gsub(/%/,"",$3); print $3}')"
 total="${total:-0.0}"
 printf '\033[34mTotal coverage: %s%%\033[0m\n' "$total"
 
