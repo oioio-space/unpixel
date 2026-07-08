@@ -47,6 +47,11 @@ go install -tags ml github.com/oioio-space/unpixel/cmd/unpixel@latest
 
 ## Usage
 
+> **New here?** The [`examples/`](examples/) directory has one runnable folder per
+> feature — each with a plain-language README (CLI **and** Go code), a `main.go` you
+> can `go run`, and sample images. Start with
+> [`examples/01-basic-recovery`](examples/01-basic-recovery).
+
 **1. Automatic recovery** — UnPixel detects all parameters from the image:
 
 ```bash
